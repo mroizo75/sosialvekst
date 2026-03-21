@@ -42,6 +42,7 @@ const FORMAT_INSTRUCTIONS: Record<PostFormat, string> = {
 export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredPrompt => {
   const brandContext = input.brandContext ?? {};
   const companyName = brandContext.companyName ?? "bedriften";
+  const websiteUrl = brandContext.websiteUrl?.trim();
   const intent = input.intent ?? "brand_awareness";
   const format = input.format ?? "insight";
   const channelRules = norwegianStyleGuide.channelSpecific[input.channel] ?? [];
@@ -59,6 +60,10 @@ export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredProm
     "6. Hver post SKAL ha en tydelig, kontekstuell CTA — ikke generisk «kontakt oss».",
     "7. Vær SPESIFIKK. Bruk tall, eksempler og konkrete referanser.",
     `8. Forbudte uttrykk: ${input.brandRules.prohibitedTerms.join(", ")}.`,
+    websiteUrl
+      ? `9. Nettsidelinken SKAL inkluderes én gang i posten: ${websiteUrl}`
+      : "9. Hvis nettside finnes i konteksten, inkluder nettsidelink én gang i CTA.",
+    "10. Posten MÅ avsluttes med en komplett setning. Ingen avkapping eller ufullstendige setninger.",
     "",
     "ANTI-GENERISK SJEKKLISTE (alle må være oppfylt):",
     ...norwegianStyleGuide.antiGeneric.map((rule, i) => `${i + 1}. ${rule}`),
@@ -104,7 +109,11 @@ export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredProm
     "- Hook: Første setning skal fange oppmerksomhet — innsikt, påstand eller spørsmål.",
     "- Verdi: Gi leseren noe konkret og nyttig de kan ta med seg.",
     "- CTA: Avslutt med oppfordring til handling som passer postens strategiske mål.",
+    websiteUrl
+      ? `- Inkluder denne lenken én gang, naturlig i CTA: ${websiteUrl}`
+      : "- Hvis nettside finnes i kontekst, inkluder én konkret lenke i CTA.",
     "- Ingen hashtagspam (maks 3 relevante hashtags).",
+    "- Avslutt med fullstendig setning og god tegnsetting.",
     "- Lever KUN selve postteksten. Ingen forklaringer, overskrifter eller metadata.",
   ];
 

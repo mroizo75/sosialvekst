@@ -13,6 +13,15 @@ const toBytes = (base64Image: string): Uint8Array => {
   return new Uint8Array(buffer);
 };
 
+const fetchImageBytes = async (url: string): Promise<Uint8Array> => {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Kunne ikke hente bildefil fra URL (${response.status})`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  return new Uint8Array(arrayBuffer);
+};
+
 export const generateProfessionalImage = async (
   input: GenerateImageInput,
 ): Promise<string | undefined> => {
@@ -28,7 +37,8 @@ export const generateProfessionalImage = async (
         prompt: string;
         size: string;
         quality: string;
-      }) => Promise<{ data?: Array<{ b64_json?: string }> }>;
+        response_format?: "b64_json" | "url";
+      }) => Promise<{ data?: Array<{ b64_json?: string; url?: string }> }>;
     };
   };
 
@@ -41,11 +51,22 @@ export const generateProfessionalImage = async (
     prompt: input.prompt,
     size: imageSize,
     quality: imageQuality,
+    response_format: "b64_json",
   });
 
-  const base64Image = response.data?.[0]?.b64_json;
-  if (!base64Image) {
-    return undefined;
+  const payload = response.data?.[0];
+  if (!payload) {
+    throw new Error("Bildegenerator returnerte tomt svar.");
+  }
+
+  const imageBytes = payload.b64_json
+    ? toBytes(payload.b64_json)
+    : payload.url
+      ? await fetchImageBytes(payload.url)
+      : null;
+
+  if (!imageBytes) {
+    throw new Error("Bildegenerator returnerte verken base64 eller URL.");
   }
 
   const uploaded = await uploadUserFile({
@@ -53,7 +74,7 @@ export const generateProfessionalImage = async (
     fileName: `ai-image-${crypto.randomUUID()}.png`,
     contentType: "image/png",
     mediaKind: "image",
-    body: toBytes(base64Image),
+    body: imageBytes,
   });
 
   return uploaded.publicUrl;

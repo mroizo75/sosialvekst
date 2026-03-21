@@ -4,6 +4,7 @@ import { generateProfessionalImage } from "@/lib/ai/imageGeneration";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
+import { listUserFiles } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
 import type {
@@ -30,9 +31,99 @@ type GeneratePostInput = {
   imageProfile?: ImageProfile;
 };
 
+type CachedOwnedImages = {
+  expiresAt: number;
+  urls: string[];
+};
+
+const OWNED_IMAGE_CACHE_TTL_MS = 60_000;
+const ownedImageCache = new Map<string, CachedOwnedImages>();
+
 const fallbackText = (topic: string, companyName?: string): string => {
   const name = companyName ?? "din bedrift";
   return `${name} deler innsikt om ${topic}: slik bygger vi tillit med relevant og nyttig innhold. Hva er ditt neste steg?`;
+};
+
+const getMaxOutputTokens = (channel: SocialChannel): number => {
+  if (channel === "facebook") return 520;
+  if (channel === "linkedin") return 420;
+  return 280;
+};
+
+const containsWebsiteUrl = (text: string, websiteUrl?: string): boolean => {
+  if (!websiteUrl) return false;
+  return text.includes(websiteUrl);
+};
+
+const ensureWebsiteLinkInText = (text: string, websiteUrl?: string): string => {
+  if (!websiteUrl) return text.trim();
+  if (containsWebsiteUrl(text, websiteUrl)) return text.trim();
+
+  const trimmed = text.trim();
+  const withEnding = /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+  return `${withEnding}\n\nLes mer: ${websiteUrl}`;
+};
+
+const ensureCompleteEnding = (text: string): string => {
+  const trimmed = text.trim();
+  if (!trimmed) return trimmed;
+  if (/[.!?]$/.test(trimmed)) return trimmed;
+  return `${trimmed}.`;
+};
+
+const isOwnedImageUrl = (url: string): boolean => {
+  const lower = url.toLowerCase();
+  return (
+    lower.includes("/images/") &&
+    !lower.includes("ai-image-")
+  );
+};
+
+const hashString = (value: string): number => {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+};
+
+const getOwnedImageUrls = async (userId: string): Promise<string[]> => {
+  const now = Date.now();
+  const cached = ownedImageCache.get(userId);
+  if (cached && cached.expiresAt > now) {
+    return cached.urls;
+  }
+
+  try {
+    const files = await listUserFiles(userId);
+    const urls = files
+      .map((file) => file.url)
+      .filter(isOwnedImageUrl);
+
+    ownedImageCache.set(userId, {
+      expiresAt: now + OWNED_IMAGE_CACHE_TTL_MS,
+      urls,
+    });
+    return urls;
+  } catch (error) {
+    logger.warn("Could not load owned media files", {
+      userId,
+      error: error instanceof Error ? error.message : "unknown",
+    });
+    return [];
+  }
+};
+
+const pickOwnedImageUrl = async (input: GeneratePostInput): Promise<string | undefined> => {
+  const ownedUrls = await getOwnedImageUrls(input.userId);
+  if (ownedUrls.length === 0) {
+    return undefined;
+  }
+
+  const indexSeed = `${input.scheduledAt}:${input.channel}`;
+  const index = hashString(indexSeed) % ownedUrls.length;
+  return ownedUrls[index];
 };
 
 const createText = async (input: GeneratePostInput): Promise<string> => {
@@ -59,7 +150,7 @@ const createText = async (input: GeneratePostInput): Promise<string> => {
 
   const response = await client.responses.create({
     model: "gpt-4.1-mini",
-    max_output_tokens: 240,
+    max_output_tokens: getMaxOutputTokens(input.channel),
     input: [
       { role: "system", content: prompt.system },
       { role: "user", content: prompt.user },
@@ -71,7 +162,17 @@ const createText = async (input: GeneratePostInput): Promise<string> => {
 
 const createImageUrl = async (input: GeneratePostInput): Promise<string | undefined> => {
   if (input.mediaMode === "owned_only") {
-    return undefined;
+    return pickOwnedImageUrl(input);
+  }
+
+  if (input.mediaMode === "hybrid") {
+    const ownedImageUrl = await pickOwnedImageUrl(input);
+    if (ownedImageUrl) {
+      const shouldUseOwned = hashString(`${input.scheduledAt}:${input.channel}:hybrid`) % 2 === 0;
+      if (shouldUseOwned) {
+        return ownedImageUrl;
+      }
+    }
   }
 
   const brandRules = mergeBrandRules({
@@ -99,7 +200,7 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
 
 const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<string | undefined> => {
   if (input.mediaMode === "owned_only") {
-    return undefined;
+    return pickOwnedImageUrl(input);
   }
 
   const maxAttempts = 3;
@@ -117,6 +218,7 @@ const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<string
         }
         return imageUrl;
       }
+      throw new Error("Bildegenerator returnerte tomt resultat.");
     } catch (error) {
       logger.warn("AI image generation attempt failed", {
         userId: input.userId,
@@ -162,14 +264,18 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   }
 
   const companyName = input.brandContext?.companyName;
+  const websiteUrl = input.brandContext?.websiteUrl?.trim();
   const revision = runRevisionLoop({
     initialText: rawText,
     imageUrl,
     companyName,
     maxAttempts: 2,
   });
+  const normalizedText = ensureCompleteEnding(
+    ensureWebsiteLinkInText(revision.finalText, websiteUrl),
+  );
   const decision = evaluatePolicy({
-    text: revision.finalText,
+    text: normalizedText,
     imageUrl,
     companyName,
   });
@@ -178,7 +284,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     id: crypto.randomUUID(),
     channel: input.channel,
     scheduledAt: input.scheduledAt,
-    text: revision.finalText,
+    text: normalizedText,
     imageUrl,
     status: decision.status,
     quality: decision.quality,
