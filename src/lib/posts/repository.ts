@@ -131,6 +131,7 @@ export const savePost = async (userId: string, post: PostDraft): Promise<PostDra
   const { data, error } = await supabase
     .from("posts")
     .update({
+      scheduled_at: post.scheduledAt,
       text_content: post.text,
       image_url: post.imageUrl ?? null,
       video_url: post.videoUrl ?? null,

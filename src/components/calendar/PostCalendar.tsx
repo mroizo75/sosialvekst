@@ -73,9 +73,11 @@ const channelDot: Record<SocialChannel, string> = {
 type PostCardMiniProps = {
   post: PostDraft;
   onClick: () => void;
+  onDragStart?: (postId: string) => void;
+  onDragEnd?: () => void;
 };
 
-const PostCardMini = ({ post, onClick }: PostCardMiniProps) => {
+const PostCardMini = ({ post, onClick, onDragStart, onDragEnd }: PostCardMiniProps) => {
   const time = new Date(post.scheduledAt).toLocaleTimeString("nb-NO", {
     hour: "2-digit",
     minute: "2-digit",
@@ -106,6 +108,12 @@ const PostCardMini = ({ post, onClick }: PostCardMiniProps) => {
     <button
       type="button"
       onClick={onClick}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.setData("text/post-id", post.id);
+        onDragStart?.(post.id);
+      }}
+      onDragEnd={() => onDragEnd?.()}
       className={cn(
         "w-full rounded-md border overflow-hidden text-left transition-all hover:shadow-md hover:scale-[1.02] cursor-pointer",
         channelColor[post.channel],
@@ -375,47 +383,6 @@ const DetailPanel = ({
               </div>
             </div>
 
-            <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
-              <h4 className="text-sm font-semibold text-foreground">Publiseringshistorikk</h4>
-              {publishHistoryStatus ? (
-                <p className="text-xs text-muted-foreground">{publishHistoryStatus}</p>
-              ) : null}
-              {publishJobs.length === 0 ? (
-                <p className="text-xs text-muted-foreground">Ingen publiseringsforsøk ennå.</p>
-              ) : (
-                <div className="space-y-2">
-                  {publishJobs.map((job) => (
-                    <div key={job.id} className="rounded-md border border-border bg-background px-2 py-1.5">
-                      <div className="flex items-center justify-between text-xs">
-                        <span>{CHANNEL_LABEL_NO[job.channel] ?? job.channel}</span>
-                        <span
-                          className={cn(
-                            "font-medium",
-                            job.status === "completed" && "text-success",
-                            job.status === "failed" && "text-destructive",
-                            (job.status === "queued" || job.status === "retrying") && "text-warning-foreground",
-                            job.status === "processing" && "text-info",
-                          )}
-                        >
-                          {PUBLISH_JOB_STATUS_LABEL_NO[job.status] ?? job.status}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        Forsøk: {job.attempts} · Sist oppdatert: {new Date(job.updated_at).toLocaleString("nb-NO")}
-                      </p>
-                      {(job.status === "queued" || job.status === "retrying" || job.status === "processing") && (
-                        <p className="mt-1 text-[11px] text-muted-foreground">
-                          Neste/aktiv kjøring: {new Date(job.run_at).toLocaleString("nb-NO")}
-                        </p>
-                      )}
-                      {job.last_error ? (
-                        <p className="mt-1 text-[11px] text-destructive">{job.last_error}</p>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
             </div>
 
             <div className="border-t border-border p-5 space-y-3 lg:border-l lg:border-t-0">
@@ -505,6 +472,48 @@ const DetailPanel = ({
             >
               {processingAction === "regenerate_all" ? "Genererer..." : "AI: Lag helt ny versjon"}
               </Button>
+
+              <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                <h4 className="text-sm font-semibold text-foreground">Publiseringshistorikk</h4>
+                {publishHistoryStatus ? (
+                  <p className="text-xs text-muted-foreground">{publishHistoryStatus}</p>
+                ) : null}
+                {publishJobs.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Ingen publiseringsforsøk ennå.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {publishJobs.map((job) => (
+                      <div key={job.id} className="rounded-md border border-border bg-background px-2 py-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span>{CHANNEL_LABEL_NO[job.channel] ?? job.channel}</span>
+                          <span
+                            className={cn(
+                              "font-medium",
+                              job.status === "completed" && "text-success",
+                              job.status === "failed" && "text-destructive",
+                              (job.status === "queued" || job.status === "retrying") && "text-warning-foreground",
+                              job.status === "processing" && "text-info",
+                            )}
+                          >
+                            {PUBLISH_JOB_STATUS_LABEL_NO[job.status] ?? job.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Forsøk: {job.attempts} · Sist oppdatert: {new Date(job.updated_at).toLocaleString("nb-NO")}
+                        </p>
+                        {(job.status === "queued" || job.status === "retrying" || job.status === "processing") && (
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            Neste/aktiv kjøring: {new Date(job.run_at).toLocaleString("nb-NO")}
+                          </p>
+                        )}
+                        {job.last_error ? (
+                          <p className="mt-1 text-[11px] text-destructive">{job.last_error}</p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -525,6 +534,8 @@ export const PostCalendar = () => {
   } | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
+  const [draggingPostId, setDraggingPostId] = useState<string | null>(null);
+  const [dragOverDateKey, setDragOverDateKey] = useState<string | null>(null);
   const [pollErrorCount, setPollErrorCount] = useState(0);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
 
@@ -664,6 +675,52 @@ export const PostCalendar = () => {
       const data = (await response.json().catch(() => null)) as { message?: string } | null;
       setStatus(data?.message ?? "Kunne ikke godkjenne poster.");
     }
+  };
+
+  const movePostToDate = async (postId: string, dateKey: string) => {
+    const sourcePost = posts.find((post) => post.id === postId);
+    if (!sourcePost) {
+      return;
+    }
+
+    const original = new Date(sourcePost.scheduledAt);
+    const target = new Date(`${dateKey}T00:00:00`);
+    target.setHours(original.getHours(), original.getMinutes(), 0, 0);
+
+    if (target.getTime() <= Date.now()) {
+      setStatus("Du kan ikke flytte en post til en dato i fortiden.");
+      return;
+    }
+
+    if (new Date(sourcePost.scheduledAt).toISOString().slice(0, 10) === dateKey) {
+      return;
+    }
+
+    setStatus("Flytter post...");
+    const response = await fetch(`/api/posts/${postId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "reschedule",
+        scheduledAt: target.toISOString(),
+      }),
+    });
+
+    if (!response.ok) {
+      const data = (await response.json().catch(() => null)) as { message?: string } | null;
+      setStatus(data?.message ?? "Kunne ikke flytte post.");
+      return;
+    }
+
+    const updatedPost = (await response.json()) as PostDraft;
+    setPosts((prev) =>
+      prev
+        .map((post) => (post.id === updatedPost.id ? updatedPost : post))
+        .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()),
+    );
+    setSelectedPost((prev) => (prev?.id === updatedPost.id ? updatedPost : prev));
+    setStatus("Post flyttet.");
+    setTimeout(() => setStatus(""), 2000);
   };
 
   useEffect(() => {
@@ -969,10 +1026,31 @@ export const PostCalendar = () => {
                   return (
                     <div
                       key={dayIdx}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        if (draggingPostId) {
+                          setDragOverDateKey(dateKey);
+                        }
+                      }}
+                      onDragLeave={() => {
+                        if (dragOverDateKey === dateKey) {
+                          setDragOverDateKey(null);
+                        }
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        const droppedPostId = event.dataTransfer.getData("text/post-id") || draggingPostId;
+                        if (droppedPostId) {
+                          void movePostToDate(droppedPostId, dateKey);
+                        }
+                        setDraggingPostId(null);
+                        setDragOverDateKey(null);
+                      }}
                       className={cn(
                         "min-h-[120px] border-l border-border p-1.5 transition-colors",
                         !isCurrentMonth && "bg-muted/20",
                         isToday(day) && "bg-primary/5",
+                        dragOverDateKey === dateKey && "ring-2 ring-primary/40 ring-inset bg-primary/10",
                       )}
                     >
                       <div
@@ -993,6 +1071,13 @@ export const PostCalendar = () => {
                             key={post.id}
                             post={post}
                             onClick={() => setSelectedPost(post)}
+                            onDragStart={(id) => {
+                              setDraggingPostId(id);
+                            }}
+                            onDragEnd={() => {
+                              setDraggingPostId(null);
+                              setDragOverDateKey(null);
+                            }}
                           />
                         ))}
                         {dayPosts.length > 4 && (

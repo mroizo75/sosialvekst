@@ -97,6 +97,44 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
   });
 };
 
+const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<string | undefined> => {
+  if (input.mediaMode === "owned_only") {
+    return undefined;
+  }
+
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const imageUrl = await createImageUrl(input);
+      if (imageUrl) {
+        if (attempt > 1) {
+          logger.info("AI image generated after retry", {
+            userId: input.userId,
+            channel: input.channel,
+            topic: input.topic,
+            attempt,
+          });
+        }
+        return imageUrl;
+      }
+    } catch (error) {
+      logger.warn("AI image generation attempt failed", {
+        userId: input.userId,
+        channel: input.channel,
+        topic: input.topic,
+        attempt,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+    }
+
+    if (attempt < maxAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1200));
+    }
+  }
+
+  return undefined;
+};
+
 export const generatePost = async (input: GeneratePostInput): Promise<PostDraft> => {
   let rawText = fallbackText(input.topic, input.brandContext?.companyName);
   try {
@@ -112,7 +150,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
 
   let imageUrl: string | undefined;
   try {
-    imageUrl = await createImageUrl(input);
+    imageUrl = await createImageUrlWithRetry(input);
   } catch (error) {
     logger.warn("AI image generation failed, continuing without image", {
       userId: input.userId,

@@ -16,8 +16,9 @@ const updateSchema = z.object({
   text: z.string().trim().min(1).optional(),
   imageUrl: z.string().url().optional().or(z.literal("")),
   topic: z.string().trim().min(2).max(180).optional(),
+  scheduledAt: z.string().datetime().optional(),
   action: z
-    .enum(["save", "regenerate_all", "regenerate_text", "regenerate_image", "rewrite_topic"])
+    .enum(["save", "regenerate_all", "regenerate_text", "regenerate_image", "rewrite_topic", "reschedule"])
     .optional(),
   regenerate: z.boolean().optional(),
 });
@@ -109,6 +110,32 @@ export async function PATCH(request: Request, context: RouteContext) {
     ?? brandContext?.products?.join(", ")?.slice(0, 180)
     ?? "Generell merkevarebygging";
   const action = payload.action ?? (payload.regenerate ? "regenerate_all" : "save");
+
+  if (action === "reschedule") {
+    if (!payload.scheduledAt) {
+      return NextResponse.json(
+        toAppError("SCHEDULE_REQUIRED", "Nytt tidspunkt mangler."),
+        { status: 400 },
+      );
+    }
+    if (new Date(payload.scheduledAt).getTime() <= Date.now()) {
+      return NextResponse.json(
+        toAppError("PAST_DATE", "Publiseringstidspunktet må være i fremtiden."),
+        { status: 400 },
+      );
+    }
+    if (post.status === "published") {
+      return NextResponse.json(
+        toAppError("POST_LOCKED", "Publiserte poster kan ikke flyttes."),
+        { status: 400 },
+      );
+    }
+    const updated = await savePost(userId, {
+      ...post,
+      scheduledAt: payload.scheduledAt,
+    });
+    return NextResponse.json(updated);
+  }
 
   if (action === "rewrite_topic" && !payload.topic) {
     return NextResponse.json(
