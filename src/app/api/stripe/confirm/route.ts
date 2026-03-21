@@ -49,18 +49,46 @@ export async function POST(request: Request) {
 
     const normalizedStatus = "active";
 
-    const { error } = await supabase.from("subscriptions").upsert(
-      {
-        user_id: userId,
-        stripe_customer_id: stripeCustomerId,
-        stripe_subscription_id: stripeSubscriptionId,
-        plan_code: mode === "extra_posts" ? "extra_5x4" : "base_3x4",
-        extra_posts_per_week: mode === "extra_posts" ? 2 : 0,
-        status: normalizedStatus,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    );
+    const subscriptionPayload = {
+      user_id: userId,
+      stripe_customer_id: stripeCustomerId,
+      stripe_subscription_id: stripeSubscriptionId,
+      plan_code: mode === "extra_posts" ? "extra_5x4" : "base_3x4",
+      extra_posts_per_week: mode === "extra_posts" ? 2 : 0,
+      status: normalizedStatus,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data: existingRows, error: existingError } = await supabase
+      .from("subscriptions")
+      .select("id")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    if (existingError) {
+      logger.error("Stripe confirm read failed", {
+        userId,
+        sessionId: payload.sessionId,
+        dbError: existingError.message,
+      });
+      return NextResponse.json(
+        toAppError("CONFIRM_READ_FAILED", "Kunne ikke hente abonnement.", {
+          message: existingError.message,
+        }),
+        { status: 500 },
+      );
+    }
+
+    const existingId = existingRows?.[0]?.id;
+    const { error } = existingId
+      ? await supabase
+          .from("subscriptions")
+          .update(subscriptionPayload)
+          .eq("id", existingId)
+      : await supabase
+          .from("subscriptions")
+          .insert(subscriptionPayload);
 
     if (error) {
       logger.error("Stripe confirm upsert failed", {

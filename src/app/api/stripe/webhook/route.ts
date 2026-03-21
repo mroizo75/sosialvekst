@@ -11,6 +11,52 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 const handleEvent = async (event: Stripe.Event): Promise<void> => {
   const supabase = createSupabaseAdminClient();
 
+  const saveSubscriptionByUser = async (
+    userId: string,
+    payload: {
+      stripeCustomerId?: string;
+      stripeSubscriptionId?: string;
+      planCode?: string;
+      extraPostsPerWeek?: number;
+      status: "active" | "past_due" | "canceled";
+    },
+  ): Promise<void> => {
+    const row = {
+      user_id: userId,
+      stripe_customer_id: payload.stripeCustomerId ?? "",
+      stripe_subscription_id: payload.stripeSubscriptionId ?? "",
+      plan_code: payload.planCode ?? "base_3x4",
+      extra_posts_per_week: payload.extraPostsPerWeek ?? 0,
+      status: payload.status,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data: existingRows, error: existingError } = await supabase
+      .from("subscriptions")
+      .select("id")
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    if (existingError) {
+      throw new Error(existingError.message);
+    }
+
+    const existingId = existingRows?.[0]?.id;
+    const { error } = existingId
+      ? await supabase
+          .from("subscriptions")
+          .update(row)
+          .eq("id", existingId)
+      : await supabase
+          .from("subscriptions")
+          .insert(row);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  };
+
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
     const userId = session.metadata?.userId;
@@ -19,22 +65,13 @@ const handleEvent = async (event: Stripe.Event): Promise<void> => {
       return;
     }
 
-    const { error } = await supabase.from("subscriptions").upsert(
-      {
-        user_id: userId,
-        stripe_customer_id: String(session.customer ?? ""),
-        stripe_subscription_id: String(session.subscription ?? ""),
-        plan_code: mode === "extra_posts" ? "extra_5x4" : "base_3x4",
-        extra_posts_per_week: mode === "extra_posts" ? 2 : 0,
-        status: "active",
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    );
-
-    if (error) {
-      throw new Error(error.message);
-    }
+    await saveSubscriptionByUser(userId, {
+      stripeCustomerId: String(session.customer ?? ""),
+      stripeSubscriptionId: String(session.subscription ?? ""),
+      planCode: mode === "extra_posts" ? "extra_5x4" : "base_3x4",
+      extraPostsPerWeek: mode === "extra_posts" ? 2 : 0,
+      status: "active",
+    });
 
     logger.info("Stripe checkout completed", {
       eventId: event.id,
@@ -99,20 +136,11 @@ const handleEvent = async (event: Stripe.Event): Promise<void> => {
       return;
     }
 
-    const { error } = await supabase.from("subscriptions").upsert(
-      {
-        user_id: byCustomer.user_id,
-        stripe_customer_id: customerId,
-        stripe_subscription_id: subscription.id,
-        status: normalizedStatus,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" },
-    );
-
-    if (error) {
-      throw new Error(error.message);
-    }
+    await saveSubscriptionByUser(byCustomer.user_id, {
+      stripeCustomerId: customerId,
+      stripeSubscriptionId: subscription.id,
+      status: normalizedStatus,
+    });
     return;
   }
 
