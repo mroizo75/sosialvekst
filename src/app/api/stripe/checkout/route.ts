@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUserId } from "@/lib/auth";
+import { getAppUrl } from "@/lib/env";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { getStripeClient } from "@/lib/stripe";
 
@@ -19,16 +20,9 @@ export async function POST(request: Request) {
     const userId = await requireUserId();
     const stripe = getStripeClient();
     const payload = schema.parse(await request.json());
-    const appUrl = process.env.APP_URL;
+    const appUrl = getAppUrl();
     const stripePriceBase = process.env.STRIPE_PRICE_BASE;
     const stripePriceExtra = process.env.STRIPE_PRICE_EXTRA_POSTS;
-
-    if (!appUrl) {
-      return NextResponse.json(
-        toAppError("MISSING_APP_URL", "Miljøvariabel APP_URL mangler."),
-        { status: 400 },
-      );
-    }
 
     const priceId = payload.mode === "extra_posts" ? stripePriceExtra : stripePriceBase;
     if (!priceId) {
@@ -66,8 +60,37 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ url: session.url });
   } catch (error) {
+    const appError = toUnknownAppError(error);
+
+    if (appError.code === "UNAUTHORIZED") {
+      return NextResponse.json(appError, { status: 401 });
+    }
+
+    const detailsMessage =
+      appError.message ?? (typeof appError.details === "object" && appError.details !== null && "message" in appError.details
+        ? String((appError.details as { message?: unknown }).message ?? "")
+        : "");
+
+    if (detailsMessage.includes("STRIPE_SECRET_KEY")) {
+      return NextResponse.json(
+        toAppError("MISSING_STRIPE_SECRET", "Miljøvariabel STRIPE_SECRET_KEY mangler."),
+        { status: 500 },
+      );
+    }
+
+    if (detailsMessage.includes("APP_URL") || detailsMessage.includes("NEXT_PUBLIC_APP_URL")) {
+      return NextResponse.json(
+        toAppError("MISSING_APP_URL", "APP_URL mangler i produksjonsmiljøet."),
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json(
-      toAppError("STRIPE_CHECKOUT_FAILED", "Kunne ikke opprette checkout", toUnknownAppError(error)),
+      toAppError(
+        "STRIPE_CHECKOUT_FAILED",
+        appError.message || "Kunne ikke opprette checkout.",
+        appError.details,
+      ),
       { status: 400 },
     );
   }

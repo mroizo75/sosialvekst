@@ -445,20 +445,29 @@ export const OnboardingWizard = () => {
   };
 
   const startBaseCheckout = async () => {
-    setCheckoutLoading(true);
-    setStatus("Oppretter betaling for baseplan...");
-    const response = await fetch("/api/stripe/checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mode: "base", returnPath: "/onboarding?step=4" }),
-    });
-    const data = (await response.json().catch(() => ({}))) as { url?: string; message?: string };
-    if (!response.ok || !data.url) {
-      setStatus(data.message ?? "Kunne ikke starte betaling for baseplan.");
+    try {
+      setCheckoutLoading(true);
+      setStatus("Oppretter betaling for baseplan...");
+      const response = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "base", returnPath: "/onboarding?step=4" }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        url?: string;
+        message?: string;
+        details?: { message?: string };
+      };
+      if (!response.ok || !data.url) {
+        setStatus(data.message ?? data.details?.message ?? "Kunne ikke starte betaling for baseplan.");
+        return;
+      }
+      window.location.assign(data.url);
+    } catch {
+      setStatus("Nettverksfeil ved oppretting av baseplan-betaling.");
+    } finally {
       setCheckoutLoading(false);
-      return;
     }
-    window.location.href = data.url;
   };
 
   const deleteAccount = async () => {
