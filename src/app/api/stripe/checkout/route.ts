@@ -6,6 +6,7 @@ import { getAppUrl } from "@/lib/env";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { getStripeClient } from "@/lib/stripe";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const schema = z.object({
   mode: z.enum(["base", "extra_posts"]).default("base"),
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
     const stripe = getStripeClient();
+    const supabase = await createSupabaseServerClient();
     const payload = schema.parse(await request.json());
     const appUrl = getAppUrl();
     const stripePriceBase = process.env.STRIPE_PRICE_BASE;
@@ -50,11 +52,31 @@ export async function POST(request: Request) {
       return `${path}${separator}session_id={CHECKOUT_SESSION_ID}`;
     };
 
+    const { data: subscriptionRow } = await supabase
+      .from("subscriptions")
+      .select("stripe_customer_id")
+      .eq("user_id", userId)
+      .limit(1)
+      .maybeSingle();
+
+    let customerId = subscriptionRow?.stripe_customer_id ?? "";
+
+    if (!customerId) {
+      const { data: userResult } = await supabase.auth.getUser();
+      const email = userResult.user?.email;
+      const customer = await stripe.customers.create({
+        email,
+        metadata: { userId },
+      });
+      customerId = customer.id;
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${appUrl}${withSessionId(successPath)}`,
       cancel_url: `${appUrl}${cancelPath}`,
+      customer: customerId,
       client_reference_id: userId,
       metadata: { userId, mode: payload.mode },
     });
