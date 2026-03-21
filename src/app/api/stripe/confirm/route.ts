@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireUserId } from "@/lib/auth";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
+import { logger } from "@/lib/logger";
 import { getStripeClient } from "@/lib/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -46,16 +47,7 @@ export async function POST(request: Request) {
         ? session.customer
         : session.customer?.id ?? "";
 
-    const statusFromSubscription =
-      typeof session.subscription === "object" && session.subscription
-        ? session.subscription.status
-        : "active";
-    const normalizedStatus =
-      statusFromSubscription === "active" || statusFromSubscription === "trialing"
-        ? "active"
-        : statusFromSubscription === "canceled"
-          ? "canceled"
-          : "past_due";
+    const normalizedStatus = "active";
 
     const { error } = await supabase.from("subscriptions").upsert(
       {
@@ -71,8 +63,17 @@ export async function POST(request: Request) {
     );
 
     if (error) {
+      logger.error("Stripe confirm upsert failed", {
+        userId,
+        sessionId: payload.sessionId,
+        stripeSubscriptionId,
+        stripeCustomerId,
+        dbError: error.message,
+      });
       return NextResponse.json(
-        toAppError("CONFIRM_SAVE_FAILED", "Kunne ikke oppdatere abonnement.", error.message),
+        toAppError("CONFIRM_SAVE_FAILED", "Kunne ikke oppdatere abonnement.", {
+          message: error.message,
+        }),
         { status: 500 },
       );
     }
@@ -80,6 +81,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, status: normalizedStatus });
   } catch (error) {
     const appError = toUnknownAppError(error);
+    logger.error("Stripe confirm failed", {
+      code: appError.code,
+      message: appError.message,
+      details: appError.details,
+    });
     return NextResponse.json(
       toAppError("STRIPE_CONFIRM_FAILED", "Kunne ikke bekrefte betaling.", appError),
       { status: 400 },

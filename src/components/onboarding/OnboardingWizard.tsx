@@ -234,12 +234,24 @@ export const OnboardingWizard = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId }),
       });
-      const data = (await response.json().catch(() => ({}))) as { message?: string };
+      const data = (await response.json().catch(() => ({}))) as {
+        message?: string;
+        details?: { message?: string };
+      };
       if (cancelled) {
         return;
       }
       if (!response.ok) {
-        setStatus(data.message ?? "Betaling ble fullført, men abonnement ble ikke aktivert.");
+        setStatus(
+          data.message ??
+            data.details?.message ??
+            "Betaling ble fullført, men abonnement ble ikke aktivert.",
+        );
+        await loadSubscriptionStatus();
+        const url = new URL(window.location.href);
+        url.searchParams.delete("payment");
+        url.searchParams.delete("session_id");
+        window.history.replaceState({}, "", url.toString());
         return;
       }
       setStatus("Baseplan aktivert. Du kan nå generere innholdsplan.");
