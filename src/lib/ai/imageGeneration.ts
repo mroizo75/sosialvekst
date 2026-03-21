@@ -1,4 +1,5 @@
 import { uploadUserFile } from "@/lib/cloudflare/r2";
+import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
 import type { ImageProfile } from "@/lib/types";
 
@@ -37,22 +38,46 @@ export const generateProfessionalImage = async (
         prompt: string;
         size: string;
         quality: string;
-        response_format?: "b64_json" | "url";
       }) => Promise<{ data?: Array<{ b64_json?: string; url?: string }> }>;
     };
   };
 
   const profile = input.profile ?? "final";
-  const imageSize = profile === "preview" ? "512x512" : "1024x1024";
+  // Use 1024x1024 for both profiles for higher API compatibility.
+  const imageSize = "1024x1024";
   const imageQuality = profile === "preview" ? "low" : "medium";
 
-  const response = await imageClient.images.generate({
-    model: "gpt-image-1",
-    prompt: input.prompt,
-    size: imageSize,
-    quality: imageQuality,
-    response_format: "b64_json",
-  });
+  let response: { data?: Array<{ b64_json?: string; url?: string }> } | null = null;
+  const variants: Array<{ size: string; quality: string }> = [
+    { size: imageSize, quality: imageQuality },
+    { size: "1024x1024", quality: "low" },
+    { size: "1024x1024", quality: "medium" },
+  ];
+
+  for (const variant of variants) {
+    try {
+      response = await imageClient.images.generate({
+        model: "gpt-image-1",
+        prompt: input.prompt,
+        size: variant.size,
+        quality: variant.quality,
+      });
+      if (response.data?.[0]) {
+        break;
+      }
+    } catch (error) {
+      logger.warn("Image generation variant failed", {
+        userId: input.userId,
+        size: variant.size,
+        quality: variant.quality,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+    }
+  }
+
+  if (!response?.data?.[0]) {
+    throw new Error("Bildegenerator feilet for alle varianter.");
+  }
 
   const payload = response.data?.[0];
   if (!payload) {

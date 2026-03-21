@@ -36,8 +36,17 @@ type CachedOwnedImages = {
   urls: string[];
 };
 
+type OwnedImageCycle = {
+  signature: string;
+  order: string[];
+  index: number;
+  lastUsed?: string;
+};
+
 const OWNED_IMAGE_CACHE_TTL_MS = 60_000;
 const ownedImageCache = new Map<string, CachedOwnedImages>();
+const ownedImageCycle = new Map<string, OwnedImageCycle>();
+const hybridSourceToggle = new Map<string, boolean>();
 
 const fallbackText = (topic: string, companyName?: string): string => {
   const name = companyName ?? "din bedrift";
@@ -79,13 +88,25 @@ const isOwnedImageUrl = (url: string): boolean => {
   );
 };
 
-const hashString = (value: string): number => {
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = ((hash << 5) - hash) + value.charCodeAt(i);
-    hash |= 0;
+const shuffleUrls = (urls: string[]): string[] => {
+  const copy = [...urls];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = copy[i];
+    copy[i] = copy[j];
+    copy[j] = tmp;
   }
-  return Math.abs(hash);
+  return copy;
+};
+
+const rotateAwayFromLastUsed = (urls: string[], lastUsed?: string): string[] => {
+  if (!lastUsed || urls.length <= 1) {
+    return urls;
+  }
+  if (urls[0] !== lastUsed) {
+    return urls;
+  }
+  return [...urls.slice(1), urls[0]];
 };
 
 const getOwnedImageUrls = async (userId: string): Promise<string[]> => {
@@ -121,9 +142,44 @@ const pickOwnedImageUrl = async (input: GeneratePostInput): Promise<string | und
     return undefined;
   }
 
-  const indexSeed = `${input.scheduledAt}:${input.channel}`;
-  const index = hashString(indexSeed) % ownedUrls.length;
-  return ownedUrls[index];
+  const signature = ownedUrls.join("|");
+  const existingCycle = ownedImageCycle.get(input.userId);
+
+  if (!existingCycle || existingCycle.signature !== signature) {
+    const initialOrder = rotateAwayFromLastUsed(shuffleUrls(ownedUrls), existingCycle?.lastUsed);
+    const first = initialOrder[0];
+    ownedImageCycle.set(input.userId, {
+      signature,
+      order: initialOrder,
+      index: 1,
+      lastUsed: first,
+    });
+    return first;
+  }
+
+  if (existingCycle.index >= existingCycle.order.length) {
+    const nextOrder = rotateAwayFromLastUsed(shuffleUrls(ownedUrls), existingCycle.lastUsed);
+    const first = nextOrder[0];
+    ownedImageCycle.set(input.userId, {
+      signature,
+      order: nextOrder,
+      index: 1,
+      lastUsed: first,
+    });
+    return first;
+  }
+
+  const picked = existingCycle.order[existingCycle.index];
+  existingCycle.index += 1;
+  existingCycle.lastUsed = picked;
+  ownedImageCycle.set(input.userId, existingCycle);
+  return picked;
+};
+
+const shouldUseOwnedInHybrid = (userId: string): boolean => {
+  const current = hybridSourceToggle.get(userId) ?? true;
+  hybridSourceToggle.set(userId, !current);
+  return current;
 };
 
 const createText = async (input: GeneratePostInput): Promise<string> => {
@@ -168,7 +224,7 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
   if (input.mediaMode === "hybrid") {
     const ownedImageUrl = await pickOwnedImageUrl(input);
     if (ownedImageUrl) {
-      const shouldUseOwned = hashString(`${input.scheduledAt}:${input.channel}:hybrid`) % 2 === 0;
+      const shouldUseOwned = shouldUseOwnedInHybrid(input.userId);
       if (shouldUseOwned) {
         return ownedImageUrl;
       }
