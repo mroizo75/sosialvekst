@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireUserId } from "@/lib/auth";
 import { getAppUrl } from "@/lib/env";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
+import { logger } from "@/lib/logger";
 import { getStripeClient } from "@/lib/stripe";
 
 const schema = z.object({
@@ -61,13 +62,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ url: session.url });
   } catch (error) {
     const appError = toUnknownAppError(error);
+    const message = appError.message ?? "";
+
+    logger.error("Stripe checkout failed", {
+      code: appError.code,
+      message,
+      details: appError.details,
+    });
 
     if (appError.code === "UNAUTHORIZED") {
       return NextResponse.json(appError, { status: 401 });
     }
 
     const detailsMessage =
-      appError.message ?? (typeof appError.details === "object" && appError.details !== null && "message" in appError.details
+      message ?? (typeof appError.details === "object" && appError.details !== null && "message" in appError.details
         ? String((appError.details as { message?: unknown }).message ?? "")
         : "");
 
@@ -85,10 +93,27 @@ export async function POST(request: Request) {
       );
     }
 
+    if (detailsMessage.toLowerCase().includes("no such price")) {
+      return NextResponse.json(
+        toAppError(
+          "STRIPE_PRICE_NOT_FOUND",
+          "Stripe-price finnes ikke. Sjekk at STRIPE_PRICE_BASE matcher samme Stripe-modus (test/live) som STRIPE_SECRET_KEY.",
+        ),
+        { status: 400 },
+      );
+    }
+
+    if (detailsMessage.toLowerCase().includes("invalid api key")) {
+      return NextResponse.json(
+        toAppError("STRIPE_KEY_INVALID", "STRIPE_SECRET_KEY er ugyldig eller i feil modus."),
+        { status: 400 },
+      );
+    }
+
     return NextResponse.json(
       toAppError(
         "STRIPE_CHECKOUT_FAILED",
-        appError.message || "Kunne ikke opprette checkout.",
+        message || "Kunne ikke opprette checkout.",
         appError.details,
       ),
       { status: 400 },
