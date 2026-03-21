@@ -538,6 +538,7 @@ export const PostCalendar = () => {
   const [dragOverDateKey, setDragOverDateKey] = useState<string | null>(null);
   const [pollErrorCount, setPollErrorCount] = useState(0);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [isRegeneratingPlan, setIsRegeneratingPlan] = useState(false);
 
   const hasGenerating = useMemo(
     () => posts.some((p) => p.status === "generating"),
@@ -601,22 +602,30 @@ export const PostCalendar = () => {
     if (!window.confirm("Vil du lage en helt ny 4-ukers plan? Eksisterende poster og bilder i planen blir erstattet.")) {
       return;
     }
+    setIsRegeneratingPlan(true);
     setSelectedPost(null);
     setPosts([]);
     setStatus("Starter ny plan og generering av poster...");
 
-    const response = await fetch("/api/posts/regenerate-all", { method: "POST" });
-    if (!response.ok) {
-      const data = await response.json().catch(() => null) as { message?: string } | null;
-      setStatus(data?.message ?? "Kunne ikke starte regenerering.");
+    try {
+      const response = await fetch("/api/posts/regenerate-all", { method: "POST" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null) as { code?: string; message?: string } | null;
+        setStatus(data?.message ?? "Kunne ikke starte regenerering.");
+        await loadPosts();
+        return;
+      }
+      const result = (await response.json()) as { total: number; posts: PostDraft[] };
+      setStatus("");
+      setPosts(result.posts);
+      if (result.posts.length > 0) {
+        setCurrentDate(new Date(result.posts[0].scheduledAt));
+      }
+    } catch {
+      setStatus("Nettverksfeil ved start av ny 4-ukers plan.");
       await loadPosts();
-      return;
-    }
-    const result = (await response.json()) as { total: number; posts: PostDraft[] };
-    setStatus("");
-    setPosts(result.posts);
-    if (result.posts.length > 0) {
-      setCurrentDate(new Date(result.posts[0].scheduledAt));
+    } finally {
+      setIsRegeneratingPlan(false);
     }
   };
 
@@ -762,7 +771,9 @@ export const PostCalendar = () => {
           run();
           return;
         }
-        await loadPosts();
+        if (!isRegeneratingPlan) {
+          await loadPosts();
+        }
         run();
       }, document.hidden ? 60000 : calculatedDelay);
     };
@@ -783,7 +794,7 @@ export const PostCalendar = () => {
         clearTimeout(timeoutId);
       }
     };
-  }, [loadPosts, hasGenerating, pollErrorCount]);
+  }, [loadPosts, hasGenerating, isRegeneratingPlan, pollErrorCount]);
 
   const postsByDate = useMemo(() => {
     const map = new Map<string, PostDraft[]>();
@@ -832,6 +843,21 @@ export const PostCalendar = () => {
     );
   }
 
+  if (posts.length === 0 && !hasGenerating && isRegeneratingPlan) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
+        <div className="relative flex size-10 items-center justify-center">
+          <span className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
+          <span className="relative size-4 rounded-full bg-primary" />
+        </div>
+        <p className="text-sm font-medium text-primary">Starter ny 4-ukers plan...</p>
+        <p className="text-xs text-muted-foreground">
+          Alle gamle poster slettes, og nye poster opprettes fortløpende.
+        </p>
+      </div>
+    );
+  }
+
   if (posts.length === 0 && !hasGenerating) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -842,6 +868,11 @@ export const PostCalendar = () => {
         <Button className="mt-4" onClick={() => setShowCreateDialog(true)}>
           + Lag egen post
         </Button>
+        {status ? (
+          <div className="mt-3 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+            {status}
+          </div>
+        ) : null}
         {showCreateDialog && (
           <CreatePostDialog
             onClose={() => setShowCreateDialog(false)}
@@ -903,7 +934,7 @@ export const PostCalendar = () => {
             variant="outline"
             size="sm"
             onClick={() => void regenerateAll()}
-            disabled={hasGenerating || posts.length === 0}
+            disabled={hasGenerating || isRegeneratingPlan}
           >
             Lag ny 4-ukers plan
           </Button>

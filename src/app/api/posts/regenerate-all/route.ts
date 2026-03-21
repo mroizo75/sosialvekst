@@ -12,6 +12,21 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { BrandContext, SocialChannel, TopicWindow } from "@/lib/types";
 
 const MAX_REGENERATE_ALL_PER_DAY = 3;
+const DEFAULT_POSTS_PER_WEEK = 3;
+const DEFAULT_TOTAL_WEEKS = 4;
+
+const normalizePositiveInt = (value: unknown, fallback: number): number => {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.floor(value);
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.floor(parsed);
+    }
+  }
+  return fallback;
+};
 
 export async function POST() {
   try {
@@ -61,8 +76,8 @@ export async function POST() {
 
     const channelsFromPosts = [...new Set((oldPosts ?? []).map((p) => p.channel as SocialChannel))];
     const fallbackChannels: SocialChannel[] = ["facebook", "instagram", "linkedin"];
-    let postsPerWeek = 3;
-    let totalWeeks = 4;
+    let postsPerWeek = DEFAULT_POSTS_PER_WEEK;
+    let totalWeeks = DEFAULT_TOTAL_WEEKS;
     let mediaMode: "ai_only" | "hybrid" | "owned_only" = "ai_only";
 
     let planId = ((oldPosts ?? []).find((p) => p.plan_id)?.plan_id as string) ?? null;
@@ -77,8 +92,8 @@ export async function POST() {
 
       if (existingPlan) {
         planId = existingPlan.id as string;
-        postsPerWeek = Number(existingPlan.posts_per_week ?? 3);
-        totalWeeks = Number(existingPlan.total_weeks ?? 4);
+        postsPerWeek = normalizePositiveInt(existingPlan.posts_per_week, DEFAULT_POSTS_PER_WEEK);
+        totalWeeks = normalizePositiveInt(existingPlan.total_weeks, DEFAULT_TOTAL_WEEKS);
         mediaMode = String(existingPlan.media_mode ?? "ai_only") as "ai_only" | "hybrid" | "owned_only";
       } else {
         const { data: newPlan, error: planError } = await admin
@@ -109,8 +124,8 @@ export async function POST() {
         .eq("user_id", userId)
         .maybeSingle();
 
-      postsPerWeek = Number(selectedPlan?.posts_per_week ?? 3);
-      totalWeeks = Number(selectedPlan?.total_weeks ?? 4);
+      postsPerWeek = normalizePositiveInt(selectedPlan?.posts_per_week, DEFAULT_POSTS_PER_WEEK);
+      totalWeeks = normalizePositiveInt(selectedPlan?.total_weeks, DEFAULT_TOTAL_WEEKS);
       mediaMode = String(selectedPlan?.media_mode ?? "ai_only") as "ai_only" | "hybrid" | "owned_only";
     }
 
