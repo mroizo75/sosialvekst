@@ -2,7 +2,22 @@ import Link from "next/link";
 
 import { MediaManager } from "@/components/media/MediaManager";
 
-export default function MediaPage() {
+type MediaPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+const pickString = (value: string | string[] | undefined): string => {
+  if (Array.isArray(value)) {
+    return value[0] ?? "";
+  }
+  return value ?? "";
+};
+
+export default async function MediaPage({ searchParams }: MediaPageProps) {
+  const query = await searchParams;
+  const returnToRaw = pickString(query.returnTo);
+  const returnTo = returnToRaw.startsWith("/") ? returnToRaw : "/onboarding?step=3";
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card">
@@ -36,10 +51,10 @@ export default function MediaPage() {
             </p>
           </div>
           <Link
-            href="/onboarding"
+            href={returnTo}
             className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-card px-4 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-secondary"
           >
-            &larr; Tilbake til oppsett
+            &larr; Tilbake til wizard
           </Link>
         </div>
 

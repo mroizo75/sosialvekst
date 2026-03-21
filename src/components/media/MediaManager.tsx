@@ -101,6 +101,12 @@ export const MediaManager = () => {
 
   const handleDragLeave = () => setDragging(false);
 
+  const triggerFilePicker = () => {
+    if (!uploading) {
+      fileInputRef.current?.click();
+    }
+  };
+
   const deleteFile = async (key: string) => {
     setStatus("Sletter fil...");
     const response = await fetch("/api/media/files", {
@@ -122,8 +128,13 @@ export const MediaManager = () => {
         onDrop={(e) => void handleDrop(e)}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        onClick={() => fileInputRef.current?.click()}
-        onKeyDown={() => {}}
+        onClick={triggerFilePicker}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            triggerFilePicker();
+          }
+        }}
         role="button"
         tabIndex={0}
         className={cn(
@@ -135,7 +146,7 @@ export const MediaManager = () => {
       >
         <div className="text-3xl text-muted-foreground">+</div>
         <p className="mt-2 text-sm font-medium text-foreground">
-          {uploading ? "Laster opp..." : "Dra filer hit eller klikk for a laste opp"}
+          {uploading ? "Laster opp..." : "Dra filer hit eller klikk for å laste opp"}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
           Bilder, videoer og logoer (maks 50 MB)
@@ -200,7 +211,7 @@ export const MediaManager = () => {
                   rel="noreferrer"
                   className="rounded bg-white/20 px-2 py-1 text-[10px] font-medium text-white backdrop-blur-sm hover:bg-white/30"
                 >
-                  Apne
+                  Åpne
                 </a>
                 <Button
                   variant="destructive"

@@ -36,6 +36,7 @@ const STEPS = [
 ] as const;
 
 const DEFAULT_CHANNELS: SocialChannel[] = ["facebook", "instagram", "linkedin"];
+const TOPIC_WINDOWS_STORAGE_KEY = "onboarding_topic_windows_v1";
 
 const Stepper = ({ currentStep }: { currentStep: number }) => (
   <nav className="mb-8 flex items-center justify-center gap-2">
@@ -84,6 +85,9 @@ export const OnboardingWizard = () => {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [subscriptionActive, setSubscriptionActive] = useState(false);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
   const [keyMessagesText, setKeyMessagesText] = useState("");
 
   const [websiteUrl, setWebsiteUrl] = useState("");
@@ -186,6 +190,107 @@ export const OnboardingWizard = () => {
     return () => clearTimeout(timer);
   }, [loadExistingData]);
 
+  const loadSubscriptionStatus = useCallback(async () => {
+    try {
+      const response = await fetch("/api/subscription/status");
+      if (!response.ok) {
+        setSubscriptionActive(false);
+        return;
+      }
+      const data = (await response.json()) as { active: boolean };
+      setSubscriptionActive(Boolean(data.active));
+    } catch {
+      setSubscriptionActive(false);
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadSubscriptionStatus();
+  }, [loadSubscriptionStatus]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestedStep = Number(params.get("step") ?? "");
+    if (Number.isInteger(requestedStep) && requestedStep >= 1 && requestedStep <= 4) {
+      setStep(requestedStep);
+    }
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const payment = params.get("payment");
+    const sessionId = params.get("session_id");
+    if (payment !== "success" || !sessionId) {
+      return;
+    }
+
+    let cancelled = false;
+    const confirmPayment = async () => {
+      setStatus("Verifiserer betaling...");
+      const response = await fetch("/api/stripe/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { message?: string };
+      if (cancelled) {
+        return;
+      }
+      if (!response.ok) {
+        setStatus(data.message ?? "Betaling ble fullført, men abonnement ble ikke aktivert.");
+        return;
+      }
+      setStatus("Baseplan aktivert. Du kan nå generere innholdsplan.");
+      await loadSubscriptionStatus();
+      const url = new URL(window.location.href);
+      url.searchParams.delete("payment");
+      url.searchParams.delete("session_id");
+      window.history.replaceState({}, "", url.toString());
+    };
+
+    void confirmPayment();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadSubscriptionStatus]);
+
+  useEffect(() => {
+    const stored = sessionStorage.getItem(TOPIC_WINDOWS_STORAGE_KEY);
+    if (!stored) {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(stored) as TopicWindow[];
+      const valid = parsed
+        .filter(
+          (item) =>
+            typeof item.topic === "string" &&
+            item.topic.trim().length > 0 &&
+            Number.isInteger(item.startWeek) &&
+            Number.isInteger(item.endWeek) &&
+            item.startWeek >= 1 &&
+            item.endWeek <= 4 &&
+            item.startWeek <= item.endWeek,
+        )
+        .map((item) => ({
+          topic: item.topic.trim(),
+          startWeek: item.startWeek,
+          endWeek: item.endWeek,
+        }));
+      if (valid.length > 0) {
+        setTopicWindows(valid);
+      }
+    } catch {
+      sessionStorage.removeItem(TOPIC_WINDOWS_STORAGE_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    sessionStorage.setItem(TOPIC_WINDOWS_STORAGE_KEY, JSON.stringify(topicWindows));
+  }, [topicWindows]);
+
   const parseKeyMessages = (value: string): string[] => {
     return value
       .split(/[,\n;]+/)
@@ -195,10 +300,19 @@ export const OnboardingWizard = () => {
 
   const addTopicWindow = () => {
     if (!newTopic.trim()) return;
+    if (newStartWeek < 1 || newStartWeek > 4 || newEndWeek < 1 || newEndWeek > 4) {
+      setStatus("Uke må være mellom 1 og 4.");
+      return;
+    }
+    if (newStartWeek > newEndWeek) {
+      setStatus("Fra uke kan ikke være etter til uke.");
+      return;
+    }
     setTopicWindows((prev) => [
       ...prev,
       { topic: newTopic.trim(), startWeek: newStartWeek, endWeek: newEndWeek },
     ]);
+    setStatus("");
     setNewTopic("");
     setNewStartWeek(Math.min(newEndWeek + 1, 4));
     setNewEndWeek(Math.min(newEndWeek + 2, 4));
@@ -290,6 +404,10 @@ export const OnboardingWizard = () => {
   };
 
   const generateContentPlan = async () => {
+    if (!subscriptionActive) {
+      setStatus("Aktiv baseplan kreves før du kan generere innhold.");
+      return;
+    }
     setLoading(true);
     setStatus("Starter generering...");
     const response = await fetch("/api/content/generate", {
@@ -305,7 +423,16 @@ export const OnboardingWizard = () => {
       }),
     });
     if (!response.ok) {
-      setStatus("Generering feilet");
+      const data = (await response.json().catch(() => null)) as
+        | { message?: string; code?: string; details?: { message?: string; code?: string } }
+        | null;
+      const subscriptionError =
+        data?.code === "SUBSCRIPTION_REQUIRED" || data?.details?.code === "SUBSCRIPTION_REQUIRED";
+      if (subscriptionError) {
+        setStatus("Aktiv baseplan kreves før du kan generere innhold.");
+      } else {
+        setStatus(data?.message ?? data?.details?.message ?? "Generering feilet.");
+      }
       setLoading(false);
       return;
     }
@@ -313,7 +440,25 @@ export const OnboardingWizard = () => {
     if (result.posts) {
       sessionStorage.setItem("pendingPosts", JSON.stringify(result.posts));
     }
+    sessionStorage.removeItem(TOPIC_WINDOWS_STORAGE_KEY);
     window.location.href = "/kalender";
+  };
+
+  const startBaseCheckout = async () => {
+    setCheckoutLoading(true);
+    setStatus("Oppretter betaling for baseplan...");
+    const response = await fetch("/api/stripe/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "base", returnPath: "/onboarding?step=4" }),
+    });
+    const data = (await response.json().catch(() => ({}))) as { url?: string; message?: string };
+    if (!response.ok || !data.url) {
+      setStatus(data.message ?? "Kunne ikke starte betaling for baseplan.");
+      setCheckoutLoading(false);
+      return;
+    }
+    window.location.href = data.url;
   };
 
   const deleteAccount = async () => {
@@ -569,6 +714,30 @@ export const OnboardingWizard = () => {
             <CardTitle>Generer innholdsplan</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
+            <div
+              className={cn(
+                "rounded-md border p-4",
+                subscriptionActive
+                  ? "border-success/30 bg-success/10"
+                  : "border-warning/30 bg-warning/10",
+              )}
+            >
+              <p className="text-sm font-medium">
+                {subscriptionLoading
+                  ? "Sjekker abonnement..."
+                  : subscriptionActive
+                    ? "Baseplan er aktiv."
+                    : "Baseplan er ikke aktiv enda."}
+              </p>
+              {!subscriptionLoading && !subscriptionActive && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button onClick={() => void startBaseCheckout()} disabled={checkoutLoading}>
+                    {checkoutLoading ? "Sender til betaling..." : "Aktiver baseplan"}
+                  </Button>
+                </div>
+              )}
+            </div>
+
             <div className="rounded-md border border-border bg-muted/30 p-4">
               <h4 className="text-sm font-semibold">Oppsummering</h4>
               <dl className="mt-2 space-y-1 text-sm text-muted-foreground">
@@ -674,7 +843,10 @@ export const OnboardingWizard = () => {
               <Button variant="outline" onClick={() => setStep(3)}>
                 Tilbake
               </Button>
-              <Button onClick={() => void generateContentPlan()} disabled={loading}>
+              <Button
+                onClick={() => void generateContentPlan()}
+                disabled={loading || subscriptionLoading || !subscriptionActive}
+              >
                 {loading ? "Genererer..." : "Generer 4-ukers plan"}
               </Button>
             </div>
@@ -687,7 +859,10 @@ export const OnboardingWizard = () => {
       )}
 
       <div className="mt-8 flex items-center justify-between border-t border-border pt-4">
-        <Link href="/media" className="text-sm text-muted-foreground hover:text-foreground">
+        <Link
+          href={`/media?returnTo=${encodeURIComponent(`/onboarding?step=${step}`)}`}
+          className="text-sm text-muted-foreground hover:text-foreground"
+        >
           Mediebibliotek
         </Link>
         <Button

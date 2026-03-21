@@ -229,6 +229,9 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const appError = toUnknownAppError(error);
+    if (appError.code === "SUBSCRIPTION_REQUIRED") {
+      return NextResponse.json(appError, { status: 403 });
+    }
     return NextResponse.json(
       toAppError("CONTENT_GENERATION_FAILED", "Kunne ikke starte generering", appError),
       { status: 400 },
