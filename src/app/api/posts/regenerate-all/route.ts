@@ -11,7 +11,6 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { BrandContext, SocialChannel, TopicWindow } from "@/lib/types";
 
-const MAX_REGENERATE_ALL_PER_DAY = 3;
 const DEFAULT_POSTS_PER_WEEK = 3;
 const DEFAULT_TOTAL_WEEKS = 4;
 
@@ -34,28 +33,6 @@ export async function POST() {
     await requireActiveSubscription(userId);
     const supabase = await createSupabaseServerClient();
     const admin = createSupabaseAdminClient();
-
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-
-    if (process.env.NODE_ENV === "production") {
-      const { count } = await admin
-        .from("generation_log")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", userId)
-        .eq("action", "regenerate_all")
-        .gte("created_at", todayStart.toISOString());
-
-      if ((count ?? 0) >= MAX_REGENERATE_ALL_PER_DAY) {
-        return NextResponse.json(
-          toAppError(
-            "RATE_LIMIT",
-            `Du kan maks generere alle på nytt ${MAX_REGENERATE_ALL_PER_DAY} ganger per dag.`,
-          ),
-          { status: 429 },
-        );
-      }
-    }
 
     const { data: oldPosts, error: fetchError } = await supabase
       .from("posts")
