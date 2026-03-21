@@ -4,6 +4,7 @@ import { generateProfessionalImage } from "@/lib/ai/imageGeneration";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
+import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
 import type {
   BrandContext,
@@ -97,10 +98,30 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
 };
 
 export const generatePost = async (input: GeneratePostInput): Promise<PostDraft> => {
-  const [rawText, imageUrl] = await Promise.all([
-    createText(input),
-    createImageUrl(input),
-  ]);
+  let rawText = fallbackText(input.topic, input.brandContext?.companyName);
+  try {
+    rawText = await createText(input);
+  } catch (error) {
+    logger.warn("AI text generation failed, using fallback text", {
+      userId: input.userId,
+      channel: input.channel,
+      topic: input.topic,
+      error: error instanceof Error ? error.message : "unknown",
+    });
+  }
+
+  let imageUrl: string | undefined;
+  try {
+    imageUrl = await createImageUrl(input);
+  } catch (error) {
+    logger.warn("AI image generation failed, continuing without image", {
+      userId: input.userId,
+      channel: input.channel,
+      topic: input.topic,
+      error: error instanceof Error ? error.message : "unknown",
+    });
+    imageUrl = undefined;
+  }
 
   const companyName = input.brandContext?.companyName;
   const revision = runRevisionLoop({
