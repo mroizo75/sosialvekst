@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { toAppError } from "@/lib/errors";
+import { getAppUrl } from "@/lib/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const getStringValue = (formData: FormData, key: string): string => {
@@ -42,6 +43,7 @@ export const signUpAction = async (formData: FormData): Promise<void> => {
   const companyName = getStringValue(formData, "companyName");
   const targetAudience = getStringValue(formData, "targetAudience");
   const termsAccepted = getCheckedValue(formData, "termsAccepted");
+  const appUrl = getAppUrl();
   const supabase = await createSupabaseServerClient();
 
   if (!termsAccepted) {
@@ -53,7 +55,7 @@ export const signUpAction = async (formData: FormData): Promise<void> => {
     password,
     options: {
       data: { fullName, companyName, targetAudience },
-      emailRedirectTo: `${process.env.APP_URL ?? "http://localhost:3000"}/login?confirmed=1`,
+      emailRedirectTo: `${appUrl}/login?confirmed=1`,
     },
   });
 
@@ -70,12 +72,13 @@ export const signUpAction = async (formData: FormData): Promise<void> => {
 
 export const resendConfirmationAction = async (formData: FormData): Promise<void> => {
   const email = getStringValue(formData, "email");
+  const appUrl = getAppUrl();
   const supabase = await createSupabaseServerClient();
   const { error } = await supabase.auth.resend({
     type: "signup",
     email,
     options: {
-      emailRedirectTo: `${process.env.APP_URL ?? "http://localhost:3000"}/login?confirmed=1`,
+      emailRedirectTo: `${appUrl}/login?confirmed=1`,
     },
   });
 
