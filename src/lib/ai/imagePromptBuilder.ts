@@ -52,17 +52,16 @@ export const buildImagePrompt = (input: ImagePromptInput): string => {
     "- Ingen overmettet farge, neon, fantasy-elementer eller plastisk AI-look.",
     "- Motivet skal tydelig kommunisere bedriftens bransje og kompetanse.",
     `- Bildet skal følge den visuelle stilen: ${input.brandRules.toneOfVoice}.`,
+    "- VIKTIG: Bildet skal IKKE inneholde tekst, bokstaver, tall, logo-merker, vannmerker eller skilt med skrift.",
+    "- VIKTIG: Hvis tekst dukker opp i motivet, regenerer et rent bilde uten tekst.",
   );
 
   lines.push(
     "",
-    "BRANDING I BILDET:",
-    `- Inkluder teksten "${companyName}" som en integrert del av bildet.`,
-    `- Teksten skal plasseres ${input.brandRules.logoPlacement}, med god luft rundt (minst ${input.brandRules.safeMarginPx}px margin).`,
-    "- Bruk en ren, profesjonell skrifttype (sans-serif) som passer en seriøs bedrift.",
-    "- Teksten skal være godt lesbar men ikke dominere bildet.",
-    "- Farge på teksten skal kontrastere tydelig mot bakgrunnen.",
-    "- IKKE legg teksten oppå ansikter, produkter eller viktige elementer.",
+    "BRANDING I BILDET (UTEN TEKST):",
+    "- Bruk bedriftens visuelle uttrykk gjennom farger, miljø, klær, rekvisitter og motivvalg.",
+    "- Ikke bruk skrift som branding. All branding skal være visuell og tekstfri.",
+    "- Prioriter ren komposisjon med tydelig hovedmotiv og profesjonell lyssetting.",
   );
 
   return lines.filter(Boolean).join("\n");

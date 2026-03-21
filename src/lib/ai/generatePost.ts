@@ -83,7 +83,7 @@ const ensureCompleteEnding = (text: string): string => {
 const isOwnedImageUrl = (url: string): boolean => {
   const lower = url.toLowerCase();
   return (
-    lower.includes("/images/") &&
+    (lower.includes("/images/") || lower.includes("/logos/")) &&
     !lower.includes("ai-image-")
   );
 };
@@ -136,8 +136,20 @@ const getOwnedImageUrls = async (userId: string): Promise<string[]> => {
   }
 };
 
+const mergeOwnedCandidates = (
+  urls: string[],
+  logoUrl?: string,
+): string[] => {
+  const merged = [...urls];
+  if (logoUrl && isOwnedImageUrl(logoUrl) && !merged.includes(logoUrl)) {
+    merged.push(logoUrl);
+  }
+  return merged;
+};
+
 const pickOwnedImageUrl = async (input: GeneratePostInput): Promise<string | undefined> => {
-  const ownedUrls = await getOwnedImageUrls(input.userId);
+  const storedOwned = await getOwnedImageUrls(input.userId);
+  const ownedUrls = mergeOwnedCandidates(storedOwned, input.brandContext?.logoUrl);
   if (ownedUrls.length === 0) {
     return undefined;
   }
