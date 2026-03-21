@@ -23,21 +23,23 @@ export async function POST() {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    const { count } = await admin
-      .from("generation_log")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .eq("action", "regenerate_all")
-      .gte("created_at", todayStart.toISOString());
+    if (process.env.NODE_ENV === "production") {
+      const { count } = await admin
+        .from("generation_log")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("action", "regenerate_all")
+        .gte("created_at", todayStart.toISOString());
 
-    if ((count ?? 0) >= MAX_REGENERATE_ALL_PER_DAY) {
-      return NextResponse.json(
-        toAppError(
-          "RATE_LIMIT",
-          `Du kan maks generere alle på nytt ${MAX_REGENERATE_ALL_PER_DAY} ganger per dag.`,
-        ),
-        { status: 429 },
-      );
+      if ((count ?? 0) >= MAX_REGENERATE_ALL_PER_DAY) {
+        return NextResponse.json(
+          toAppError(
+            "RATE_LIMIT",
+            `Du kan maks generere alle på nytt ${MAX_REGENERATE_ALL_PER_DAY} ganger per dag.`,
+          ),
+          { status: 429 },
+        );
+      }
     }
 
     const { data: oldPosts, error: fetchError } = await supabase
@@ -46,26 +48,28 @@ export async function POST() {
       .eq("user_id", userId)
       .order("scheduled_at", { ascending: true });
 
-    if (fetchError || !oldPosts || oldPosts.length === 0) {
+    if (fetchError) {
       return NextResponse.json(
-        toAppError("NO_POSTS", "Ingen poster funnet å generere på nytt."),
+        toAppError("POSTS_FETCH_FAILED", "Kunne ikke hente eksisterende poster.", fetchError.message),
         { status: 400 },
       );
     }
 
-    const oldImageUrls = oldPosts
+    const oldImageUrls = (oldPosts ?? [])
       .map((p) => p.image_url as string | null)
       .filter((url): url is string => Boolean(url));
 
-    const channelSet = [...new Set(oldPosts.map((p) => p.channel as SocialChannel))];
-    const postsPerWeek = 3;
-    const totalWeeks = 4;
+    const channelsFromPosts = [...new Set((oldPosts ?? []).map((p) => p.channel as SocialChannel))];
+    const fallbackChannels: SocialChannel[] = ["facebook", "instagram", "linkedin"];
+    let postsPerWeek = 3;
+    let totalWeeks = 4;
+    let mediaMode: "ai_only" | "hybrid" | "owned_only" = "ai_only";
 
-    let planId = (oldPosts.find((p) => p.plan_id)?.plan_id as string) ?? null;
+    let planId = ((oldPosts ?? []).find((p) => p.plan_id)?.plan_id as string) ?? null;
     if (!planId) {
       const { data: existingPlan } = await admin
         .from("content_plans")
-        .select("id")
+        .select("id, posts_per_week, total_weeks, media_mode")
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -73,6 +77,9 @@ export async function POST() {
 
       if (existingPlan) {
         planId = existingPlan.id as string;
+        postsPerWeek = Number(existingPlan.posts_per_week ?? 3);
+        totalWeeks = Number(existingPlan.total_weeks ?? 4);
+        mediaMode = String(existingPlan.media_mode ?? "ai_only") as "ai_only" | "hybrid" | "owned_only";
       } else {
         const { data: newPlan, error: planError } = await admin
           .from("content_plans")
@@ -94,6 +101,17 @@ export async function POST() {
         }
         planId = newPlan.id as string;
       }
+    } else {
+      const { data: selectedPlan } = await admin
+        .from("content_plans")
+        .select("posts_per_week, total_weeks, media_mode")
+        .eq("id", planId)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      postsPerWeek = Number(selectedPlan?.posts_per_week ?? 3);
+      totalWeeks = Number(selectedPlan?.total_weeks ?? 4);
+      mediaMode = String(selectedPlan?.media_mode ?? "ai_only") as "ai_only" | "hybrid" | "owned_only";
     }
 
     const { data: planData } = await admin
@@ -106,6 +124,8 @@ export async function POST() {
     const topicWindows = Array.isArray(planData?.topic_windows)
       ? (planData.topic_windows as TopicWindow[])
       : [];
+
+    const channelSet = channelsFromPosts.length > 0 ? channelsFromPosts : fallbackChannels;
 
     const { error: deleteError } = await admin
       .from("posts")
@@ -204,7 +224,7 @@ export async function POST() {
       } catch (err) {
         console.error("[regenerate-all] R2-sletting feilet:", err);
       }
-      await regenerateSlots(userId, newSlots, brandContext);
+      await regenerateSlots(userId, newSlots, mediaMode, brandContext);
       console.log(`[regenerate-all] Ferdig — ${newSlots.length} poster generert`);
     })().catch((err) => {
       console.error("[regenerate-all] Bakgrunnsjobb krasjet:", err);
@@ -250,6 +270,7 @@ const getTopicForWeek = (week: number, windows: TopicWindow[]): string => {
 async function regenerateSlots(
   userId: string,
   slots: Slot[],
+  mediaMode: "ai_only" | "hybrid" | "owned_only",
   brandContext?: BrandContext,
 ) {
   const admin = createSupabaseAdminClient();
@@ -270,7 +291,7 @@ async function regenerateSlots(
         topic: slot.topic,
         channel: slot.channel,
         scheduledAt: slot.scheduledAt,
-        mediaMode: "ai_only",
+        mediaMode,
         imageProfile: "preview",
         brandContext,
         intent: strategy.intent,
