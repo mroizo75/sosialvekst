@@ -50,10 +50,15 @@ export async function POST(request: Request) {
       ? `${payload.returnPath}${payload.returnPath.includes("?") ? "&" : "?"}payment=cancel`
       : "/onboarding?payment=cancel";
 
+    const withSessionId = (path: string): string => {
+      const separator = path.includes("?") ? "&" : "?";
+      return `${path}${separator}session_id={CHECKOUT_SESSION_ID}`;
+    };
+
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${appUrl}${successPath}`,
+      success_url: `${appUrl}${withSessionId(successPath)}`,
       cancel_url: `${appUrl}${cancelPath}`,
       client_reference_id: userId,
       metadata: { userId, mode: payload.mode },

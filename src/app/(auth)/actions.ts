@@ -42,14 +42,10 @@ export const signUpAction = async (formData: FormData): Promise<void> => {
   const companyName = getStringValue(formData, "companyName");
   const targetAudience = getStringValue(formData, "targetAudience");
   const termsAccepted = getCheckedValue(formData, "termsAccepted");
-  const basePlanPaid = getCheckedValue(formData, "basePlanPaid");
   const supabase = await createSupabaseServerClient();
 
   if (!termsAccepted) {
     redirect(`/register?error=terms_required&email=${encodeURIComponent(email)}`);
-  }
-  if (!basePlanPaid) {
-    redirect(`/register?error=payment_required&email=${encodeURIComponent(email)}`);
   }
 
   const { error } = await supabase.auth.signUp({
@@ -62,7 +58,11 @@ export const signUpAction = async (formData: FormData): Promise<void> => {
   });
 
   if (error) {
-    throw toAppError("AUTH_SIGNUP_FAILED", "Kunne ikke registrere bruker", error.message);
+    const lowerMessage = error.message.toLowerCase();
+    if (lowerMessage.includes("already registered") || lowerMessage.includes("already exists")) {
+      redirect(`/register?error=email_exists&email=${encodeURIComponent(email)}`);
+    }
+    redirect(`/register?error=signup_failed&email=${encodeURIComponent(email)}`);
   }
 
   redirect(`/login?message=check_email&email=${encodeURIComponent(email)}`);

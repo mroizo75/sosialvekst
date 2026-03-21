@@ -20,6 +20,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const query = await searchParams;
   const error = pickString(query.error);
   const message = pickString(query.message);
+  const confirmed = pickString(query.confirmed);
   const email = pickString(query.email);
 
   return (
@@ -46,7 +47,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </div>
           ) : null}
 
-          {message === "confirmed" ? (
+          {message === "confirmed" || confirmed === "1" ? (
             <div className="rounded-md bg-success/10 p-3 text-sm text-success">
               E-post bekreftet. Du kan logge inn.
             </div>

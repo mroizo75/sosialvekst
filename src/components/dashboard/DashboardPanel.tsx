@@ -72,7 +72,40 @@ export const DashboardPanel = () => {
 
   useEffect(() => {
     const url = new URL(window.location.href);
-    void refresh({ billingRequired: url.searchParams.get("billing") === "required" });
+    const payment = url.searchParams.get("payment");
+    const sessionId = url.searchParams.get("session_id");
+
+    const run = async () => {
+      await refresh({ billingRequired: url.searchParams.get("billing") === "required" });
+
+      if (payment === "cancel") {
+        setStatus("Betaling ble avbrutt.");
+      }
+
+      if (payment === "success" && sessionId) {
+        setStatus("Verifiserer betaling...");
+        const confirmResponse = await fetch("/api/stripe/confirm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId }),
+        });
+        const confirmData = (await confirmResponse.json().catch(() => ({}))) as { message?: string };
+        if (!confirmResponse.ok) {
+          setStatus(confirmData.message ?? "Betaling ble gjennomført, men abonnement ble ikke aktivert.");
+        } else {
+          setStatus("Betaling bekreftet. Abonnement er aktivt.");
+          await refresh({ quiet: true });
+        }
+      }
+
+      if (payment || sessionId) {
+        url.searchParams.delete("payment");
+        url.searchParams.delete("session_id");
+        window.history.replaceState({}, "", url.toString());
+      }
+    };
+
+    void run();
   }, []);
 
   const canPublish = overview?.subscription.active ?? false;
@@ -102,6 +135,26 @@ export const DashboardPanel = () => {
       setStatus("Betaling klar. Klikk «Åpne Stripe Checkout».");
     } catch {
       setStatus("Nettverksfeil ved oppretting av betaling.");
+    }
+  };
+
+  const createBaseCheckout = async () => {
+    try {
+      setStatus("Oppretter betaling for baseplan...");
+      const response = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "base", returnPath: "/dashboard" }),
+      });
+      const data = (await response.json()) as { url?: string; message?: string };
+      if (!response.ok || !data.url) {
+        setStatus(data.message ?? "Kunne ikke opprette baseplan-betaling.");
+        return;
+      }
+      setCheckoutUrl(data.url);
+      setStatus("Baseplan klar. Klikk «Åpne Stripe Checkout».");
+    } catch {
+      setStatus("Nettverksfeil ved oppretting av baseplan-betaling.");
     }
   };
 
@@ -222,6 +275,11 @@ export const DashboardPanel = () => {
           </p>
         )}
         <div className="flex flex-wrap gap-2">
+          {!canPublish && (
+            <Button size="sm" onClick={() => void createBaseCheckout()}>
+              Aktiver Baseplan
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => void createExtraPostsCheckout()}>
             Kjøp tilleggspakke (flere poster)
           </Button>

@@ -30,20 +30,26 @@ export default async function RegisterPage({ searchParams }: RegisterPageProps) 
           </Link>
           <CardTitle>Opprett konto</CardTitle>
           <CardDescription>
-            Fyll inn firmainfo, godkjenn vilkar og bekreft baseplan.
+            Fyll inn firmainfo og opprett konto. Betaling aktiveres etter innlogging i dashboard.
           </CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4">
           {error === "terms_required" ? (
             <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              Du ma godkjenne kjopsvilkarene for a registrere konto.
+              Du må godkjenne kjøpsvilkårene for å registrere konto.
             </div>
           ) : null}
 
-          {error === "payment_required" ? (
+          {error === "email_exists" ? (
             <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              Du ma bekrefte at baseplan er betalt (testmodus).
+              E-postadressen er allerede registrert. Prøv å logge inn i stedet.
+            </div>
+          ) : null}
+
+          {error === "signup_failed" ? (
+            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              Kunne ikke opprette konto nå. Prøv igjen om litt.
             </div>
           ) : null}
 
@@ -76,7 +82,6 @@ export default async function RegisterPage({ searchParams }: RegisterPageProps) 
 
             <div className="space-y-3 pt-2">
               <Checkbox name="termsAccepted" label="Jeg godkjenner kjøpsvilkårene" required />
-              <Checkbox name="basePlanPaid" label="Baseplan betalt (testmodus)" required />
             </div>
 
             <Button type="submit" className="w-full">
