@@ -9,7 +9,7 @@ export const CalendarBillingActions = () => {
   const [checkoutUrl, setCheckoutUrl] = useState("");
 
   const createExtraPostsCheckout = async () => {
-    setStatus("Oppretter betaling for tilleggsposter...");
+    setStatus("Oppretter betaling...");
     const response = await fetch("/api/stripe/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -17,11 +17,11 @@ export const CalendarBillingActions = () => {
     });
     const data = (await response.json()) as { url?: string };
     if (!response.ok || !data.url) {
-      setStatus("Kunne ikke opprette betaling");
+      setStatus("Kunne ikke opprette betaling.");
       return;
     }
     setCheckoutUrl(data.url);
-    setStatus("Betaling opprettet");
+    setStatus("");
   };
 
   return (
@@ -31,14 +31,14 @@ export const CalendarBillingActions = () => {
         size="sm"
         onClick={() => void createExtraPostsCheckout()}
       >
-        Oppgrader: 5 poster/uke
+        Legg til flere poster
       </Button>
       {checkoutUrl ? (
         <a
           href={checkoutUrl}
           target="_blank"
           rel="noreferrer"
-          className="text-sm font-medium text-primary hover:underline"
+          className="text-sm font-semibold text-primary hover:underline"
         >
           Gå til betaling
         </a>

@@ -82,10 +82,7 @@ const ensureCompleteEnding = (text: string): string => {
 
 const isOwnedImageUrl = (url: string): boolean => {
   const lower = url.toLowerCase();
-  return (
-    (lower.includes("/images/") || lower.includes("/logos/")) &&
-    !lower.includes("ai-image-")
-  );
+  return lower.includes("/images/") && !lower.includes("ai-image-");
 };
 
 const shuffleUrls = (urls: string[]): string[] => {
@@ -136,20 +133,17 @@ const getOwnedImageUrls = async (userId: string): Promise<string[]> => {
   }
 };
 
-const mergeOwnedCandidates = (
-  urls: string[],
-  logoUrl?: string,
-): string[] => {
-  const merged = [...urls];
-  if (logoUrl && isOwnedImageUrl(logoUrl) && !merged.includes(logoUrl)) {
-    merged.push(logoUrl);
-  }
-  return merged;
+const isLogoUrl = (url: string): boolean => {
+  return url.toLowerCase().includes("/logos/");
+};
+
+const filterOutLogos = (urls: string[]): string[] => {
+  return urls.filter((url) => !isLogoUrl(url));
 };
 
 const pickOwnedImageUrl = async (input: GeneratePostInput): Promise<string | undefined> => {
   const storedOwned = await getOwnedImageUrls(input.userId);
-  const ownedUrls = mergeOwnedCandidates(storedOwned, input.brandContext?.logoUrl);
+  const ownedUrls = filterOutLogos(storedOwned);
   if (ownedUrls.length === 0) {
     return undefined;
   }
@@ -204,6 +198,7 @@ const createText = async (input: GeneratePostInput): Promise<string> => {
     targetAudience: input.brandContext?.targetAudience,
     brandVoice: input.brandContext?.brandVoice,
     keyMessages: input.brandContext?.keyMessages,
+    coreValues: input.brandContext?.coreValues,
   });
 
   const prompt = buildNorwegianCopyPrompt({
@@ -247,6 +242,7 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     targetAudience: input.brandContext?.targetAudience,
     brandVoice: input.brandContext?.brandVoice,
     keyMessages: input.brandContext?.keyMessages,
+    coreValues: input.brandContext?.coreValues,
   });
 
   const imagePrompt = buildImagePrompt({

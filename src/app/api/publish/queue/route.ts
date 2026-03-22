@@ -42,25 +42,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const unsupportedLinkedInVideos = posts.filter(
-      (post) => post.channel === "linkedin" && Boolean(post.video_url),
-    );
-    if (unsupportedLinkedInVideos.length > 0) {
-      return NextResponse.json(
-        toAppError(
-          "LINKEDIN_VIDEO_NOT_SUPPORTED",
-          "LinkedIn-video er ikke aktivert ennå. Velg bilde eller fjern video på LinkedIn-poster før kø.",
-        ),
-        { status: 400 },
-      );
-    }
-
-    const requiredChannels = [...new Set(posts.map((post) => post.channel))];
     const { data: socialAccounts, error: socialError } = await supabase
       .from("social_accounts")
       .select("channel, access_token")
-      .eq("user_id", userId)
-      .in("channel", requiredChannels);
+      .eq("user_id", userId);
 
     if (socialError) {
       return NextResponse.json(
@@ -74,20 +59,43 @@ export async function POST(request: Request) {
         .filter((item) => item.access_token && !item.access_token.startsWith("pending-"))
         .map((item) => item.channel),
     );
-    const missingChannels = requiredChannels.filter((channel) => !validChannels.has(channel));
 
-    if (missingChannels.length > 0) {
+    if (validChannels.size === 0) {
+      return NextResponse.json(
+        toAppError("NO_SOCIAL_ACCOUNTS", "Du har ingen tilkoblede sosiale kontoer. Koble til minst én konto først."),
+        { status: 400 },
+      );
+    }
+
+    const publishablePosts = posts.filter((post) => validChannels.has(post.channel));
+    const skippedPosts = posts.filter((post) => !validChannels.has(post.channel));
+
+    if (publishablePosts.length === 0) {
+      const skippedChannels = [...new Set(skippedPosts.map((p) => p.channel))];
       return NextResponse.json(
         toAppError(
-          "MISSING_SOCIAL_ACCOUNTS",
-          `Mangler gyldig sosial konto for: ${missingChannels.join(", ")}.`,
+          "NO_CONNECTED_CHANNELS",
+          `Ingen av de godkjente postene tilhører tilkoblede kontoer. Mangler: ${skippedChannels.join(", ")}.`,
+        ),
+        { status: 400 },
+      );
+    }
+
+    const unsupportedLinkedInVideos = publishablePosts.filter(
+      (post) => post.channel === "linkedin" && Boolean(post.video_url),
+    );
+    if (unsupportedLinkedInVideos.length > 0) {
+      return NextResponse.json(
+        toAppError(
+          "LINKEDIN_VIDEO_NOT_SUPPORTED",
+          "LinkedIn-video er ikke aktivert ennå. Velg bilde eller fjern video på LinkedIn-poster før kø.",
         ),
         { status: 400 },
       );
     }
 
     const nowIso = new Date().toISOString();
-    const queueRows = posts.map((post) => ({
+    const queueRows = publishablePosts.map((post) => ({
       post_id: post.id,
       user_id: userId,
       channel: post.channel,
@@ -98,11 +106,14 @@ export async function POST(request: Request) {
       updated_at: new Date().toISOString(),
     }));
 
+    console.log(`[publish/queue] Legger ${queueRows.length} poster i kø for bruker ${userId}`);
+
     const { error: queueError } = await supabase
       .from("publish_jobs")
       .upsert(queueRows, { onConflict: "post_id" });
 
     if (queueError) {
+      console.error("[publish/queue] Upsert feilet:", queueError.message, queueError);
       return NextResponse.json(
         toAppError("QUEUE_INSERT_FAILED", "Kunne ikke legge poster i publiseringskø.", queueError.message),
         { status: 500 },
@@ -113,17 +124,22 @@ export async function POST(request: Request) {
       .from("posts")
       .update({ status: "scheduled", updated_at: new Date().toISOString() })
       .eq("user_id", userId)
-      .in("id", posts.map((post) => post.id));
+      .in("id", publishablePosts.map((post) => post.id));
 
     if (scheduleError) {
+      console.error("[publish/queue] Post-statusoppdatering feilet:", scheduleError.message, scheduleError);
       return NextResponse.json(
         toAppError("POST_SCHEDULE_FAILED", "Kunne ikke oppdatere poststatus til planlagt.", scheduleError.message),
         { status: 500 },
       );
     }
 
+    const skippedChannels = [...new Set(skippedPosts.map((p) => p.channel))];
+
     return NextResponse.json({
-      queued: posts.length,
+      queued: publishablePosts.length,
+      skipped: skippedPosts.length,
+      skippedChannels: skippedChannels.length > 0 ? skippedChannels : undefined,
     });
   } catch (error) {
     const appError = toUnknownAppError(error);

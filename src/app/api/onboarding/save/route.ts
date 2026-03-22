@@ -23,8 +23,21 @@ export async function POST(request: Request) {
       channels: body.channels,
       websiteUrl: body.websiteUrl,
       companyDescription: body.companyDescription,
+      industry: body.industry,
+      foundedYear: body.foundedYear,
+      teamDescription: body.teamDescription,
+      coreValues: body.coreValues,
+      customerPainPoints: body.customerPainPoints,
+      customerSuccessStories: body.customerSuccessStories,
       products: body.products,
+      services: body.services,
       uniqueSellingPoints: body.uniqueSellingPoints,
+      priceRange: body.priceRange,
+      brandPersonality: body.brandPersonality,
+      brandDosAndDonts: body.brandDosAndDonts,
+      competitorDifferentiators: body.competitorDifferentiators,
+      commonQuestions: body.commonQuestions,
+      seasonalFocus: body.seasonalFocus,
     });
 
     const record = saveOnboardingState(userId, step, payload);

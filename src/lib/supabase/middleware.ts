@@ -8,6 +8,7 @@ type SessionResult = {
   isAuthenticated: boolean;
   userId: string | null;
   hasActiveSubscription: boolean;
+  hasCompletedOnboarding: boolean;
 };
 
 export const updateSession = async (request: NextRequest): Promise<SessionResult> => {
@@ -38,17 +39,31 @@ export const updateSession = async (request: NextRequest): Promise<SessionResult
   const { data } = await supabase.auth.getUser();
   const userId = data.user?.id ?? null;
   let hasActiveSubscription = false;
+  let hasCompletedOnboarding = false;
 
   if (userId) {
-    const { data: subscription } = await supabase
-      .from("subscriptions")
-      .select("status")
-      .eq("user_id", userId)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const [subscriptionResult, brandResult] = await Promise.all([
+      supabase
+        .from("subscriptions")
+        .select("status")
+        .eq("user_id", userId)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("brand_profiles")
+        .select("target_audience, brand_voice")
+        .eq("user_id", userId)
+        .maybeSingle(),
+    ]);
 
-    hasActiveSubscription = subscription?.status === "active" || subscription?.status === "trialing";
+    hasActiveSubscription =
+      subscriptionResult.data?.status === "active" ||
+      subscriptionResult.data?.status === "trialing";
+
+    hasCompletedOnboarding =
+      Boolean(brandResult.data?.target_audience) &&
+      Boolean(brandResult.data?.brand_voice);
   }
 
   return {
@@ -56,5 +71,6 @@ export const updateSession = async (request: NextRequest): Promise<SessionResult
     isAuthenticated: Boolean(userId),
     userId,
     hasActiveSubscription,
+    hasCompletedOnboarding,
   };
 };

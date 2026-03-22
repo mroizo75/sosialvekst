@@ -29,14 +29,20 @@ export const mergeBrandRules = (input: {
   targetAudience?: string;
   brandVoice?: string;
   keyMessages?: string[];
+  coreValues?: string[];
 }): BrandRules => {
+  const combined = [
+    ...(input.keyMessages && input.keyMessages.length > 0
+      ? input.keyMessages
+      : defaultBrandRules.keyMessages),
+    ...(input.coreValues ?? []),
+  ];
+  const uniqueMessages = [...new Set(combined)];
+
   return {
     ...defaultBrandRules,
     targetAudience: input.targetAudience?.trim() || defaultBrandRules.targetAudience,
     toneOfVoice: input.brandVoice?.trim() || defaultBrandRules.toneOfVoice,
-    keyMessages:
-      input.keyMessages && input.keyMessages.length > 0
-        ? input.keyMessages
-        : defaultBrandRules.keyMessages,
+    keyMessages: uniqueMessages,
   };
 };

@@ -4,17 +4,11 @@ import { requireUserId } from "@/lib/auth";
 import { getLatestSubscription, getPostsPerWeekAllowance, hasActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-const startOfNextMonth = (): Date => {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth() + 1, 1);
-};
-
 export async function GET() {
   const userId = await requireUserId();
   const supabase = await createSupabaseServerClient();
-  const nextMonth = startOfNextMonth().toISOString();
 
-  const [postsResult, jobsResult, nextMonthPostsResult, subscription] = await Promise.all([
+  const [postsResult, jobsResult, latestPostResult, subscription] = await Promise.all([
     supabase
       .from("posts")
       .select("status, scheduled_at")
@@ -25,15 +19,17 @@ export async function GET() {
       .eq("user_id", userId),
     supabase
       .from("posts")
-      .select("id", { count: "exact", head: true })
+      .select("scheduled_at")
       .eq("user_id", userId)
-      .gte("scheduled_at", nextMonth),
+      .order("scheduled_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
     getLatestSubscription(userId),
   ]);
 
   const posts = postsResult.data ?? [];
   const jobs = jobsResult.data ?? [];
-  const nextMonthPlanned = nextMonthPostsResult.count ?? 0;
+  const latestScheduledAt = latestPostResult.data?.scheduled_at ?? null;
 
   const summary = {
     totalPosts: posts.length,
@@ -43,7 +39,7 @@ export async function GET() {
     needsReviewPosts: posts.filter((p) => p.status === "needs_review").length,
     queuedJobs: jobs.filter((j) => j.status === "queued" || j.status === "retrying" || j.status === "processing").length,
     failedJobs: jobs.filter((j) => j.status === "failed").length,
-    nextMonthPlanned,
+    latestScheduledAt,
   };
 
   return NextResponse.json({

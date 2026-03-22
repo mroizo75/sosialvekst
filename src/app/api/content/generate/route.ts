@@ -95,6 +95,7 @@ const buildSlots = (
   const targetTotal = postsPerWeek * totalWeeks * channels.length;
 
   const baseDate = startDate ? new Date(startDate) : now;
+  const earliestAllowed = startDate ? baseDate : now;
   const thisMonday = startOfWeekMonday(baseDate);
 
   const weekCursor = new Date(thisMonday);
@@ -110,7 +111,7 @@ const buildSlots = (
       const hour = getHour(countryCode, dayIndex);
       const scheduled = scheduleDate(weekCursor, dayOffset, hour);
 
-      if (new Date(scheduled).getTime() <= now.getTime()) {
+      if (new Date(scheduled).getTime() < earliestAllowed.getTime()) {
         continue;
       }
 
@@ -240,28 +241,63 @@ export async function POST(request: Request) {
   }
 }
 
-async function processSlots(
+const DB_RETRY_ATTEMPTS = 3;
+const DB_RETRY_DELAY_MS = 800;
+const POST_GENERATION_TIMEOUT_MS = 90_000;
+const CONCURRENCY = 3;
+
+async function updatePostWithRetry(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  postId: string,
   userId: string,
-  slots: PlaceholderSlot[],
+  payload: Record<string, unknown>,
+): Promise<boolean> {
+  for (let attempt = 1; attempt <= DB_RETRY_ATTEMPTS; attempt += 1) {
+    const { error } = await supabase
+      .from("posts")
+      .update({ ...payload, updated_at: new Date().toISOString() })
+      .eq("id", postId)
+      .eq("user_id", userId);
+
+    if (!error) return true;
+
+    console.error(`[generate] DB forsøk ${attempt}/${DB_RETRY_ATTEMPTS} feilet for ${postId}:`, error.message);
+
+    if (attempt < DB_RETRY_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, DB_RETRY_DELAY_MS * attempt));
+    }
+  }
+  return false;
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timeout etter ${ms / 1000}s: ${label}`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function generateSingleSlot(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  userId: string,
+  slot: PlaceholderSlot,
   mediaMode: "ai_only" | "hybrid" | "owned_only",
-  brandContext?: BrandContext,
-) {
-  const supabase = createSupabaseAdminClient();
-  let completed = 0;
+  brandContext: BrandContext | undefined,
+): Promise<boolean> {
+  try {
+    const strategy = assignPostStrategy({
+      weekIndex: slot.weekIndex,
+      dayIndex: slot.dayIndex,
+      channel: slot.channel,
+    });
 
-  console.log(`[generate] Starter generering av ${slots.length} poster for bruker ${userId}`);
-
-  for (const slot of slots) {
-    try {
-      console.log(`[generate] Post ${completed + 1}/${slots.length} (${slot.channel}, ${slot.id.slice(0, 8)})`);
-
-      const strategy = assignPostStrategy({
-        weekIndex: slot.weekIndex,
-        dayIndex: slot.dayIndex,
-        channel: slot.channel,
-      });
-
-      const post = await generatePost({
+    const post = await withTimeout(
+      generatePost({
         userId,
         topic: slot.topic,
         channel: slot.channel,
@@ -273,41 +309,58 @@ async function processSlots(
         format: strategy.format,
         ctaType: strategy.ctaType,
         imageDirection: strategy.imageDirection,
-      });
+      }),
+      POST_GENERATION_TIMEOUT_MS,
+      `${slot.channel}/${slot.id.slice(0, 8)}`,
+    );
 
-      const { error } = await supabase
-        .from("posts")
-        .update({
-          text_content: post.text,
-          image_url: post.imageUrl ?? null,
-          status: post.status,
-          quality_score: post.quality,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", slot.id)
-        .eq("user_id", userId);
+    return await updatePostWithRetry(supabase, slot.id, userId, {
+      text_content: post.text,
+      image_url: post.imageUrl ?? null,
+      status: post.status,
+      quality_score: post.quality,
+    });
+  } catch (err) {
+    console.error(`[generate] Post ${slot.id.slice(0, 8)} feilet:`, err instanceof Error ? err.message : err);
 
-      if (error) {
-        console.error(`[generate] DB-oppdatering feilet for ${slot.id}:`, error.message);
+    await updatePostWithRetry(supabase, slot.id, userId, {
+      text_content: "Generering feilet. Klikk «Generer på nytt» for å prøve igjen.",
+      status: "failed",
+    });
+    return false;
+  }
+}
+
+async function processSlots(
+  userId: string,
+  slots: PlaceholderSlot[],
+  mediaMode: "ai_only" | "hybrid" | "owned_only",
+  brandContext?: BrandContext,
+) {
+  const supabase = createSupabaseAdminClient();
+  let succeeded = 0;
+  let completed = 0;
+
+  console.log(`[generate] Starter generering av ${slots.length} poster (${CONCURRENCY} parallelt) for bruker ${userId}`);
+
+  for (let i = 0; i < slots.length; i += CONCURRENCY) {
+    const batch = slots.slice(i, i + CONCURRENCY);
+    const batchLabel = `${i + 1}–${Math.min(i + CONCURRENCY, slots.length)}/${slots.length}`;
+    console.log(`[generate] Batch ${batchLabel} (${batch.map((s) => s.channel).join(", ")})`);
+
+    const results = await Promise.allSettled(
+      batch.map((slot) => generateSingleSlot(supabase, userId, slot, mediaMode, brandContext)),
+    );
+
+    for (const result of results) {
+      completed += 1;
+      if (result.status === "fulfilled" && result.value) {
+        succeeded += 1;
       }
-
-      completed += 1;
-      console.log(`[generate] Post ${completed}/${slots.length} ferdig`);
-    } catch (err) {
-      completed += 1;
-      console.error(`[generate] Post ${completed}/${slots.length} feilet:`, err);
-
-      await supabase
-        .from("posts")
-        .update({
-          text_content: "Generering feilet. Klikk «Generer på nytt» for å prøve igjen.",
-          status: "failed",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", slot.id)
-        .eq("user_id", userId);
     }
+
+    console.log(`[generate] Batch ferdig — ${succeeded}/${completed} OK så langt`);
   }
 
-  console.log(`[generate] Ferdig — ${completed}/${slots.length} poster generert`);
+  console.log(`[generate] Ferdig — ${succeeded}/${slots.length} poster generert OK, ${completed - succeeded} feilet`);
 }

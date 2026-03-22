@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/utils";
 
 type OverviewResponse = {
   summary: {
@@ -13,7 +14,7 @@ type OverviewResponse = {
     needsReviewPosts: number;
     queuedJobs: number;
     failedJobs: number;
-    nextMonthPlanned: number;
+    latestScheduledAt: string | null;
   };
   subscription: {
     active: boolean;
@@ -22,6 +23,14 @@ type OverviewResponse = {
     extraPostsPerWeek: number;
     postsPerWeekAllowance: number;
   };
+};
+
+type RecoveryStatus = {
+  stuckCount: number;
+  failedRecoverableCount: number;
+  failedPermanentCount: number;
+  activelyGeneratingCount: number;
+  totalProblematic: number;
 };
 
 type SocialAccountsResponse = {
@@ -37,53 +46,79 @@ const SUBSCRIPTION_STATUS_LABEL_NO: Record<string, string> = {
   trialing: "Prøveperiode",
   past_due: "Forfalt",
   canceled: "Avsluttet",
-  inactive: "Inaktiv",
+  inactive: "Ikke aktiv",
 };
 
 const SOCIAL_CONNECT_MESSAGE_NO: Record<string, string> = {
-  meta_connected: "Meta-konto koblet til (Facebook/Instagram).",
-  meta_invalid_state: "Meta-innlogging feilet (ugyldig state). Prøv igjen.",
-  meta_token_failed: "Meta-innlogging feilet ved henting av token.",
-  meta_no_pages: "Meta-innlogging ok, men ingen sider funnet for kontoen.",
-  meta_save_failed: "Meta-konto ble funnet, men kunne ikke lagres.",
-  meta_callback_failed: "Meta callback feilet. Prøv igjen.",
-  linkedin_connected: "LinkedIn-konto koblet til.",
-  linkedin_invalid_state: "LinkedIn-innlogging feilet (ugyldig state). Prøv igjen.",
-  linkedin_token_failed: "LinkedIn-innlogging feilet ved henting av token.",
-  linkedin_profile_failed: "LinkedIn-innlogging feilet ved henting av profil.",
-  linkedin_save_failed: "LinkedIn-konto ble funnet, men kunne ikke lagres.",
-  linkedin_callback_failed: "LinkedIn callback feilet. Prøv igjen.",
+  meta_connected: "Facebook og Instagram er nå koblet til!",
+  meta_invalid_state: "Noe gikk galt med Meta-innloggingen. Prøv igjen.",
+  meta_token_failed: "Kunne ikke koble til Meta. Prøv igjen.",
+  meta_no_pages: "Vi fant ingen Facebook-sider på kontoen din.",
+  meta_save_failed: "Fant kontoen, men kunne ikke lagre den. Prøv igjen.",
+  meta_callback_failed: "Noe gikk galt. Prøv igjen.",
+  linkedin_connected: "LinkedIn er nå koblet til!",
+  linkedin_invalid_state: "Noe gikk galt med LinkedIn-innloggingen. Prøv igjen.",
+  linkedin_token_failed: "Kunne ikke koble til LinkedIn. Prøv igjen.",
+  linkedin_profile_failed: "Kunne ikke hente LinkedIn-profil. Prøv igjen.",
+  linkedin_save_failed: "Fant kontoen, men kunne ikke lagre den. Prøv igjen.",
+  linkedin_callback_failed: "Noe gikk galt. Prøv igjen.",
 };
 
-const firstDayOfNextMonthIso = (): string => {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth() + 1, 1, 9, 0, 0, 0).toISOString();
+const dayAfterDate = (isoDate: string): string => {
+  const date = new Date(isoDate);
+  date.setDate(date.getDate() + 1);
+  date.setHours(9, 0, 0, 0);
+  return date.toISOString();
 };
+
+const nextMondayFromNow = (): string => {
+  const now = new Date();
+  const day = now.getDay();
+  const daysUntilMonday = day === 0 ? 1 : 8 - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + daysUntilMonday);
+  monday.setHours(9, 0, 0, 0);
+  return monday.toISOString();
+};
+
+const POLL_INTERVAL_MS = 15_000;
 
 export const DashboardPanel = () => {
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountsResponse["connected"]>([]);
+  const [recovery, setRecovery] = useState<RecoveryStatus | null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [checkoutUrl, setCheckoutUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [billingRequired, setBillingRequired] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const refresh = async (options?: { quiet?: boolean; billingRequired?: boolean }) => {
-    if (!options?.quiet) {
-      setLoading(true);
+  const checkRecoveryStatus = useCallback(async () => {
+    try {
+      const response = await fetch("/api/posts/recover");
+      if (response.ok) {
+        const data = (await response.json()) as RecoveryStatus;
+        setRecovery(data);
+        return data;
+      }
+    } catch {
+      /* nettverksfeil ignoreres for polling */
     }
-    if (typeof options?.billingRequired === "boolean") {
-      setBillingRequired(options.billingRequired);
-    }
+    return null;
+  }, []);
+
+  const refresh = useCallback(async (options?: { quiet?: boolean; billingRequired?: boolean }) => {
+    if (!options?.quiet) setLoading(true);
+    if (typeof options?.billingRequired === "boolean") setBillingRequired(options.billingRequired);
     try {
       const [overviewResponse, socialResponse] = await Promise.all([
         fetch("/api/dashboard/overview"),
         fetch("/api/social/accounts"),
       ]);
       if (!overviewResponse.ok) {
-        setError("Kunne ikke hente dashboard-data.");
-        setStatus("Prøv igjen om noen sekunder.");
+        setError("Kunne ikke hente data. Prøv igjen om litt.");
         return;
       }
       const data = (await overviewResponse.json()) as OverviewResponse;
@@ -93,13 +128,13 @@ export const DashboardPanel = () => {
         setSocialAccounts(socialData.connected ?? []);
       }
       setError("");
+      await checkRecoveryStatus();
     } catch {
-      setError("Nettverksfeil ved henting av dashboard-data.");
-      setStatus("Sjekk nettverk og prøv igjen.");
+      setError("Nettverksfeil. Sjekk tilkoblingen og prøv igjen.");
     } finally {
       setLoading(false);
     }
-  };
+  }, [checkRecoveryStatus]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -110,16 +145,14 @@ export const DashboardPanel = () => {
     const run = async () => {
       await refresh({ billingRequired: url.searchParams.get("billing") === "required" });
 
-      if (payment === "cancel") {
-        setStatus("Betaling ble avbrutt.");
-      }
+      if (payment === "cancel") setStatus("Betaling ble avbrutt.");
 
       if (socialConnectStatus && SOCIAL_CONNECT_MESSAGE_NO[socialConnectStatus]) {
         setStatus(SOCIAL_CONNECT_MESSAGE_NO[socialConnectStatus]);
       }
 
       if (payment === "success" && sessionId) {
-        setStatus("Verifiserer betaling...");
+        setStatus("Bekrefter betaling...");
         const confirmResponse = await fetch("/api/stripe/confirm", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -127,9 +160,9 @@ export const DashboardPanel = () => {
         });
         const confirmData = (await confirmResponse.json().catch(() => ({}))) as { message?: string };
         if (!confirmResponse.ok) {
-          setStatus(confirmData.message ?? "Betaling ble gjennomført, men abonnement ble ikke aktivert.");
+          setStatus(confirmData.message ?? "Betaling gjennomført, men noe gikk galt.");
         } else {
-          setStatus("Betaling bekreftet. Abonnement er aktivt.");
+          setStatus("Betaling bekreftet! Abonnementet er aktivt.");
           await refresh({ quiet: true });
         }
       }
@@ -143,16 +176,52 @@ export const DashboardPanel = () => {
     };
 
     void run();
-  }, []);
+  }, [refresh]);
+
+  const autoRecoveryTriggered = useRef(false);
+
+  useEffect(() => {
+    const hasActiveWork =
+      (recovery?.activelyGeneratingCount ?? 0) > 0 ||
+      (recovery?.stuckCount ?? 0) > 0;
+
+    if (hasActiveWork && !pollRef.current) {
+      pollRef.current = setInterval(() => {
+        void refresh({ quiet: true });
+      }, POLL_INTERVAL_MS);
+    }
+
+    if (!hasActiveWork && pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+
+    if (
+      (recovery?.stuckCount ?? 0) > 0 &&
+      !autoRecoveryTriggered.current &&
+      !recovering
+    ) {
+      autoRecoveryTriggered.current = true;
+      void recoverPosts();
+    }
+
+    if ((recovery?.stuckCount ?? 0) === 0 && (recovery?.failedRecoverableCount ?? 0) === 0) {
+      autoRecoveryTriggered.current = false;
+    }
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [recovery, refresh, recovering]);
 
   const canPublish = overview?.subscription.active ?? false;
-  const connectedChannels = useMemo(() => {
-    return new Set(socialAccounts.map((account) => account.channel));
-  }, [socialAccounts]);
-  const planLabel = useMemo(() => {
-    if (!overview) return "Ingen plan";
-    return `${overview.subscription.planCode} (${overview.subscription.postsPerWeekAllowance} poster/uke)`;
-  }, [overview]);
+  const connectedChannels = useMemo(
+    () => new Set(socialAccounts.map((a) => a.channel)),
+    [socialAccounts],
+  );
   const subscriptionLabel = useMemo(() => {
     if (!overview) return "Ukjent";
     return SUBSCRIPTION_STATUS_LABEL_NO[overview.subscription.status] ?? overview.subscription.status;
@@ -160,7 +229,7 @@ export const DashboardPanel = () => {
 
   const createExtraPostsCheckout = async () => {
     try {
-      setStatus("Oppretter betaling for tilleggspakke...");
+      setStatus("Oppretter betaling...");
       const response = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -172,15 +241,15 @@ export const DashboardPanel = () => {
         return;
       }
       setCheckoutUrl(data.url);
-      setStatus("Betaling klar. Klikk «Åpne Stripe Checkout».");
+      setStatus("");
     } catch {
-      setStatus("Nettverksfeil ved oppretting av betaling.");
+      setStatus("Nettverksfeil.");
     }
   };
 
   const createBaseCheckout = async () => {
     try {
-      setStatus("Oppretter betaling for baseplan...");
+      setStatus("Sender deg til betaling...");
       const response = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -188,67 +257,120 @@ export const DashboardPanel = () => {
       });
       const data = (await response.json()) as { url?: string; message?: string };
       if (!response.ok || !data.url) {
-        setStatus(data.message ?? "Kunne ikke opprette baseplan-betaling.");
+        setStatus(data.message ?? "Kunne ikke opprette betaling.");
         return;
       }
       setCheckoutUrl(data.url);
-      setStatus("Baseplan klar. Klikk «Åpne Stripe Checkout».");
+      setStatus("");
     } catch {
-      setStatus("Nettverksfeil ved oppretting av baseplan-betaling.");
+      setStatus("Nettverksfeil.");
+    }
+  };
+
+  const recoverPosts = async () => {
+    try {
+      setRecovering(true);
+      setStatus("Gjenoppretter feilede poster...");
+      const response = await fetch("/api/posts/recover", { method: "POST" });
+      const data = (await response.json().catch(() => ({}))) as {
+        recovered?: number;
+        failed?: number;
+        message?: string;
+      };
+      if (!response.ok) {
+        setStatus(data.message ?? "Gjenoppretting feilet.");
+        return;
+      }
+      const r = data.recovered ?? 0;
+      const f = data.failed ?? 0;
+      if (r > 0 && f === 0) {
+        setStatus(`${r} poster gjenopprettet!`);
+      } else if (r > 0 && f > 0) {
+        setStatus(`${r} poster gjenopprettet, ${f} feilet fortsatt.`);
+      } else {
+        setStatus("Ingen poster kunne gjenopprettes akkurat nå. Prøv igjen om litt.");
+      }
+      await refresh({ quiet: true });
+    } catch {
+      setStatus("Nettverksfeil under gjenoppretting.");
+    } finally {
+      setRecovering(false);
     }
   };
 
   const planNextMonth = async () => {
+    const channels = Array.from(connectedChannels);
+    if (channels.length === 0) {
+      setStatus("Du må koble til minst én sosial konto før du kan planlegge innhold.");
+      return;
+    }
+
     try {
-      setStatus("Planlegger neste måned...");
+      setStatus("Lager innhold for neste periode...");
+
+      const startDate = overview?.summary.latestScheduledAt
+        ? dayAfterDate(overview.summary.latestScheduledAt)
+        : nextMondayFromNow();
+
       const response = await fetch("/api/content/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           postsPerWeek: 3,
           totalWeeks: 4,
-          channels: ["facebook", "instagram", "linkedin"],
+          channels,
           mediaMode: "hybrid",
           countryCode: "NO",
           topicWindows: [],
-          startDate: firstDayOfNextMonthIso(),
+          startDate,
         }),
       });
       const data = (await response.json().catch(() => ({}))) as { message?: string };
       if (!response.ok) {
-        setStatus(data.message ?? "Kunne ikke planlegge neste måned.");
+        setStatus(data.message ?? "Kunne ikke lage innhold for neste periode.");
         return;
       }
-      setStatus("Neste måned er lagt til i planleggingen.");
+      setStatus("Neste periode er planlagt!");
       await refresh({ quiet: true });
     } catch {
-      setStatus("Nettverksfeil ved planlegging av neste måned.");
+      setStatus("Nettverksfeil.");
     }
   };
 
   const queuePublishing = async () => {
     try {
-      setStatus("Legger godkjente poster i publiseringskø...");
+      setStatus("Legger poster i publiseringskø...");
       const response = await fetch("/api/publish/queue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      const data = (await response.json().catch(() => ({}))) as { queued?: number; message?: string };
+      const data = (await response.json().catch(() => ({}))) as {
+        queued?: number;
+        skipped?: number;
+        skippedChannels?: string[];
+        message?: string;
+      };
       if (!response.ok) {
-        setStatus(data.message ?? "Kunne ikke opprette publiseringskø.");
+        setStatus(data.message ?? "Noe gikk galt.");
         return;
       }
-      setStatus(`${data.queued ?? 0} poster er lagt i kø.`);
+      const parts: string[] = [`${data.queued ?? 0} poster lagt i kø.`];
+      if (data.skipped && data.skipped > 0 && data.skippedChannels) {
+        parts.push(
+          `${data.skipped} poster hoppet over (${data.skippedChannels.join(", ")} er ikke koblet til).`,
+        );
+      }
+      setStatus(parts.join(" "));
       await refresh({ quiet: true });
     } catch {
-      setStatus("Nettverksfeil ved køing av poster.");
+      setStatus("Nettverksfeil.");
     }
   };
 
   const runPublishing = async () => {
     try {
-      setStatus("Kjører publisering...");
+      setStatus("Publiserer...");
       const response = await fetch("/api/publish/run", { method: "POST" });
       const data = (await response.json().catch(() => ({}))) as {
         processed?: number;
@@ -257,26 +379,33 @@ export const DashboardPanel = () => {
         message?: string;
       };
       if (!response.ok) {
-        setStatus(data.message ?? "Kunne ikke kjøre publisering.");
+        setStatus(data.message ?? "Noe gikk galt med publiseringen.");
         return;
       }
       setStatus(
-        `Publisering ferdig: ${data.published ?? 0} publisert, ${data.failed ?? 0} feilet av ${data.processed ?? 0}.`,
+        `Ferdig! ${data.published ?? 0} publisert, ${data.failed ?? 0} feilet.`,
       );
       await refresh({ quiet: true });
     } catch {
-      setStatus("Nettverksfeil ved kjøring av publisering.");
+      setStatus("Nettverksfeil.");
     }
   };
 
   if (loading && !overview) {
-    return <p className="text-sm text-muted-foreground">Laster dashboard...</p>;
+    return (
+      <div className="flex items-center justify-center py-16">
+        <div className="flex flex-col items-center gap-3">
+          <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <p className="text-sm text-muted-foreground">Laster oversikt...</p>
+        </div>
+      </div>
+    );
   }
 
   if (!overview) {
     return (
-      <div className="space-y-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4">
-        <p className="text-sm text-destructive">{error || "Kunne ikke laste dashboard."}</p>
+      <div className="space-y-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-5">
+        <p className="text-sm text-destructive">{error || "Kunne ikke laste oversikt."}</p>
         <Button size="sm" variant="outline" onClick={() => void refresh()}>
           Prøv igjen
         </Button>
@@ -287,118 +416,229 @@ export const DashboardPanel = () => {
   return (
     <div className="space-y-6">
       {billingRequired && (
-        <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-foreground">
-          Du ble sendt hit fordi abonnement mangler. Aktivt abonnement kreves for AI-generering og automatisk publisering.
+        <div className="rounded-2xl border border-primary/30 bg-primary-light px-5 py-4 text-sm">
+          <p className="font-medium text-foreground">Du trenger et aktivt abonnement</p>
+          <p className="mt-1 text-muted-foreground">
+            Aktiver abonnement for å bruke AI-generering og automatisk publisering.
+          </p>
+        </div>
+      )}
+
+      {(recovery?.activelyGeneratingCount ?? 0) > 0 && (
+        <div className="flex items-center gap-3 rounded-2xl border border-primary/30 bg-primary-light px-5 py-4 text-sm">
+          <div className="size-4 shrink-0 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <div>
+            <p className="font-medium text-foreground">
+              Genererer {recovery?.activelyGeneratingCount} poster...
+            </p>
+            <p className="mt-0.5 text-muted-foreground">
+              Siden oppdateres automatisk når postene er klare.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {(recovery?.totalProblematic ?? 0) > 0 && (
+        <div className="rounded-2xl border border-warning/30 bg-warning/5 px-5 py-4 text-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="font-medium text-foreground">
+                {recovery!.totalProblematic} poster trenger oppmerksomhet
+              </p>
+              <p className="mt-1 text-muted-foreground">
+                {recovery!.stuckCount > 0 && `${recovery!.stuckCount} fastlåst under generering. `}
+                {recovery!.failedRecoverableCount > 0 && `${recovery!.failedRecoverableCount} feilet og kan prøves igjen.`}
+                {(recovery?.failedPermanentCount ?? 0) > 0 && ` ${recovery!.failedPermanentCount} feilet permanent.`}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void recoverPosts()}
+              disabled={recovering}
+            >
+              {recovering ? "Gjenoppretter..." : "Prøv igjen"}
+            </Button>
+          </div>
         </div>
       )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Totale poster" value={overview.summary.totalPosts} />
-        <StatCard label="Godkjente" value={overview.summary.approvedPosts} />
-        <StatCard label="I publiseringskø" value={overview.summary.queuedJobs} />
-        <StatCard label="Publisert" value={overview.summary.publishedPosts} />
+        <StatCard label="Totalt" value={overview.summary.totalPosts} />
+        <StatCard label="Godkjent" value={overview.summary.approvedPosts} accent="success" />
+        <StatCard label="I kø" value={overview.summary.queuedJobs} accent="primary" />
+        <StatCard label="Publisert" value={overview.summary.publishedPosts} accent="success" />
       </div>
 
-      <section className="rounded-xl border border-border bg-card p-4 space-y-3">
-        <h2 className="text-base font-semibold">Abonnement og kapasitet</h2>
-        <p className="text-sm text-muted-foreground">
-          Status: <span className={canPublish ? "text-success" : "text-warning-foreground"}>{subscriptionLabel}</span>{" "}
-          · Plan: {planLabel}
-        </p>
-        {!canPublish ? (
-          <p className="text-xs text-warning-foreground">
-            Kjøp eller aktiver abonnement for å låse opp generering og publisering.
+      <section className="rounded-2xl border border-border bg-card p-5 space-y-4">
+        <div>
+          <h2 className="text-base font-bold">Abonnement</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Status:{" "}
+            <span className={canPublish ? "text-success font-medium" : "text-warning-foreground font-medium"}>
+              {subscriptionLabel}
+            </span>
+            {" · "}
+            {overview.subscription.postsPerWeekAllowance} poster per uke
           </p>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            Alt er klart for både planlegging, køing og publisering.
-          </p>
-        )}
+        </div>
         <div className="flex flex-wrap gap-2">
           {!canPublish && (
             <Button size="sm" onClick={() => void createBaseCheckout()}>
-              Aktiver Baseplan
+              Aktiver abonnement
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={() => void createExtraPostsCheckout()}>
-            Kjøp tilleggspakke (flere poster)
+            Legg til flere poster
           </Button>
           {checkoutUrl ? (
             <a
               href={checkoutUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm hover:bg-muted"
+              className="inline-flex h-8 items-center rounded-lg border border-border px-3 text-sm font-medium hover:bg-secondary transition-colors"
             >
-              Åpne Stripe Checkout
+              Gå til betaling
             </a>
           ) : null}
         </div>
       </section>
 
-      <section className="rounded-xl border border-border bg-card p-4 space-y-3">
-        <h2 className="text-base font-semibold">Neste måned og publisering</h2>
-        <p className="text-sm text-muted-foreground">
-          Neste måned planlagt: {overview.summary.nextMonthPlanned} poster. Kjør planlegging først, deretter legg godkjente poster i kø.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => void planNextMonth()} disabled={!canPublish}>
-            Planlegg neste måned
-          </Button>
+      <section className="rounded-2xl border border-border bg-card p-5 space-y-4">
+        <div>
+          <h2 className="text-base font-bold">Planlegg fremover</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {overview.summary.latestScheduledAt
+              ? `Siste planlagte post: ${new Date(overview.summary.latestScheduledAt).toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}. Neste periode starter etter denne.`
+              : "Lag innhold for kommende uker. Du kan planlegge opptil 1 år fremover."}
+          </p>
+          {connectedChannels.size > 0 && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Kanaler: {Array.from(connectedChannels).map((c) => c.charAt(0).toUpperCase() + c.slice(1)).join(", ")}
+            </p>
+          )}
+        </div>
+        {!canPublish ? (
+          <div className="rounded-xl bg-primary-light border border-primary/20 px-4 py-3 text-sm text-foreground">
+            <p className="font-medium">Betaling kreves</p>
+            <p className="mt-1 text-muted-foreground">
+              Aktiver abonnement for å planlegge og publisere innhold.
+            </p>
+          </div>
+        ) : connectedChannels.size === 0 ? (
+          <div className="rounded-xl bg-warning/10 border border-warning/20 px-4 py-3 text-sm text-foreground">
+            <p className="font-medium">Ingen kontoer koblet til</p>
+            <p className="mt-1 text-muted-foreground">
+              Koble til minst én sosial konto (Facebook, Instagram eller LinkedIn) før du planlegger innhold.
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => void planNextMonth()}>
+              Lag innhold for neste 4 uker
+            </Button>
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-2xl border border-border bg-card p-5 space-y-4">
+        <div>
+          <h2 className="text-base font-bold">Publisering</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Poster publiseres automatisk på planlagt dato og tidspunkt.
+            Legg godkjente poster i kø så håndteres resten.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
           <Button size="sm" onClick={() => void queuePublishing()} disabled={!canPublish}>
             Legg godkjente i kø
           </Button>
-          <Button variant="outline" size="sm" onClick={() => void runPublishing()} disabled={!canPublish}>
-            Kjør publisering nå
-          </Button>
+          {overview && overview.summary.queuedJobs > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {overview.summary.queuedJobs} poster venter i kø
+            </p>
+          )}
         </div>
+        <p className="text-xs text-muted-foreground">
+          Postene publiseres på det tidspunktet de er planlagt for. Ingenting publiseres umiddelbart — du har full kontroll.
+        </p>
       </section>
 
-      <section className="rounded-xl border border-border bg-card p-4 space-y-3">
-        <h2 className="text-base font-semibold">Koble sosiale kontoer</h2>
-        <p className="text-sm text-muted-foreground">
-          Koble kontoene du vil publisere til. Meta kobler Facebook + Instagram i én innlogging.
-        </p>
+      <section className="rounded-2xl border border-border bg-card p-5 space-y-4">
+        <div>
+          <h2 className="text-base font-bold">Sosiale kontoer</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Koble til kontoene du vil publisere til.
+          </p>
+        </div>
         <div className="flex flex-wrap gap-2">
           <a
             href="/api/social/oauth/meta/start"
-            className="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm hover:bg-muted"
+            className="inline-flex h-9 items-center rounded-lg border border-border bg-card px-4 text-sm font-medium hover:bg-secondary transition-colors"
           >
-            Koble til Meta (Facebook + Instagram)
+            Koble Facebook + Instagram
           </a>
           <a
             href="/api/social/oauth/linkedin/start"
-            className="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm hover:bg-muted"
+            className="inline-flex h-9 items-center rounded-lg border border-border bg-card px-4 text-sm font-medium hover:bg-secondary transition-colors"
           >
-            Koble til LinkedIn
+            Koble LinkedIn
           </a>
         </div>
-        <div className="flex flex-wrap gap-2 text-xs">
-          <span className={connectedChannels.has("facebook") ? "text-success" : "text-muted-foreground"}>
-            Facebook: {connectedChannels.has("facebook") ? "Koblet" : "Ikke koblet"}
-          </span>
-          <span className={connectedChannels.has("instagram") ? "text-success" : "text-muted-foreground"}>
-            Instagram: {connectedChannels.has("instagram") ? "Koblet" : "Ikke koblet"}
-          </span>
-          <span className={connectedChannels.has("linkedin") ? "text-success" : "text-muted-foreground"}>
-            LinkedIn: {connectedChannels.has("linkedin") ? "Koblet" : "Ikke koblet"}
-          </span>
+        <div className="flex flex-wrap gap-4 text-sm">
+          <ChannelStatus label="Facebook" connected={connectedChannels.has("facebook")} />
+          <ChannelStatus label="Instagram" connected={connectedChannels.has("instagram")} />
+          <ChannelStatus label="LinkedIn" connected={connectedChannels.has("linkedin")} />
         </div>
       </section>
 
       {error ? (
         <p className="text-sm text-destructive">{error}</p>
       ) : status ? (
-        <p className="text-sm text-muted-foreground">{status}</p>
+        <div className="rounded-xl bg-muted/50 px-4 py-2.5 text-sm text-muted-foreground">
+          {status}
+        </div>
       ) : null}
     </div>
   );
 };
 
-const StatCard = ({ label, value }: { label: string; value: number }) => (
-  <div className="rounded-lg border border-border bg-card p-3">
-    <p className="text-xs text-muted-foreground">{label}</p>
-    <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
+const StatCard = ({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: number;
+  accent?: "primary" | "success";
+}) => (
+  <div className="rounded-2xl border border-border bg-card p-4">
+    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+    <p
+      className={cn(
+        "mt-1.5 text-3xl font-bold tabular-nums",
+        accent === "success" && value > 0 && "text-success",
+        accent === "primary" && value > 0 && "text-primary",
+      )}
+    >
+      {value}
+    </p>
   </div>
 );
 
+const ChannelStatus = ({ label, connected }: { label: string; connected: boolean }) => (
+  <span className="flex items-center gap-1.5">
+    <span
+      className={cn(
+        "size-2 rounded-full",
+        connected ? "bg-success" : "bg-border",
+      )}
+    />
+    <span className={connected ? "text-foreground font-medium" : "text-muted-foreground"}>
+      {label}
+    </span>
+    <span className="text-xs text-muted-foreground">
+      {connected ? "Koblet" : "Ikke koblet"}
+    </span>
+  </span>
+);

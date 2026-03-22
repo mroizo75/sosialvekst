@@ -57,7 +57,7 @@ export const MediaManager = () => {
 
   const uploadFile = async (file: File) => {
     setUploading(true);
-    setStatus("Laster opp fil...");
+    setStatus("Laster opp...");
     const mediaKind = getMediaKindFromFile(file);
     const payload = new FormData();
     payload.append("file", file);
@@ -69,12 +69,12 @@ export const MediaManager = () => {
     });
 
     if (!response.ok) {
-      setStatus("Opplasting feilet");
+      setStatus("Opplasting feilet. Prøv igjen.");
       setUploading(false);
       return;
     }
 
-    setStatus("Opplasting fullført");
+    setStatus("Lastet opp!");
     setUploading(false);
     await fetchFiles();
   };
@@ -102,23 +102,21 @@ export const MediaManager = () => {
   const handleDragLeave = () => setDragging(false);
 
   const triggerFilePicker = () => {
-    if (!uploading) {
-      fileInputRef.current?.click();
-    }
+    if (!uploading) fileInputRef.current?.click();
   };
 
   const deleteFile = async (key: string) => {
-    setStatus("Sletter fil...");
+    setStatus("Sletter...");
     const response = await fetch("/api/media/files", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key }),
     });
     if (!response.ok) {
-      setStatus("Kunne ikke slette fil");
+      setStatus("Kunne ikke slette filen.");
       return;
     }
-    setStatus("Fil slettet");
+    setStatus("Slettet!");
     await fetchFiles();
   };
 
@@ -138,15 +136,17 @@ export const MediaManager = () => {
         role="button"
         tabIndex={0}
         className={cn(
-          "flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 transition-colors",
+          "flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-10 transition-all",
           dragging
-            ? "border-primary bg-primary/5"
-            : "border-border bg-muted/30 hover:border-primary/50 hover:bg-muted/50",
+            ? "border-primary bg-primary/5 scale-[1.01]"
+            : "border-border bg-muted/20 hover:border-primary/40 hover:bg-muted/40",
         )}
       >
-        <div className="text-3xl text-muted-foreground">+</div>
-        <p className="mt-2 text-sm font-medium text-foreground">
-          {uploading ? "Laster opp..." : "Dra filer hit eller klikk for å laste opp"}
+        <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-xl text-primary">
+          +
+        </div>
+        <p className="mt-3 text-sm font-medium text-foreground">
+          {uploading ? "Laster opp..." : "Dra filer hit eller klikk for å velge"}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
           Bilder, videoer og logoer (maks 50 MB)
@@ -162,21 +162,23 @@ export const MediaManager = () => {
       </div>
 
       {status ? (
-        <p className="text-sm text-muted-foreground">{status}</p>
+        <div className="rounded-xl bg-muted/40 px-4 py-2.5 text-sm text-muted-foreground">
+          {status}
+        </div>
       ) : null}
 
       {files.length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">
-          Ingen filer lastet opp enda.
+        <p className="py-12 text-center text-sm text-muted-foreground">
+          Du har ikke lastet opp noen filer enda.
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {files.map((file) => (
             <div
               key={file.key}
-              className="group relative overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-shadow hover:shadow-md"
+              className="group relative overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all hover:shadow-md"
             >
-              <div className="aspect-square bg-muted/30">
+              <div className="aspect-square bg-muted/20">
                 {isImageUrl(file.key) ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img
@@ -204,12 +206,12 @@ export const MediaManager = () => {
                 </p>
               </div>
 
-              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
+              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/60 to-transparent p-2.5 opacity-0 transition-opacity group-hover:opacity-100">
                 <a
                   href={file.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded bg-white/20 px-2 py-1 text-[10px] font-medium text-white backdrop-blur-sm hover:bg-white/30"
+                  className="rounded-lg bg-white/20 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm hover:bg-white/30"
                 >
                   Åpne
                 </a>

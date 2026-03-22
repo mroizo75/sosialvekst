@@ -24,56 +24,61 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const email = pickString(query.email);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-primary/5 to-background p-4">
-      <Card className="w-full max-w-md">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-primary-light to-background p-4">
+      <Card className="w-full max-w-md animate-[scale-in_0.3s_ease-out]">
         <CardHeader className="text-center">
-          <Link href="/" className="mb-2 text-lg font-bold text-primary">
+          <Link href="/" className="mb-1 text-base font-bold text-primary">
             SosialVekst
           </Link>
-          <CardTitle>Logg inn</CardTitle>
-          <CardDescription>Skriv inn e-post og passord for å logge inn.</CardDescription>
+          <CardTitle>Velkommen tilbake</CardTitle>
+          <CardDescription>Logg inn for å se postene dine og administrere innhold.</CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4">
           {message === "check_email" ? (
-            <div className="rounded-md bg-success/10 p-3 text-sm text-success">
-              Registrering fullført. Bekreft e-postadressen din før du logger inn.
+            <div className="rounded-xl bg-success/10 p-3 text-sm text-success">
+              Bra! Sjekk e-posten din og klikk på lenken for å bekrefte kontoen.
             </div>
           ) : null}
 
           {message === "confirmation_sent" ? (
-            <div className="rounded-md bg-success/10 p-3 text-sm text-success">
-              Ny bekreftelsesmail er sendt.
+            <div className="rounded-xl bg-success/10 p-3 text-sm text-success">
+              Vi har sendt en ny bekreftelseslenke til e-posten din.
             </div>
           ) : null}
 
           {message === "confirmed" || confirmed === "1" ? (
-            <div className="rounded-md bg-success/10 p-3 text-sm text-success">
-              E-post bekreftet. Du kan logge inn.
+            <div className="rounded-xl bg-success/10 p-3 text-sm text-success">
+              E-posten er bekreftet! Du kan nå logge inn.
             </div>
           ) : null}
 
           {error === "email_not_confirmed" ? (
-            <div className="rounded-md bg-warning/10 p-3 text-sm">
-              <p className="font-medium text-warning-foreground">E-post er ikke bekreftet enda.</p>
+            <div className="rounded-xl bg-warning/10 p-3.5 text-sm">
+              <p className="font-medium text-warning-foreground">
+                Du må bekrefte e-posten din først.
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Sjekk innboksen din for en bekreftelseslenke.
+              </p>
               <form action={resendConfirmationAction} className="mt-2">
                 <input type="hidden" name="email" value={email} />
                 <Button type="submit" variant="outline" size="sm">
-                  Send bekreftelsesmail på nytt
+                  Send lenken på nytt
                 </Button>
               </form>
             </div>
           ) : null}
 
           {error === "signin_failed" ? (
-            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              Kunne ikke logge inn. Kontroller e-post og passord.
+            <div className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
+              Feil e-post eller passord. Prøv igjen.
             </div>
           ) : null}
 
           {error === "resend_failed" ? (
-            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              Kunne ikke sende ny bekreftelsesmail akkurat na.
+            <div className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
+              Kunne ikke sende ny lenke akkurat nå. Prøv igjen om litt.
             </div>
           ) : null}
 
@@ -91,9 +96,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               type="password"
               label="Passord"
               required
-              placeholder="Minst 8 tegn"
+              placeholder="Skriv inn passordet ditt"
             />
-            <Button type="submit" className="w-full">
+            <Button type="submit" className="w-full" size="lg">
               Logg inn
             </Button>
           </form>
@@ -101,9 +106,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
         <CardFooter className="justify-center">
           <p className="text-sm text-muted-foreground">
-            Ingen konto?{" "}
-            <Link href="/register" className="font-medium text-primary hover:underline">
-              Registrer deg
+            Ny her?{" "}
+            <Link href="/register" className="font-semibold text-primary hover:underline">
+              Opprett konto
             </Link>
           </p>
         </CardFooter>

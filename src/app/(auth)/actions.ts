@@ -33,7 +33,7 @@ export const signInAction = async (formData: FormData): Promise<void> => {
     redirect(`/login?error=signin_failed&email=${encodeURIComponent(email)}`);
   }
 
-  redirect("/onboarding");
+  redirect("/dashboard");
 };
 
 export const signUpAction = async (formData: FormData): Promise<void> => {

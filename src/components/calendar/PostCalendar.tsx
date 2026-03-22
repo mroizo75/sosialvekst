@@ -173,6 +173,7 @@ type DetailPanelProps = {
   onApprove: (id: string) => void;
   processingAction: string | null;
   approving: boolean;
+  aiEditsRemaining: number;
 };
 
 type PublishJobHistory = {
@@ -320,6 +321,12 @@ const MediaPickerDialog = ({ onClose, onSelect }: MediaPickerDialogProps) => {
   );
 };
 
+const qualityLabel = (score: number): { text: string; color: string } => {
+  if (score >= 75) return { text: "Bra", color: "text-success" };
+  if (score >= 55) return { text: "OK", color: "text-warning-foreground" };
+  return { text: "Kan forbedres", color: "text-destructive" };
+};
+
 const DetailPanel = ({
   post,
   onClose,
@@ -331,6 +338,7 @@ const DetailPanel = ({
   onApprove,
   processingAction,
   approving,
+  aiEditsRemaining,
 }: DetailPanelProps) => {
   const scheduledDate = new Date(post.scheduledAt);
   const [textDraft, setTextDraft] = useState(post.text);
@@ -344,9 +352,14 @@ const DetailPanel = ({
   const [pickerTarget, setPickerTarget] = useState<"primary" | "additional">("primary");
   const [publishJobs, setPublishJobs] = useState<PublishJobHistory[]>([]);
   const [publishHistoryStatus, setPublishHistoryStatus] = useState("");
+  const [showPublishHistory, setShowPublishHistory] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
   const isProcessing = Boolean(processingAction);
+  const aiBlocked = aiEditsRemaining <= 0;
+  const quality = qualityLabel(post.quality.total);
+  const hasMedia = Boolean(imageUrlDraft) || Boolean(videoUrlDraft);
+  const canApprove = post.status === "draft" || post.status === "needs_review";
 
   useEffect(() => {
     let cancelled = false;
@@ -391,21 +404,15 @@ const DetailPanel = ({
         onClose();
         return;
       }
-      if (event.key !== "Tab") {
-        return;
-      }
+      if (event.key !== "Tab") return;
       const panel = panelRef.current;
-      if (!panel) {
-        return;
-      }
+      if (!panel) return;
       const focusable = Array.from(
         panel.querySelectorAll<HTMLElement>(
           'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])',
         ),
       ).filter((element) => !element.hasAttribute("disabled"));
-      if (focusable.length === 0) {
-        return;
-      }
+      if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       const active = document.activeElement;
@@ -429,197 +436,222 @@ const DetailPanel = ({
         aria-modal="true"
         aria-label="Rediger post"
         tabIndex={-1}
-        className="flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
+        className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
       >
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <div>
-            <h3 className="text-base font-semibold">Rediger post</h3>
-            <p className="text-xs text-muted-foreground">
-              {CHANNEL_LABEL_NO[post.channel]} · {scheduledDate.toLocaleDateString("nb-NO")}
-            </p>
+        {/* --- Header --- */}
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <div className="flex items-center gap-3">
+            <span className={cn("size-2.5 shrink-0 rounded-full", channelDot[post.channel])} />
+            <div>
+              <h3 className="text-sm font-bold leading-tight">
+                {CHANNEL_LABEL_NO[post.channel]} — {scheduledDate.toLocaleDateString("nb-NO", { weekday: "long", day: "numeric", month: "long" })}
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Kl. {scheduledDate.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" })}
+                {" · "}
+                <span className={cn("font-medium", post.status === "approved" ? "text-success" : post.status === "failed" ? "text-destructive" : "text-foreground")}>
+                  {STATUS_LABEL_NO[post.status] ?? post.status}
+                </span>
+              </p>
+            </div>
           </div>
-          <Button autoFocus variant="ghost" size="sm" onClick={onClose}>
-            Lukk
-          </Button>
+          <Button autoFocus variant="ghost" size="sm" onClick={onClose}>Lukk</Button>
         </div>
 
+        {/* --- Approve banner --- */}
+        {canApprove && (
+          <div className="flex items-center justify-between border-b border-primary/20 bg-primary/5 px-5 py-2.5">
+            <p className="text-sm text-foreground">Klar til å godkjenne?</p>
+            <Button
+              size="sm"
+              onClick={() => onApprove(post.id)}
+              disabled={approving || isProcessing}
+            >
+              {approving ? "Godkjenner..." : "Godkjenn for publisering"}
+            </Button>
+          </div>
+        )}
+        {post.status === "approved" && (
+          <div className="flex items-center gap-2 border-b border-success/20 bg-success/5 px-5 py-2.5">
+            <span className="flex size-4 items-center justify-center rounded-full bg-success text-[10px] text-white font-bold">✓</span>
+            <p className="text-sm font-medium text-success">Godkjent — klar for publisering</p>
+          </div>
+        )}
+
+        {/* --- Body --- */}
         <div className="flex-1 overflow-y-auto">
-          <div className="grid grid-cols-1 lg:grid-cols-[1.35fr,1fr]">
-            <div className="p-5 space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge channel={post.channel}>{CHANNEL_LABEL_NO[post.channel]}</Badge>
-              <Badge status={post.status}>{STATUS_LABEL_NO[post.status] ?? post.status}</Badge>
-              {post.intent ? (
-                <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-accent-foreground">
-                  {post.intent.replace("_", " ")}
-                </span>
-              ) : null}
-              {post.format ? (
-                <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-secondary-foreground">
-                  {post.format.replace("_", " ")}
-                </span>
-              ) : null}
-            </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2">
 
-            <div className="text-sm text-muted-foreground">
-              <p>
-                {scheduledDate.toLocaleDateString("nb-NO", {
-                  weekday: "long",
-                  day: "numeric",
-                  month: "long",
-                  year: "numeric",
-                })}
-              </p>
-              <p>
-                Kl.{" "}
-                {scheduledDate.toLocaleTimeString("nb-NO", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
-            </div>
+            {/* === LEFT: Forhåndsvisning === */}
+            <div className="p-5 space-y-4 lg:border-r lg:border-border">
 
-            {videoUrlDraft ? (
-              <div className="flex h-[210px] w-full items-center justify-center rounded-lg border border-border bg-muted/20 p-2">
-                <video
-                  src={videoUrlDraft}
-                  controls
-                  className="h-full w-full rounded-md object-contain"
-                />
-              </div>
-            ) : imageUrlDraft ? (
-              <div className="flex h-[210px] w-full items-center justify-center rounded-lg border border-border bg-muted/20 p-2">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={imageUrlDraft}
-                  alt="Postbilde"
-                  className="h-full w-full rounded-md object-contain"
-                  onError={(event) => {
-                    event.currentTarget.style.display = "none";
-                  }}
-                />
-              </div>
-            ) : null}
-            {additionalImageUrlsDraft.length > 0 && !videoUrlDraft ? (
-              <div className="grid grid-cols-4 gap-2">
-                {additionalImageUrlsDraft.map((url, index) => (
-                  <div key={`${url}-preview-${index}`} className="rounded border border-border p-1">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt="" className="h-14 w-full rounded object-cover" />
+              {/* Media preview */}
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Forhåndsvisning</p>
+                {videoUrlDraft ? (
+                  <div className="flex aspect-[4/3] w-full items-center justify-center rounded-xl border border-border bg-muted/20 overflow-hidden">
+                    <video src={videoUrlDraft} controls className="h-full w-full object-contain" />
                   </div>
-                ))}
-              </div>
-            ) : null}
-
-            <div className="space-y-1 text-xs text-muted-foreground">
-              <div className="flex items-center justify-between">
-                <span>Kvalitet</span>
-                <span className={cn(
-                  "font-medium",
-                  post.quality.total >= 75 ? "text-success" : post.quality.total >= 55 ? "text-warning-foreground" : "text-destructive",
-                )}>
-                  {post.quality.total}/100
-                </span>
-              </div>
-              <div className="flex gap-3">
-                <span className={post.quality.companyMentioned ? "text-success" : "text-destructive"}>
-                  {post.quality.companyMentioned ? "\u2713" : "\u2717"} Bedriftsnavn
-                </span>
-                <span className={post.quality.ctaPresent ? "text-success" : "text-destructive"}>
-                  {post.quality.ctaPresent ? "\u2713" : "\u2717"} CTA
-                </span>
-              </div>
-            </div>
-
-            </div>
-
-            <div className="border-t border-border p-5 space-y-3 lg:border-l lg:border-t-0">
-              <div className="rounded-lg border border-border bg-muted/40 p-3 space-y-3">
-              <Textarea
-                label="Posttekst"
-                value={textDraft}
-                onChange={(event) => setTextDraft(event.target.value)}
-                rows={7}
-                className="resize-none"
-                placeholder="Skriv eller lim inn tekst..."
-              />
-              <Input
-                label="Bilde-URL (valgfritt)"
-                value={imageUrlDraft}
-                onChange={(event) => {
-                  setImageUrlDraft(event.target.value);
-                  if (event.target.value.trim().length > 0) {
-                    setVideoUrlDraft("");
-                  }
-                }}
-                placeholder="https://..."
-              />
-              <Input
-                label="Video-URL (valgfritt)"
-                value={videoUrlDraft}
-                onChange={(event) => {
-                  setVideoUrlDraft(event.target.value);
-                  if (event.target.value.trim().length > 0) {
-                    setImageUrlDraft("");
-                    setAdditionalImageUrlsDraft([]);
-                  }
-                }}
-                placeholder="https://..."
-              />
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <Button
-                  onClick={() => {
-                    setPickerTarget("primary");
-                    setShowMediaPicker(true);
-                  }}
-                  disabled={isProcessing}
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                >
-                  Velg hovedmedia
-                </Button>
-                <Button
-                  onClick={() => {
-                    setPickerTarget("additional");
-                    setShowMediaPicker(true);
-                  }}
-                  disabled={isProcessing || Boolean(videoUrlDraft)}
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                >
-                  Legg til ekstra bilde
-                </Button>
-              </div>
-              <div className="rounded-md border border-border bg-background p-2">
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs font-medium text-foreground">Ekstra bilder (karusell)</p>
-                  <p className="text-xs text-muted-foreground">{additionalImageUrlsDraft.length} valgt</p>
-                </div>
-                {additionalImageUrlsDraft.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">Ingen ekstra bilder valgt.</p>
+                ) : imageUrlDraft ? (
+                  <div className="flex aspect-[4/3] w-full items-center justify-center rounded-xl border border-border bg-muted/20 overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={imageUrlDraft}
+                      alt="Postbilde"
+                      className="h-full w-full object-contain"
+                      onError={(event) => { event.currentTarget.style.display = "none"; }}
+                    />
+                  </div>
                 ) : (
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="flex aspect-[4/3] w-full items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/10">
+                    <div className="text-center">
+                      <p className="text-sm text-muted-foreground">Ingen bilde eller video</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => { setPickerTarget("primary"); setShowMediaPicker(true); }}
+                        disabled={isProcessing}
+                      >
+                        Velg fra bibliotek
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Additional images */}
+              {additionalImageUrlsDraft.length > 0 && !videoUrlDraft && (
+                <div>
+                  <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+                    Ekstra bilder ({additionalImageUrlsDraft.length})
+                  </p>
+                  <div className="grid grid-cols-4 gap-1.5">
                     {additionalImageUrlsDraft.map((url, index) => (
-                      <div key={`${url}-${index}`} className="relative rounded border border-border p-1">
+                      <div key={`${url}-${index}`} className="group relative rounded-lg border border-border overflow-hidden">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt="" className="h-16 w-full rounded object-cover" />
+                        <img src={url} alt="" className="h-16 w-full object-cover" />
                         <button
                           type="button"
-                          className="absolute right-1 top-1 rounded bg-black/60 px-1 text-[10px] text-white"
-                          onClick={() => {
-                            setAdditionalImageUrlsDraft((current) => current.filter((_, i) => i !== index));
-                          }}
+                          className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100"
+                          onClick={() => setAdditionalImageUrlsDraft((c) => c.filter((_, i) => i !== index))}
                           disabled={isProcessing}
                         >
-                          x
+                          <span className="text-xs font-medium text-white">Fjern</span>
                         </button>
                       </div>
                     ))}
                   </div>
-                )}
+                </div>
+              )}
+
+              {/* Media actions */}
+              {hasMedia && (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setPickerTarget("primary"); setShowMediaPicker(true); }}
+                    disabled={isProcessing}
+                  >
+                    Bytt bilde/video
+                  </Button>
+                  {!videoUrlDraft && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setPickerTarget("additional"); setShowMediaPicker(true); }}
+                      disabled={isProcessing}
+                    >
+                      + Legg til bilde
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setImageUrlDraft(""); setVideoUrlDraft(""); setAdditionalImageUrlsDraft([]); }}
+                    disabled={isProcessing}
+                    className="text-destructive hover:text-destructive"
+                  >
+                    Fjern media
+                  </Button>
+                </div>
+              )}
+
+              {/* Quality bar */}
+              <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium text-foreground">Kvalitet</span>
+                  <span className={cn("font-bold", quality.color)}>{quality.text}</span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-border">
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-all",
+                      post.quality.total >= 75 ? "bg-success" : post.quality.total >= 55 ? "bg-warning" : "bg-destructive",
+                    )}
+                    style={{ width: `${post.quality.total}%` }}
+                  />
+                </div>
+                <div className="flex gap-4 text-[11px] text-muted-foreground">
+                  <span className={post.quality.companyMentioned ? "text-success" : ""}>
+                    {post.quality.companyMentioned ? "✓" : "✗"} Bedriftsnavn nevnt
+                  </span>
+                  <span className={post.quality.ctaPresent ? "text-success" : ""}>
+                    {post.quality.ctaPresent ? "✓" : "✗"} Oppfordring til handling
+                  </span>
+                </div>
               </div>
+
+              {/* Publish history (collapsed) */}
+              {(publishJobs.length > 0 || publishHistoryStatus) && (
+                <div className="rounded-xl border border-border bg-muted/10">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between px-3 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                    onClick={() => setShowPublishHistory((v) => !v)}
+                  >
+                    <span>Publiseringshistorikk ({publishJobs.length})</span>
+                    <span className="text-[10px]">{showPublishHistory ? "▲" : "▼"}</span>
+                  </button>
+                  {showPublishHistory && (
+                    <div className="border-t border-border px-3 py-2.5 space-y-1.5">
+                      {publishHistoryStatus && <p className="text-xs text-muted-foreground">{publishHistoryStatus}</p>}
+                      {publishJobs.map((job) => (
+                        <div key={job.id} className="flex items-center justify-between rounded-md bg-background px-2 py-1.5 text-xs">
+                          <span>{CHANNEL_LABEL_NO[job.channel] ?? job.channel}</span>
+                          <span className={cn(
+                            "font-medium",
+                            job.status === "completed" && "text-success",
+                            job.status === "failed" && "text-destructive",
+                            (job.status === "queued" || job.status === "retrying") && "text-warning-foreground",
+                          )}>
+                            {PUBLISH_JOB_STATUS_LABEL_NO[job.status] ?? job.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* === RIGHT: Redigering === */}
+            <div className="p-5 space-y-5">
+
+              {/* Text editing */}
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tekst</p>
+                <Textarea
+                  value={textDraft}
+                  onChange={(event) => setTextDraft(event.target.value)}
+                  rows={10}
+                  className="resize-none"
+                  placeholder="Skriv teksten til innlegget her..."
+                />
+              </div>
+
+              {/* Save button */}
               <Button
                 onClick={() => onSave(post.id, {
                   text: textDraft,
@@ -629,115 +661,112 @@ const DetailPanel = ({
                 })}
                 disabled={isProcessing || textDraft.trim().length === 0}
                 className="w-full"
+                size="lg"
               >
-                {processingAction === "save" ? "Lagrer..." : "Lagre post"}
-              </Button>
-            </div>
-
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <Button
-                onClick={() => onRegenerateText(post.id)}
-                disabled={isProcessing}
-                variant="outline"
-                size="sm"
-                className="h-9"
-              >
-                {processingAction === "regenerate_text" ? "Genererer..." : "AI: Lag ny tekst"}
-              </Button>
-              <Button
-                onClick={() => onRegenerateImage(post.id)}
-                disabled={isProcessing}
-                variant="outline"
-                size="sm"
-                className="h-9"
-              >
-                {processingAction === "regenerate_image" ? "Genererer..." : "AI: Lag nytt bilde"}
-              </Button>
-              </div>
-              <div className="rounded-md border border-border bg-muted/30 p-2 space-y-2">
-              <Input
-                label="Skriv om med nytt emne"
-                value={topicDraft}
-                onChange={(event) => setTopicDraft(event.target.value)}
-                placeholder="Eksempel: HMS-opplæring for nyansatte"
-              />
-              <Button
-                onClick={() => onRewriteTopic(post.id, topicDraft)}
-                disabled={isProcessing || topicDraft.trim().length < 2}
-                variant="outline"
-                size="sm"
-                className="h-9 w-full"
-              >
-                {processingAction === "rewrite_topic" ? "Skriver om..." : "AI: Skriv om med nytt emne"}
-              </Button>
-              </div>
-
-              {(post.status === "draft" || post.status === "needs_review") && (
-              <Button
-                onClick={() => onApprove(post.id)}
-                disabled={approving || isProcessing}
-                className="w-full"
-                variant="primary"
-              >
-                {approving ? "Godkjenner..." : "Godkjenn for publisering"}
-              </Button>
-              )}
-              {post.status === "approved" && (
-              <div className="rounded-md bg-success/10 px-3 py-2 text-center text-sm font-medium text-success">
-                Godkjent — klar for automatisk publisering
-              </div>
-              )}
-              <Button
-              onClick={() => onRegenerateAll(post.id)}
-              disabled={isProcessing}
-              variant="outline"
-              size="sm"
-              className="h-9 w-full"
-            >
-              {processingAction === "regenerate_all" ? "Genererer..." : "AI: Lag helt ny versjon"}
+                {processingAction === "save" ? "Lagrer..." : "Lagre endringer"}
               </Button>
 
-              <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
-                <h4 className="text-sm font-semibold text-foreground">Publiseringshistorikk</h4>
-                {publishHistoryStatus ? (
-                  <p className="text-xs text-muted-foreground">{publishHistoryStatus}</p>
-                ) : null}
-                {publishJobs.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">Ingen publiseringsforsøk ennå.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {publishJobs.map((job) => (
-                      <div key={job.id} className="rounded-md border border-border bg-background px-2 py-1.5">
-                        <div className="flex items-center justify-between text-xs">
-                          <span>{CHANNEL_LABEL_NO[job.channel] ?? job.channel}</span>
-                          <span
-                            className={cn(
-                              "font-medium",
-                              job.status === "completed" && "text-success",
-                              job.status === "failed" && "text-destructive",
-                              (job.status === "queued" || job.status === "retrying") && "text-warning-foreground",
-                              job.status === "processing" && "text-info",
-                            )}
-                          >
-                            {PUBLISH_JOB_STATUS_LABEL_NO[job.status] ?? job.status}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-[11px] text-muted-foreground">
-                          Forsøk: {job.attempts} · Sist oppdatert: {new Date(job.updated_at).toLocaleString("nb-NO")}
-                        </p>
-                        {(job.status === "queued" || job.status === "retrying" || job.status === "processing") && (
-                          <p className="mt-1 text-[11px] text-muted-foreground">
-                            Neste/aktiv kjøring: {new Date(job.run_at).toLocaleString("nb-NO")}
-                          </p>
-                        )}
-                        {job.last_error ? (
-                          <p className="mt-1 text-[11px] text-destructive">{job.last_error}</p>
-                        ) : null}
-                      </div>
-                    ))}
+              {/* AI section */}
+              <div className={cn(
+                "rounded-xl border p-4 space-y-3",
+                aiBlocked ? "border-border bg-muted/30" : "border-border bg-muted/10",
+              )}>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">La AI hjelpe deg</p>
+                  <span className={cn(
+                    "rounded-md px-2 py-0.5 text-[11px] font-medium",
+                    aiBlocked
+                      ? "bg-destructive/10 text-destructive"
+                      : "bg-muted text-muted-foreground",
+                  )}>
+                    {aiEditsRemaining} igjen
+                  </span>
+                </div>
+
+                {aiBlocked ? (
+                  <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-3">
+                    <p className="text-xs font-medium text-foreground">AI-redigeringer er brukt opp</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Du har brukt alle dine AI-endringer for denne perioden. Du kan fortsatt redigere tekst og bilder manuelt ovenfor.
+                    </p>
                   </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onRegenerateText(post.id)}
+                        disabled={isProcessing}
+                        className={cn(
+                          "rounded-xl border border-border bg-card p-3 text-left transition-all hover:border-primary/40 hover:shadow-sm disabled:opacity-50 cursor-pointer",
+                          processingAction === "regenerate_text" && "border-primary/40 animate-pulse",
+                        )}
+                      >
+                        <span className="text-lg">✏️</span>
+                        <p className="mt-1 text-xs font-medium text-foreground">
+                          {processingAction === "regenerate_text" ? "Skriver..." : "Ny tekst"}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">Behold bilde, lag ny tekst</p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => onRegenerateImage(post.id)}
+                        disabled={isProcessing}
+                        className={cn(
+                          "rounded-xl border border-border bg-card p-3 text-left transition-all hover:border-primary/40 hover:shadow-sm disabled:opacity-50 cursor-pointer",
+                          processingAction === "regenerate_image" && "border-primary/40 animate-pulse",
+                        )}
+                      >
+                        <span className="text-lg">🖼️</span>
+                        <p className="mt-1 text-xs font-medium text-foreground">
+                          {processingAction === "regenerate_image" ? "Lager bilde..." : "Nytt bilde"}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">Behold tekst, lag nytt bilde</p>
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => onRegenerateAll(post.id)}
+                      disabled={isProcessing}
+                      className={cn(
+                        "w-full rounded-xl border border-border bg-card p-3 text-left transition-all hover:border-primary/40 hover:shadow-sm disabled:opacity-50 cursor-pointer",
+                        processingAction === "regenerate_all" && "border-primary/40 animate-pulse",
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">🔄</span>
+                        <div>
+                          <p className="text-xs font-medium text-foreground">
+                            {processingAction === "regenerate_all" ? "Genererer..." : "Lag helt nytt innlegg"}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">Ny tekst og nytt bilde fra bunnen av</p>
+                        </div>
+                      </div>
+                    </button>
+
+                    <div className="rounded-lg border border-border bg-card p-3 space-y-2">
+                      <p className="text-xs font-medium text-foreground">Skriv om med et annet tema</p>
+                      <Input
+                        value={topicDraft}
+                        onChange={(event) => setTopicDraft(event.target.value)}
+                        placeholder="F.eks. «Vårkampanje» eller «HMS-tips»"
+                      />
+                      <Button
+                        onClick={() => onRewriteTopic(post.id, topicDraft)}
+                        disabled={isProcessing || topicDraft.trim().length < 2}
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                      >
+                        {processingAction === "rewrite_topic" ? "Skriver om..." : "Skriv om"}
+                      </Button>
+                    </div>
+                  </>
                 )}
               </div>
+
             </div>
           </div>
         </div>
@@ -750,9 +779,7 @@ const DetailPanel = ({
             if (pickerTarget === "additional") {
               if (kind === "image") {
                 setAdditionalImageUrlsDraft((current) => {
-                  if (current.includes(file.url) || file.url === imageUrlDraft) {
-                    return current;
-                  }
+                  if (current.includes(file.url) || file.url === imageUrlDraft) return current;
                   return [...current, file.url];
                 });
                 setVideoUrlDraft("");
@@ -775,6 +802,8 @@ const DetailPanel = ({
   );
 };
 
+type AiEditLimits = { used: number; limit: number };
+
 export const PostCalendar = () => {
   const [posts, setPosts] = useState<PostDraft[]>([]);
   const [loading, setLoading] = useState(true);
@@ -791,8 +820,7 @@ export const PostCalendar = () => {
   const [dragOverDateKey, setDragOverDateKey] = useState<string | null>(null);
   const [pollErrorCount, setPollErrorCount] = useState(0);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [isRegeneratingPlan, setIsRegeneratingPlan] = useState(false);
-  const [isDeletingAllPosts, setIsDeletingAllPosts] = useState(false);
+  const [aiLimits, setAiLimits] = useState<AiEditLimits>({ used: 0, limit: 5 });
 
   const hasGenerating = useMemo(
     () => posts.some((p) => p.status === "generating"),
@@ -813,8 +841,9 @@ export const PostCalendar = () => {
         setLoading(false);
         return;
       }
-      const data = (await response.json()) as { posts: PostDraft[] };
+      const data = (await response.json()) as { posts: PostDraft[]; aiEdits?: AiEditLimits };
       setPosts(data.posts);
+      if (data.aiEdits) setAiLimits(data.aiEdits);
       setPollErrorCount(0);
     } catch {
       setStatus("Nettverksfeil ved henting av poster");
@@ -824,11 +853,20 @@ export const PostCalendar = () => {
     }
   }, []);
 
+  const aiEditsRemaining = aiLimits.limit - aiLimits.used;
+
   const updatePost = async (
     postId: string,
     action: "save" | "regenerate_all" | "regenerate_text" | "regenerate_image" | "rewrite_topic",
     payload: Record<string, string | string[] | undefined> = {},
   ) => {
+    const isAiAction = action !== "save";
+
+    if (isAiAction && aiEditsRemaining <= 0) {
+      setStatus("Du har brukt opp dine AI-redigeringer for denne perioden. Du kan fortsatt redigere tekst og bilder manuelt.");
+      return;
+    }
+
     setProcessingPost({ id: postId, action });
     setStatus(action === "save" ? "Lagrer endringer..." : "AI oppdaterer posten...");
 
@@ -839,7 +877,7 @@ export const PostCalendar = () => {
     });
 
     if (!response.ok) {
-      const data = await response.json().catch(() => null) as { message?: string } | null;
+      const data = await response.json().catch(() => null) as { message?: string; code?: string } | null;
       setStatus(data?.message ?? "Kunne ikke oppdatere posten.");
       setProcessingPost(null);
       return;
@@ -850,60 +888,9 @@ export const PostCalendar = () => {
     setSelectedPost(updatedPost);
     setStatus("");
     setProcessingPost(null);
-  };
 
-  const regenerateAll = async () => {
-    if (!window.confirm("Vil du lage en helt ny 4-ukers plan? Eksisterende poster og bilder i planen blir erstattet.")) {
-      return;
-    }
-    setIsRegeneratingPlan(true);
-    setSelectedPost(null);
-    setPosts([]);
-    setStatus("Starter ny plan og generering av poster...");
-
-    try {
-      const response = await fetch("/api/posts/regenerate-all", { method: "POST" });
-      if (!response.ok) {
-        const data = await response.json().catch(() => null) as { code?: string; message?: string } | null;
-        setStatus(data?.message ?? "Kunne ikke starte regenerering.");
-        await loadPosts();
-        return;
-      }
-      const result = (await response.json()) as { total: number; posts: PostDraft[] };
-      setStatus("");
-      setPosts(result.posts);
-      if (result.posts.length > 0) {
-        setCurrentDate(new Date(result.posts[0].scheduledAt));
-      }
-    } catch {
-      setStatus("Nettverksfeil ved start av ny 4-ukers plan.");
-      await loadPosts();
-    } finally {
-      setIsRegeneratingPlan(false);
-    }
-  };
-
-  const deleteAllPosts = async () => {
-    if (!window.confirm("Er du sikker på at du vil slette alle innlegg i kalenderen? Dette kan ikke angres.")) {
-      return;
-    }
-    setIsDeletingAllPosts(true);
-    setSelectedPost(null);
-    setStatus("Sletter alle innlegg...");
-    try {
-      const response = await fetch("/api/posts/delete-all", { method: "POST" });
-      if (!response.ok) {
-        const data = await response.json().catch(() => null) as { message?: string } | null;
-        setStatus(data?.message ?? "Kunne ikke slette alle innlegg.");
-        return;
-      }
-      setPosts([]);
-      setStatus("Alle innlegg er slettet.");
-      setTimeout(() => setStatus(""), 2500);
-    } catch {
-      setStatus("Nettverksfeil ved sletting av innlegg.");
-    } finally {
-      setIsDeletingAllPosts(false);
+    if (isAiAction) {
+      setAiLimits((prev) => ({ ...prev, used: prev.used + 1 }));
     }
   };
 
@@ -1049,9 +1036,7 @@ export const PostCalendar = () => {
           run();
           return;
         }
-        if (!isRegeneratingPlan) {
-          await loadPosts();
-        }
+        await loadPosts();
         run();
       }, document.hidden ? 60000 : calculatedDelay);
     };
@@ -1072,7 +1057,7 @@ export const PostCalendar = () => {
         clearTimeout(timeoutId);
       }
     };
-  }, [loadPosts, hasGenerating, isRegeneratingPlan, pollErrorCount]);
+  }, [loadPosts, hasGenerating, pollErrorCount]);
 
   const postsByDate = useMemo(() => {
     const map = new Map<string, PostDraft[]>();
@@ -1117,21 +1102,6 @@ export const PostCalendar = () => {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="text-sm text-muted-foreground">Laster kalender…</div>
-      </div>
-    );
-  }
-
-  if (posts.length === 0 && !hasGenerating && isRegeneratingPlan) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-        <div className="relative flex size-10 items-center justify-center">
-          <span className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
-          <span className="relative size-4 rounded-full bg-primary" />
-        </div>
-        <p className="text-sm font-medium text-primary">Starter ny 4-ukers plan...</p>
-        <p className="text-xs text-muted-foreground">
-          Alle gamle poster slettes, og nye poster opprettes fortløpende.
-        </p>
       </div>
     );
   }
@@ -1211,22 +1181,6 @@ export const PostCalendar = () => {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => void regenerateAll()}
-            disabled={hasGenerating || isRegeneratingPlan || isDeletingAllPosts}
-          >
-            Lag ny 4-ukers plan
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void deleteAllPosts()}
-            disabled={hasGenerating || isRegeneratingPlan || isDeletingAllPosts || posts.length === 0}
-          >
-            {isDeletingAllPosts ? "Sletter..." : "Slett alle innlegg"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
             onClick={() => setShowCreateDialog(true)}
           >
             + Lag egen post
@@ -1261,9 +1215,17 @@ export const PostCalendar = () => {
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        Tips: Godkjenn poster fortløpende. Godkjente poster kan legges i publiseringskø fra dashboard eller publiseringssiden.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <p>Tips: Godkjenn poster fortløpende. Godkjente poster publiseres automatisk.</p>
+        <div className={cn(
+          "rounded-lg border px-3 py-1.5 font-medium",
+          aiEditsRemaining > 0
+            ? "border-border bg-muted/30 text-foreground"
+            : "border-destructive/30 bg-destructive/5 text-destructive",
+        )}>
+          AI-endringer: {aiEditsRemaining} av {aiLimits.limit} igjen
+        </div>
+      </div>
 
       {hasGenerating && (
         <div className="sticky top-0 z-30 rounded-xl border-2 border-primary/30 bg-primary/10 px-5 py-5 shadow-lg space-y-3">
@@ -1527,6 +1489,7 @@ export const PostCalendar = () => {
             onApprove={(id) => void approvePost(id)}
             processingAction={processingPost?.id === selectedPost.id ? processingPost.action : null}
             approving={approvingId === selectedPost.id}
+            aiEditsRemaining={aiEditsRemaining}
           />
         </>
       )}

@@ -5,7 +5,7 @@ type DivProps = React.HTMLAttributes<HTMLDivElement>;
 export const Card = ({ className, ...props }: DivProps) => (
   <div
     className={cn(
-      "rounded-xl border border-border bg-card text-card-foreground shadow-sm",
+      "rounded-2xl border border-border bg-card text-card-foreground shadow-sm",
       className,
     )}
     {...props}
@@ -13,7 +13,7 @@ export const Card = ({ className, ...props }: DivProps) => (
 );
 
 export const CardHeader = ({ className, ...props }: DivProps) => (
-  <div className={cn("flex flex-col gap-1.5 p-6", className)} {...props} />
+  <div className={cn("flex flex-col gap-1.5 p-6 pb-4", className)} {...props} />
 );
 
 export const CardTitle = ({
@@ -21,7 +21,7 @@ export const CardTitle = ({
   ...props
 }: React.HTMLAttributes<HTMLHeadingElement>) => (
   <h3
-    className={cn("text-lg font-semibold leading-tight tracking-tight", className)}
+    className={cn("text-lg font-bold leading-tight tracking-tight", className)}
     {...props}
   />
 );
@@ -30,7 +30,7 @@ export const CardDescription = ({
   className,
   ...props
 }: React.HTMLAttributes<HTMLParagraphElement>) => (
-  <p className={cn("text-sm text-muted-foreground", className)} {...props} />
+  <p className={cn("text-sm text-muted-foreground leading-relaxed", className)} {...props} />
 );
 
 export const CardContent = ({ className, ...props }: DivProps) => (

@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 const nonEmptyText = z.string().trim().min(1);
+const optionalText = z.string().trim().optional().or(z.literal(""));
+const optionalTextArray = z.array(z.string().trim().min(1)).optional();
 
 export const onboardingProfileSchema = z.object({
   companyName: nonEmptyText,
@@ -29,9 +31,22 @@ export const onboardingWizardSchema = onboardingProfileSchema
   .merge(onboardingChannelsSchema)
   .extend({
     websiteUrl: z.string().url().optional().or(z.literal("")),
-    companyDescription: z.string().trim().optional(),
-    products: z.array(z.string().trim().min(1)).optional(),
-    uniqueSellingPoints: z.array(z.string().trim().min(1)).optional(),
+    companyDescription: optionalText,
+    industry: optionalText,
+    foundedYear: optionalText,
+    teamDescription: optionalText,
+    coreValues: optionalTextArray,
+    customerPainPoints: optionalTextArray,
+    customerSuccessStories: optionalTextArray,
+    products: optionalTextArray,
+    services: optionalTextArray,
+    uniqueSellingPoints: optionalTextArray,
+    priceRange: optionalText,
+    brandPersonality: optionalText,
+    brandDosAndDonts: optionalText,
+    competitorDifferentiators: optionalText,
+    commonQuestions: optionalTextArray,
+    seasonalFocus: optionalText,
   });
 
 export type OnboardingWizardSchema = z.infer<typeof onboardingWizardSchema>;

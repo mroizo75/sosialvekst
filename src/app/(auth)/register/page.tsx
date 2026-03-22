@@ -22,46 +22,64 @@ export default async function RegisterPage({ searchParams }: RegisterPageProps) 
   const email = pickString(query.email);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-primary/5 to-background p-4">
-      <Card className="w-full max-w-lg">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-primary-light to-background p-4">
+      <Card className="w-full max-w-lg animate-[scale-in_0.3s_ease-out]">
         <CardHeader className="text-center">
-          <Link href="/" className="mb-2 text-lg font-bold text-primary">
+          <Link href="/" className="mb-1 text-base font-bold text-primary">
             SosialVekst
           </Link>
           <CardTitle>Opprett konto</CardTitle>
           <CardDescription>
-            Fyll inn firmainfo og opprett konto. Betaling aktiveres etter innlogging i dashboard.
+            Fortell oss litt om bedriften din, så setter vi opp alt for deg.
           </CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4">
           {error === "terms_required" ? (
-            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              Du må godkjenne kjøpsvilkårene for å registrere konto.
+            <div className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
+              Du må godkjenne vilkårene for å opprette konto.
             </div>
           ) : null}
 
           {error === "email_exists" ? (
-            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              E-postadressen er allerede registrert. Prøv å logge inn i stedet.
+            <div className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
+              Denne e-posten er allerede registrert.{" "}
+              <Link href="/login" className="font-semibold underline">
+                Logg inn her
+              </Link>
             </div>
           ) : null}
 
           {error === "signup_failed" ? (
-            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-              Kunne ikke opprette konto nå. Prøv igjen om litt.
+            <div className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
+              Noe gikk galt. Prøv igjen om litt.
             </div>
           ) : null}
 
           <form action={signUpAction} className="space-y-4">
-            <Input name="fullName" type="text" label="Ditt navn" required placeholder="Ola Nordmann" />
-            <Input name="companyName" type="text" label="Firmanavn" required placeholder="Mitt Firma AS" />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input
+                name="fullName"
+                type="text"
+                label="Ditt navn"
+                required
+                placeholder="Ola Nordmann"
+              />
+              <Input
+                name="companyName"
+                type="text"
+                label="Bedriftsnavn"
+                required
+                placeholder="Mitt Firma AS"
+              />
+            </div>
             <Input
               name="targetAudience"
               type="text"
               label="Hvem er kundene dine?"
               required
-              placeholder="Småbedrifter i Norge"
+              placeholder="F.eks. småbedrifter, privatpersoner, restauranter..."
+              hint="Vi bruker dette for å tilpasse innholdet til dine kunder."
             />
             <Input
               name="email"
@@ -80,12 +98,16 @@ export default async function RegisterPage({ searchParams }: RegisterPageProps) 
               placeholder="Minst 8 tegn"
             />
 
-            <div className="space-y-3 pt-2">
-              <Checkbox name="termsAccepted" label="Jeg godkjenner kjøpsvilkårene" required />
+            <div className="pt-1">
+              <Checkbox
+                name="termsAccepted"
+                label="Jeg godkjenner vilkårene"
+                required
+              />
             </div>
 
-            <Button type="submit" className="w-full">
-              Opprett konto og gå videre
+            <Button type="submit" className="w-full" size="lg">
+              Opprett konto
             </Button>
           </form>
         </CardContent>
@@ -93,7 +115,7 @@ export default async function RegisterPage({ searchParams }: RegisterPageProps) 
         <CardFooter className="justify-center">
           <p className="text-sm text-muted-foreground">
             Har du konto?{" "}
-            <Link href="/login" className="font-medium text-primary hover:underline">
+            <Link href="/login" className="font-semibold text-primary hover:underline">
               Logg inn
             </Link>
           </p>

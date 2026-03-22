@@ -43,15 +43,28 @@ export type TopicWindow = {
 
 export type BrandContext = {
   companyName?: string;
+  companyDescription?: string;
+  industry?: string;
+  foundedYear?: string;
+  teamDescription?: string;
+  coreValues?: string[];
   targetAudience?: string;
+  customerPainPoints?: string[];
+  customerSuccessStories?: string[];
+  products?: string[];
+  services?: string[];
+  uniqueSellingPoints?: string[];
+  priceRange?: string;
   brandVoice?: string;
+  brandPersonality?: string;
+  brandDosAndDonts?: string;
   keyMessages?: string[];
+  competitorDifferentiators?: string;
+  commonQuestions?: string[];
+  seasonalFocus?: string;
   logoUrl?: string;
   websiteUrl?: string;
   websiteContent?: string;
-  companyDescription?: string;
-  products?: string[];
-  uniqueSellingPoints?: string[];
 };
 
 export type OnboardingInput = {

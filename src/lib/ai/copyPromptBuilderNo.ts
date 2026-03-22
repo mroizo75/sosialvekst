@@ -47,6 +47,8 @@ export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredProm
   const format = input.format ?? "insight";
   const channelRules = norwegianStyleGuide.channelSpecific[input.channel] ?? [];
 
+  const brandDosAndDonts = brandContext.brandDosAndDonts?.trim();
+
   const systemLines = [
     "Du er en senior norsk SoMe-strateg og copywriter som lager innhold som FAKTISK skaper verdi for bedrifter.",
     "Du lager IKKE generisk AI-innhold som fyller en feed. Du lager innhold folk ville savnet om det forsvant.",
@@ -82,8 +84,9 @@ export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredProm
     "",
     `VIKTIG: Denne posten er KUN for ${input.channel}. Den skal IKKE fungere på andre plattformer.`,
     `Tilpass lengde, tone, struktur og CTA-stil til ${input.channel}-brukere spesifikt.`,
+    ...(brandDosAndDonts ? ["", "BEDRIFTENS EGNE RETNINGSLINJER:", brandDosAndDonts] : []),
     "",
-    "BEDRIFTSKONTEKST (bruk dette aktivt i innholdet):",
+    "BEDRIFTSKONTEKST (bruk dette AKTIVT — dette er kjernekunnskapen om bedriften):",
     buildSystemContext(brandContext),
   ];
 

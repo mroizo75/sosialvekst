@@ -6,7 +6,8 @@ import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
 import { deleteFilesByUrls } from "@/lib/cloudflare/r2";
-import { toAppError } from "@/lib/errors";
+import { toAppError, toUnknownAppError } from "@/lib/errors";
+import { consumeAiEdit } from "@/lib/posts/aiEditLimits";
 import { getPostById, savePost, setPostAdditionalImages } from "@/lib/posts/repository";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -126,126 +127,135 @@ const getMediaModeFromPlan = async (
 };
 
 export async function PATCH(request: Request, context: RouteContext) {
-  const userId = await requireUserId();
-  const brandContext = await getBrandContext(userId);
-  const { postId } = await context.params;
-  const post = await getPostById(userId, postId);
-  if (!post) {
-    return NextResponse.json(toAppError("POST_NOT_FOUND", "Fant ikke post"), { status: 404 });
-  }
+  try {
+    const userId = await requireUserId();
+    const brandContext = await getBrandContext(userId);
+    const { postId } = await context.params;
+    const post = await getPostById(userId, postId);
+    if (!post) {
+      return NextResponse.json(toAppError("POST_NOT_FOUND", "Fant ikke post"), { status: 404 });
+    }
 
-  const payload = updateSchema.parse(await request.json());
-  const companyName = brandContext?.companyName;
-  let updatedText = payload.text ?? post.text;
-  let updatedImageUrl = payload.imageUrl === "" ? undefined : payload.imageUrl ?? post.imageUrl;
-  let updatedVideoUrl = payload.videoUrl === "" ? undefined : payload.videoUrl ?? post.videoUrl;
-  let updatedAdditionalImageUrls = payload.additionalImageUrls ?? post.additionalImageUrls ?? [];
-  const fallbackTopic = brandContext?.companyDescription?.slice(0, 180)
-    ?? brandContext?.products?.join(", ")?.slice(0, 180)
-    ?? "Generell merkevarebygging";
-  const action = payload.action ?? (payload.regenerate ? "regenerate_all" : "save");
+    const payload = updateSchema.parse(await request.json());
+    const companyName = brandContext?.companyName;
+    let updatedText = payload.text ?? post.text;
+    let updatedImageUrl = payload.imageUrl === "" ? undefined : payload.imageUrl ?? post.imageUrl;
+    let updatedVideoUrl = payload.videoUrl === "" ? undefined : payload.videoUrl ?? post.videoUrl;
+    let updatedAdditionalImageUrls = payload.additionalImageUrls ?? post.additionalImageUrls ?? [];
+    const fallbackTopic = brandContext?.companyDescription?.slice(0, 180)
+      ?? brandContext?.products?.join(", ")?.slice(0, 180)
+      ?? "Generell merkevarebygging";
+    const action = payload.action ?? (payload.regenerate ? "regenerate_all" : "save");
 
-  if (action === "reschedule") {
-    if (!payload.scheduledAt) {
+    if (action === "reschedule") {
+      if (!payload.scheduledAt) {
+        return NextResponse.json(
+          toAppError("SCHEDULE_REQUIRED", "Nytt tidspunkt mangler."),
+          { status: 400 },
+        );
+      }
+      if (new Date(payload.scheduledAt).getTime() <= Date.now()) {
+        return NextResponse.json(
+          toAppError("PAST_DATE", "Publiseringstidspunktet må være i fremtiden."),
+          { status: 400 },
+        );
+      }
+      if (post.status === "published") {
+        return NextResponse.json(
+          toAppError("POST_LOCKED", "Publiserte poster kan ikke flyttes."),
+          { status: 400 },
+        );
+      }
+      const updated = await savePost(userId, {
+        ...post,
+        scheduledAt: payload.scheduledAt,
+      });
+      return NextResponse.json(updated);
+    }
+
+    if (action === "rewrite_topic" && !payload.topic) {
       return NextResponse.json(
-        toAppError("SCHEDULE_REQUIRED", "Nytt tidspunkt mangler."),
+        toAppError("TOPIC_REQUIRED", "Du må skrive et emne før omskriving."),
         { status: 400 },
       );
     }
-    if (new Date(payload.scheduledAt).getTime() <= Date.now()) {
-      return NextResponse.json(
-        toAppError("PAST_DATE", "Publiseringstidspunktet må være i fremtiden."),
-        { status: 400 },
-      );
-    }
-    if (post.status === "published") {
-      return NextResponse.json(
-        toAppError("POST_LOCKED", "Publiserte poster kan ikke flyttes."),
-        { status: 400 },
-      );
-    }
-    const updated = await savePost(userId, {
-      ...post,
-      scheduledAt: payload.scheduledAt,
-    });
-    return NextResponse.json(updated);
-  }
 
-  if (action === "rewrite_topic" && !payload.topic) {
-    return NextResponse.json(
-      toAppError("TOPIC_REQUIRED", "Du må skrive et emne før omskriving."),
-      { status: 400 },
-    );
-  }
-
-  if (action !== "save") {
-    await requireActiveSubscription(userId);
-    const oldImageUrl = post.imageUrl;
-    const topicFromPlan = await getTopicFromPlan(userId, postId);
-    const mediaModeFromPlan = await getMediaModeFromPlan(userId, postId);
-    const effectiveMediaMode = mediaModeFromPlan ?? "ai_only";
-    const topic = action === "rewrite_topic"
-      ? payload.topic ?? topicFromPlan ?? fallbackTopic
-      : topicFromPlan ?? fallbackTopic;
-    const mediaMode = action === "regenerate_text"
-      ? "owned_only"
-      : effectiveMediaMode === "owned_only"
+    if (action !== "save") {
+      await requireActiveSubscription(userId);
+      await consumeAiEdit(userId);
+      const oldImageUrl = post.imageUrl;
+      const topicFromPlan = await getTopicFromPlan(userId, postId);
+      const mediaModeFromPlan = await getMediaModeFromPlan(userId, postId);
+      const effectiveMediaMode = mediaModeFromPlan ?? "ai_only";
+      const topic = action === "rewrite_topic"
+        ? payload.topic ?? topicFromPlan ?? fallbackTopic
+        : topicFromPlan ?? fallbackTopic;
+      const mediaMode = action === "regenerate_text"
         ? "owned_only"
-        : "ai_only";
-    const imageProfile = action === "regenerate_image" ? "final" : "preview";
+        : effectiveMediaMode === "owned_only"
+          ? "owned_only"
+          : "ai_only";
+      const imageProfile = action === "regenerate_image" ? "final" : "preview";
 
-    const regenerated = await generatePost({
-      userId,
-      topic,
-      channel: post.channel,
-      scheduledAt: post.scheduledAt,
-      mediaMode,
-      imageProfile,
-      brandContext,
+      const regenerated = await generatePost({
+        userId,
+        topic,
+        channel: post.channel,
+        scheduledAt: post.scheduledAt,
+        mediaMode,
+        imageProfile,
+        brandContext,
+      });
+
+      if (action === "regenerate_text") {
+        updatedText = regenerated.text;
+        updatedImageUrl = post.imageUrl;
+        updatedVideoUrl = post.videoUrl;
+        updatedAdditionalImageUrls = post.additionalImageUrls ?? [];
+      }
+      if (action === "regenerate_image") {
+        updatedImageUrl = regenerated.imageUrl ?? post.imageUrl;
+        updatedVideoUrl = undefined;
+        updatedAdditionalImageUrls = [];
+      }
+      if (action === "regenerate_all" || action === "rewrite_topic") {
+        updatedText = regenerated.text;
+        updatedImageUrl = regenerated.imageUrl;
+        updatedVideoUrl = undefined;
+        updatedAdditionalImageUrls = [];
+      }
+
+      if (oldImageUrl && oldImageUrl !== updatedImageUrl) {
+        await deleteFilesByUrls([oldImageUrl]).catch(() => {});
+      }
+    }
+
+    if (updatedVideoUrl) {
+      updatedAdditionalImageUrls = [];
+    } else if (updatedAdditionalImageUrls.length > 0) {
+      updatedVideoUrl = undefined;
+    }
+
+    const decision = evaluatePolicy({ text: updatedText, imageUrl: updatedImageUrl, companyName });
+
+    await savePost(userId, {
+      ...post,
+      text: updatedText,
+      imageUrl: updatedImageUrl,
+      videoUrl: updatedVideoUrl,
+      additionalImageUrls: updatedAdditionalImageUrls,
+      status: decision.status,
+      quality: decision.quality,
     });
 
-    if (action === "regenerate_text") {
-      updatedText = regenerated.text;
-      updatedImageUrl = post.imageUrl;
-      updatedVideoUrl = post.videoUrl;
-      updatedAdditionalImageUrls = post.additionalImageUrls ?? [];
-    }
-    if (action === "regenerate_image") {
-      updatedImageUrl = regenerated.imageUrl ?? post.imageUrl;
-      updatedVideoUrl = undefined;
-      updatedAdditionalImageUrls = [];
-    }
-    if (action === "regenerate_all" || action === "rewrite_topic") {
-      updatedText = regenerated.text;
-      updatedImageUrl = regenerated.imageUrl;
-      updatedVideoUrl = undefined;
-      updatedAdditionalImageUrls = [];
-    }
-
-    if (oldImageUrl && oldImageUrl !== updatedImageUrl) {
-      await deleteFilesByUrls([oldImageUrl]).catch(() => {});
-    }
+    await setPostAdditionalImages(userId, post.id, updatedAdditionalImageUrls);
+    const refreshedPost = await getPostById(userId, post.id);
+    return NextResponse.json(refreshedPost);
+  } catch (error) {
+    const appError = toUnknownAppError(error);
+    const status = appError.code === "AI_EDIT_LIMIT_REACHED" ? 403
+      : appError.code === "SUBSCRIPTION_REQUIRED" ? 402
+      : 400;
+    return NextResponse.json(appError, { status });
   }
-
-  if (updatedVideoUrl) {
-    updatedAdditionalImageUrls = [];
-  } else if (updatedAdditionalImageUrls.length > 0) {
-    updatedVideoUrl = undefined;
-  }
-
-  const decision = evaluatePolicy({ text: updatedText, imageUrl: updatedImageUrl, companyName });
-
-  await savePost(userId, {
-    ...post,
-    text: updatedText,
-    imageUrl: updatedImageUrl,
-    videoUrl: updatedVideoUrl,
-    additionalImageUrls: updatedAdditionalImageUrls,
-    status: decision.status,
-    quality: decision.quality,
-  });
-
-  await setPostAdditionalImages(userId, post.id, updatedAdditionalImageUrls);
-  const refreshedPost = await getPostById(userId, post.id);
-  return NextResponse.json(refreshedPost);
 }
