@@ -15,6 +15,7 @@ import type { TopicWindow } from "@/lib/types";
 const updateSchema = z.object({
   text: z.string().trim().min(1).optional(),
   imageUrl: z.string().url().optional().or(z.literal("")),
+  videoUrl: z.string().url().optional().or(z.literal("")),
   topic: z.string().trim().min(2).max(180).optional(),
   scheduledAt: z.string().datetime().optional(),
   action: z
@@ -106,6 +107,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   const companyName = brandContext?.companyName;
   let updatedText = payload.text ?? post.text;
   let updatedImageUrl = payload.imageUrl === "" ? undefined : payload.imageUrl ?? post.imageUrl;
+  let updatedVideoUrl = payload.videoUrl === "" ? undefined : payload.videoUrl ?? post.videoUrl;
   const fallbackTopic = brandContext?.companyDescription?.slice(0, 180)
     ?? brandContext?.products?.join(", ")?.slice(0, 180)
     ?? "Generell merkevarebygging";
@@ -167,13 +169,16 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (action === "regenerate_text") {
       updatedText = regenerated.text;
       updatedImageUrl = post.imageUrl;
+      updatedVideoUrl = post.videoUrl;
     }
     if (action === "regenerate_image") {
       updatedImageUrl = regenerated.imageUrl ?? post.imageUrl;
+      updatedVideoUrl = undefined;
     }
     if (action === "regenerate_all" || action === "rewrite_topic") {
       updatedText = regenerated.text;
       updatedImageUrl = regenerated.imageUrl;
+      updatedVideoUrl = undefined;
     }
 
     if (oldImageUrl && oldImageUrl !== updatedImageUrl) {
@@ -187,6 +192,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     ...post,
     text: updatedText,
     imageUrl: updatedImageUrl,
+    videoUrl: updatedVideoUrl,
     status: decision.status,
     quality: decision.quality,
   });

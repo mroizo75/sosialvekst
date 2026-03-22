@@ -19,7 +19,7 @@ export async function POST(request: Request) {
 
     let postsQuery = supabase
       .from("posts")
-      .select("id, channel, scheduled_at")
+      .select("id, channel, scheduled_at, video_url")
       .eq("user_id", userId)
       .eq("status", "approved");
 
@@ -38,6 +38,19 @@ export async function POST(request: Request) {
     if (!posts || posts.length === 0) {
       return NextResponse.json(
         toAppError("NO_APPROVED_POSTS", "Ingen godkjente poster klare for publiseringskø."),
+        { status: 400 },
+      );
+    }
+
+    const unsupportedLinkedInVideos = posts.filter(
+      (post) => post.channel === "linkedin" && Boolean(post.video_url),
+    );
+    if (unsupportedLinkedInVideos.length > 0) {
+      return NextResponse.json(
+        toAppError(
+          "LINKEDIN_VIDEO_NOT_SUPPORTED",
+          "LinkedIn-video er ikke aktivert ennå. Velg bilde eller fjern video på LinkedIn-poster før kø.",
+        ),
         { status: 400 },
       );
     }

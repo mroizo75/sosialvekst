@@ -12,6 +12,7 @@ type PublishInput = {
   accessToken: string | null;
   text: string;
   imageUrl: string | null;
+  videoUrl: string | null;
   idempotencyKey: string;
 };
 
@@ -37,13 +38,20 @@ const publishFacebook = async (input: PublishInput): Promise<string> => {
     throw new Error("Mangler Facebook accountId.");
   }
   const apiVersion = process.env.FACEBOOK_GRAPH_API_VERSION ?? "v23.0";
-  const endpoint = input.imageUrl
-    ? `https://graph.facebook.com/${apiVersion}/${input.accountId}/photos`
-    : `https://graph.facebook.com/${apiVersion}/${input.accountId}/feed`;
+  const endpoint = input.videoUrl
+    ? `https://graph.facebook.com/${apiVersion}/${input.accountId}/videos`
+    : input.imageUrl
+      ? `https://graph.facebook.com/${apiVersion}/${input.accountId}/photos`
+      : `https://graph.facebook.com/${apiVersion}/${input.accountId}/feed`;
   const form = new URLSearchParams();
   form.set("access_token", input.accessToken ?? "");
-  form.set("message", input.text);
-  if (input.imageUrl) {
+  if (input.videoUrl) {
+    form.set("description", input.text);
+    form.set("file_url", input.videoUrl);
+  } else {
+    form.set("message", input.text);
+  }
+  if (input.imageUrl && !input.videoUrl) {
     form.set("url", input.imageUrl);
     form.set("published", "true");
     form.set("caption", input.text);
@@ -62,14 +70,19 @@ const publishInstagram = async (input: PublishInput): Promise<string> => {
   if (!input.accountId) {
     throw new Error("Mangler Instagram accountId.");
   }
-  if (!input.imageUrl) {
-    throw new Error("Instagram krever bilde for publisering.");
+  if (!input.imageUrl && !input.videoUrl) {
+    throw new Error("Instagram krever bilde eller video for publisering.");
   }
   const apiVersion = process.env.FACEBOOK_GRAPH_API_VERSION ?? "v23.0";
 
   const createForm = new URLSearchParams();
   createForm.set("access_token", input.accessToken ?? "");
-  createForm.set("image_url", input.imageUrl);
+  if (input.videoUrl) {
+    createForm.set("video_url", input.videoUrl);
+    createForm.set("media_type", "REELS");
+  } else if (input.imageUrl) {
+    createForm.set("image_url", input.imageUrl);
+  }
   createForm.set("caption", input.text);
   const createResponse = await fetch(
     `https://graph.facebook.com/${apiVersion}/${input.accountId}/media`,
@@ -102,6 +115,9 @@ const publishInstagram = async (input: PublishInput): Promise<string> => {
 const publishLinkedIn = async (input: PublishInput): Promise<string> => {
   if (!input.accountId) {
     throw new Error("Mangler LinkedIn accountId.");
+  }
+  if (input.videoUrl) {
+    throw new Error("LinkedIn video er ikke aktivert ennå i publiseringsmotoren.");
   }
   const author = input.accountId.startsWith("urn:li:")
     ? input.accountId
@@ -218,7 +234,7 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
       const [{ data: post }, { data: social }] = await Promise.all([
         admin
           .from("posts")
-          .select("id, text_content, image_url")
+          .select("id, text_content, image_url, video_url")
           .eq("id", job.post_id)
           .eq("user_id", job.user_id)
           .single(),
@@ -241,6 +257,7 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
         accessToken: social?.access_token ?? null,
         text: post.text_content,
         imageUrl: post.image_url,
+        videoUrl: post.video_url,
         idempotencyKey: job.id,
       });
 

@@ -119,7 +119,11 @@ const PostCardMini = ({ post, onClick, onDragStart, onDragEnd }: PostCardMiniPro
         channelColor[post.channel],
       )}
     >
-      {post.imageUrl && (
+      {post.videoUrl ? (
+        <div className="flex h-12 w-full items-center justify-center bg-muted/40 text-[10px] font-medium text-muted-foreground">
+          Video valgt
+        </div>
+      ) : post.imageUrl && (
         <img
           src={post.imageUrl}
           alt=""
@@ -152,7 +156,7 @@ const PostCardMini = ({ post, onClick, onDragStart, onDragEnd }: PostCardMiniPro
 type DetailPanelProps = {
   post: PostDraft;
   onClose: () => void;
-  onSave: (id: string, payload: { text: string; imageUrl?: string }) => void;
+  onSave: (id: string, payload: { text: string; imageUrl?: string; videoUrl?: string }) => void;
   onRegenerateAll: (id: string) => void;
   onRegenerateText: (id: string) => void;
   onRegenerateImage: (id: string) => void;
@@ -170,6 +174,13 @@ type PublishJobHistory = {
   run_at: string;
   updated_at: string;
   channel: SocialChannel;
+};
+
+type MediaFile = {
+  key: string;
+  url: string;
+  size: number;
+  updatedAt: string;
 };
 
 const STATUS_LABEL_NO: Record<string, string> = {
@@ -196,6 +207,110 @@ const PUBLISH_JOB_STATUS_LABEL_NO: Record<string, string> = {
   failed: "Feilet",
 };
 
+const detectMediaKind = (key: string): "image" | "video" | "other" => {
+  if (key.includes("/videos/")) return "video";
+  if (key.includes("/images/") || key.includes("/logos/")) return "image";
+  return "other";
+};
+
+type MediaPickerDialogProps = {
+  onClose: () => void;
+  onSelect: (file: MediaFile) => void;
+};
+
+const MediaPickerDialog = ({ onClose, onSelect }: MediaPickerDialogProps) => {
+  const [files, setFiles] = useState<MediaFile[]>([]);
+  const [loadingFiles, setLoadingFiles] = useState(true);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState<"all" | "image" | "video">("all");
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadFiles = async () => {
+      try {
+        const response = await fetch("/api/media/files");
+        if (!response.ok) {
+          if (!cancelled) setError("Kunne ikke hente filer fra mediebiblioteket.");
+          return;
+        }
+        const data = (await response.json()) as { files: MediaFile[] };
+        if (!cancelled) {
+          setFiles((data.files ?? []).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+          setError("");
+        }
+      } catch {
+        if (!cancelled) setError("Nettverksfeil ved henting av mediefiler.");
+      } finally {
+        if (!cancelled) setLoadingFiles(false);
+      }
+    };
+    void loadFiles();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const visibleFiles = useMemo(() => {
+    if (filter === "all") return files;
+    return files.filter((file) => detectMediaKind(file.key) === filter);
+  }, [files, filter]);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} role="presentation" />
+      <div className="relative z-10 flex h-[80vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <h4 className="text-sm font-semibold">Velg fil fra mediebibliotek</h4>
+          <Button variant="ghost" size="sm" onClick={onClose}>Lukk</Button>
+        </div>
+        <div className="flex items-center gap-2 border-b border-border px-4 py-2">
+          <Button variant={filter === "all" ? "primary" : "outline"} size="sm" onClick={() => setFilter("all")}>
+            Alle
+          </Button>
+          <Button variant={filter === "image" ? "primary" : "outline"} size="sm" onClick={() => setFilter("image")}>
+            Bilder
+          </Button>
+          <Button variant={filter === "video" ? "primary" : "outline"} size="sm" onClick={() => setFilter("video")}>
+            Video
+          </Button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          {loadingFiles ? (
+            <p className="text-sm text-muted-foreground">Laster mediefiler...</p>
+          ) : error ? (
+            <p className="text-sm text-destructive">{error}</p>
+          ) : visibleFiles.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Ingen filer funnet.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {visibleFiles.map((file) => {
+                const kind = detectMediaKind(file.key);
+                return (
+                  <button
+                    key={file.key}
+                    type="button"
+                    onClick={() => onSelect(file)}
+                    className="rounded-lg border border-border bg-muted/20 p-2 text-left transition hover:border-primary/40"
+                  >
+                    {kind === "video" ? (
+                      <video src={file.url} className="h-28 w-full rounded object-cover" muted />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={file.url} alt="" className="h-28 w-full rounded object-cover" />
+                    )}
+                    <p className="mt-2 line-clamp-2 text-xs text-foreground">{file.key.split("/").pop()}</p>
+                    <p className="text-[11px] text-muted-foreground">{kind === "video" ? "Video" : "Bilde"}</p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const DetailPanel = ({
   post,
   onClose,
@@ -211,7 +326,9 @@ const DetailPanel = ({
   const scheduledDate = new Date(post.scheduledAt);
   const [textDraft, setTextDraft] = useState(post.text);
   const [imageUrlDraft, setImageUrlDraft] = useState(post.imageUrl ?? "");
+  const [videoUrlDraft, setVideoUrlDraft] = useState(post.videoUrl ?? "");
   const [topicDraft, setTopicDraft] = useState("");
+  const [showMediaPicker, setShowMediaPicker] = useState(false);
   const [publishJobs, setPublishJobs] = useState<PublishJobHistory[]>([]);
   const [publishHistoryStatus, setPublishHistoryStatus] = useState("");
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -349,11 +466,19 @@ const DetailPanel = ({
               </p>
             </div>
 
-            {post.imageUrl ? (
+            {videoUrlDraft ? (
+              <div className="flex h-[210px] w-full items-center justify-center rounded-lg border border-border bg-muted/20 p-2">
+                <video
+                  src={videoUrlDraft}
+                  controls
+                  className="h-full w-full rounded-md object-contain"
+                />
+              </div>
+            ) : imageUrlDraft ? (
               <div className="flex h-[210px] w-full items-center justify-center rounded-lg border border-border bg-muted/20 p-2">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={post.imageUrl}
+                  src={imageUrlDraft}
                   alt="Postbilde"
                   className="h-full w-full rounded-md object-contain"
                   onError={(event) => {
@@ -398,15 +523,44 @@ const DetailPanel = ({
               <Input
                 label="Bilde-URL (valgfritt)"
                 value={imageUrlDraft}
-                onChange={(event) => setImageUrlDraft(event.target.value)}
+                onChange={(event) => {
+                  setImageUrlDraft(event.target.value);
+                  if (event.target.value.trim().length > 0) {
+                    setVideoUrlDraft("");
+                  }
+                }}
+                placeholder="https://..."
+              />
+              <Input
+                label="Video-URL (valgfritt)"
+                value={videoUrlDraft}
+                onChange={(event) => {
+                  setVideoUrlDraft(event.target.value);
+                  if (event.target.value.trim().length > 0) {
+                    setImageUrlDraft("");
+                  }
+                }}
                 placeholder="https://..."
               />
               <Button
-                onClick={() => onSave(post.id, { text: textDraft, imageUrl: imageUrlDraft })}
+                onClick={() => setShowMediaPicker(true)}
+                disabled={isProcessing}
+                variant="outline"
+                size="sm"
+                className="w-full"
+              >
+                Velg fra mediebibliotek
+              </Button>
+              <Button
+                onClick={() => onSave(post.id, {
+                  text: textDraft,
+                  imageUrl: imageUrlDraft || undefined,
+                  videoUrl: videoUrlDraft || undefined,
+                })}
                 disabled={isProcessing || textDraft.trim().length === 0}
                 className="w-full"
               >
-                {processingAction === "save" ? "Lagrer..." : "Lagre tekst og bilde"}
+                {processingAction === "save" ? "Lagrer..." : "Lagre post"}
               </Button>
             </div>
 
@@ -518,6 +672,22 @@ const DetailPanel = ({
           </div>
         </div>
       </div>
+      {showMediaPicker && (
+        <MediaPickerDialog
+          onClose={() => setShowMediaPicker(false)}
+          onSelect={(file) => {
+            const kind = detectMediaKind(file.key);
+            if (kind === "video") {
+              setVideoUrlDraft(file.url);
+              setImageUrlDraft("");
+            } else {
+              setImageUrlDraft(file.url);
+              setVideoUrlDraft("");
+            }
+            setShowMediaPicker(false);
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -539,6 +709,7 @@ export const PostCalendar = () => {
   const [pollErrorCount, setPollErrorCount] = useState(0);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [isRegeneratingPlan, setIsRegeneratingPlan] = useState(false);
+  const [isDeletingAllPosts, setIsDeletingAllPosts] = useState(false);
 
   const hasGenerating = useMemo(
     () => posts.some((p) => p.status === "generating"),
@@ -626,6 +797,30 @@ export const PostCalendar = () => {
       await loadPosts();
     } finally {
       setIsRegeneratingPlan(false);
+    }
+  };
+
+  const deleteAllPosts = async () => {
+    if (!window.confirm("Er du sikker på at du vil slette alle innlegg i kalenderen? Dette kan ikke angres.")) {
+      return;
+    }
+    setIsDeletingAllPosts(true);
+    setSelectedPost(null);
+    setStatus("Sletter alle innlegg...");
+    try {
+      const response = await fetch("/api/posts/delete-all", { method: "POST" });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null) as { message?: string } | null;
+        setStatus(data?.message ?? "Kunne ikke slette alle innlegg.");
+        return;
+      }
+      setPosts([]);
+      setStatus("Alle innlegg er slettet.");
+      setTimeout(() => setStatus(""), 2500);
+    } catch {
+      setStatus("Nettverksfeil ved sletting av innlegg.");
+    } finally {
+      setIsDeletingAllPosts(false);
     }
   };
 
@@ -934,9 +1129,17 @@ export const PostCalendar = () => {
             variant="outline"
             size="sm"
             onClick={() => void regenerateAll()}
-            disabled={hasGenerating || isRegeneratingPlan}
+            disabled={hasGenerating || isRegeneratingPlan || isDeletingAllPosts}
           >
             Lag ny 4-ukers plan
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void deleteAllPosts()}
+            disabled={hasGenerating || isRegeneratingPlan || isDeletingAllPosts || posts.length === 0}
+          >
+            {isDeletingAllPosts ? "Sletter..." : "Slett alle innlegg"}
           </Button>
           <Button
             variant="outline"
