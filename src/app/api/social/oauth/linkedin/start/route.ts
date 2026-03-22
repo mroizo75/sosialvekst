@@ -1,0 +1,32 @@
+import { NextResponse } from "next/server";
+
+import { requireUserId } from "@/lib/auth";
+import { getAppUrl, getRequiredEnv } from "@/lib/env";
+
+const OAUTH_STATE_COOKIE = "social_oauth_state_linkedin";
+
+export async function GET() {
+  await requireUserId();
+
+  const clientId = getRequiredEnv("LINKEDIN_CLIENT_ID");
+  const callbackUrl = `${getAppUrl()}/api/social/oauth/linkedin/callback`;
+  const state = crypto.randomUUID();
+  const scopes = ["openid", "profile", "email", "w_member_social"].join(" ");
+
+  const authUrl = new URL("https://www.linkedin.com/oauth/v2/authorization");
+  authUrl.searchParams.set("response_type", "code");
+  authUrl.searchParams.set("client_id", clientId);
+  authUrl.searchParams.set("redirect_uri", callbackUrl);
+  authUrl.searchParams.set("state", state);
+  authUrl.searchParams.set("scope", scopes);
+
+  const response = NextResponse.redirect(authUrl.toString());
+  response.cookies.set(OAUTH_STATE_COOKIE, state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 10,
+  });
+  return response;
+}

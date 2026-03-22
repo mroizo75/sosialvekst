@@ -13,6 +13,7 @@ import type { BrandContext, SocialChannel, TopicWindow } from "@/lib/types";
 
 const DEFAULT_POSTS_PER_WEEK = 3;
 const DEFAULT_TOTAL_WEEKS = 4;
+const DEFAULT_CHANNELS: SocialChannel[] = ["facebook", "instagram", "linkedin"];
 
 const normalizePositiveInt = (value: unknown, fallback: number): number => {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
@@ -25,6 +26,16 @@ const normalizePositiveInt = (value: unknown, fallback: number): number => {
     }
   }
   return fallback;
+};
+
+const normalizeChannels = (value: unknown): SocialChannel[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const valid = value
+    .filter((item): item is string => typeof item === "string")
+    .filter((item): item is SocialChannel => item === "facebook" || item === "instagram" || item === "linkedin");
+  return [...new Set(valid)];
 };
 
 export async function POST() {
@@ -52,7 +63,7 @@ export async function POST() {
       .filter((url): url is string => Boolean(url));
 
     const channelsFromPosts = [...new Set((oldPosts ?? []).map((p) => p.channel as SocialChannel))];
-    const fallbackChannels: SocialChannel[] = ["facebook", "instagram", "linkedin"];
+    let channelsFromPlan: SocialChannel[] = [];
     let postsPerWeek = DEFAULT_POSTS_PER_WEEK;
     let totalWeeks = DEFAULT_TOTAL_WEEKS;
     let mediaMode: "ai_only" | "hybrid" | "owned_only" = "ai_only";
@@ -61,7 +72,7 @@ export async function POST() {
     if (!planId) {
       const { data: existingPlan } = await admin
         .from("content_plans")
-        .select("id, posts_per_week, total_weeks, media_mode")
+        .select("*")
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -72,8 +83,11 @@ export async function POST() {
         postsPerWeek = normalizePositiveInt(existingPlan.posts_per_week, DEFAULT_POSTS_PER_WEEK);
         totalWeeks = normalizePositiveInt(existingPlan.total_weeks, DEFAULT_TOTAL_WEEKS);
         mediaMode = String(existingPlan.media_mode ?? "ai_only") as "ai_only" | "hybrid" | "owned_only";
+        channelsFromPlan = normalizeChannels((existingPlan as { channels?: unknown }).channels);
       } else {
-        const { data: newPlan, error: planError } = await admin
+        let newPlan: { id: string } | null = null;
+        let planError: { message?: string } | null = null;
+        const withChannels = await admin
           .from("content_plans")
           .insert({
             user_id: userId,
@@ -81,9 +95,28 @@ export async function POST() {
             total_weeks: totalWeeks,
             country_code: "NO",
             media_mode: "ai_only",
+            channels: DEFAULT_CHANNELS,
           })
           .select("id")
           .single();
+        newPlan = withChannels.data as { id: string } | null;
+        planError = withChannels.error as { message?: string } | null;
+
+        if (planError?.message?.toLowerCase().includes("channels")) {
+          const withoutChannels = await admin
+            .from("content_plans")
+            .insert({
+              user_id: userId,
+              posts_per_week: postsPerWeek,
+              total_weeks: totalWeeks,
+              country_code: "NO",
+              media_mode: "ai_only",
+            })
+            .select("id")
+            .single();
+          newPlan = withoutChannels.data as { id: string } | null;
+          planError = withoutChannels.error as { message?: string } | null;
+        }
 
         if (planError || !newPlan) {
           return NextResponse.json(
@@ -96,7 +129,7 @@ export async function POST() {
     } else {
       const { data: selectedPlan } = await admin
         .from("content_plans")
-        .select("posts_per_week, total_weeks, media_mode")
+        .select("*")
         .eq("id", planId)
         .eq("user_id", userId)
         .maybeSingle();
@@ -104,6 +137,7 @@ export async function POST() {
       postsPerWeek = normalizePositiveInt(selectedPlan?.posts_per_week, DEFAULT_POSTS_PER_WEEK);
       totalWeeks = normalizePositiveInt(selectedPlan?.total_weeks, DEFAULT_TOTAL_WEEKS);
       mediaMode = String(selectedPlan?.media_mode ?? "ai_only") as "ai_only" | "hybrid" | "owned_only";
+      channelsFromPlan = normalizeChannels((selectedPlan as { channels?: unknown } | null)?.channels);
     }
 
     const { data: planData } = await admin
@@ -117,7 +151,11 @@ export async function POST() {
       ? (planData.topic_windows as TopicWindow[])
       : [];
 
-    const channelSet = channelsFromPosts.length > 0 ? channelsFromPosts : fallbackChannels;
+    const channelSet = channelsFromPlan.length > 0
+      ? channelsFromPlan
+      : channelsFromPosts.length > 0
+        ? channelsFromPosts
+        : DEFAULT_CHANNELS;
 
     const { error: deleteError } = await admin
       .from("posts")

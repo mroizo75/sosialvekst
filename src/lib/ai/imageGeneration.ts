@@ -45,13 +45,13 @@ export const generateProfessionalImage = async (
   const profile = input.profile ?? "final";
   // Use 1024x1024 for both profiles for higher API compatibility.
   const imageSize = "1024x1024";
-  const imageQuality = profile === "preview" ? "low" : "medium";
+  const imageQuality = profile === "preview" ? "medium" : "high";
 
   let response: { data?: Array<{ b64_json?: string; url?: string }> } | null = null;
   const variants: Array<{ size: string; quality: string }> = [
     { size: imageSize, quality: imageQuality },
-    { size: "1024x1024", quality: "low" },
     { size: "1024x1024", quality: "medium" },
+    { size: "1024x1024", quality: "low" },
   ];
 
   for (const variant of variants) {

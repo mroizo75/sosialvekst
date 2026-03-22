@@ -43,6 +43,7 @@ export const buildImagePrompt = (input: ImagePromptInput): string => {
   lines.push(
     "",
     "OBLIGATORISKE KRAV:",
+    `- TEMAET "${input.topic}" er obligatorisk og skal være tydelig i motivet.`,
     `- Bildet SKAL være direkte relevant for ${companyName} og det de faktisk driver med.`,
     "- Profesjonell bedriftsfotografering-kvalitet med naturlig lys og ren komposisjon.",
     "- Realistisk og troverdig motiv som passer en seriøs norsk bedrift.",
@@ -52,8 +53,12 @@ export const buildImagePrompt = (input: ImagePromptInput): string => {
     "- Ingen overmettet farge, neon, fantasy-elementer eller plastisk AI-look.",
     "- Motivet skal tydelig kommunisere bedriftens bransje og kompetanse.",
     `- Bildet skal følge den visuelle stilen: ${input.brandRules.toneOfVoice}.`,
-    "- VIKTIG: Bildet skal IKKE inneholde tekst, bokstaver, tall, logo-merker, vannmerker eller skilt med skrift.",
-    "- VIKTIG: Hvis tekst dukker opp i motivet, regenerer et rent bilde uten tekst.",
+    "- FOKUSLÅS: motivet skal være direkte knyttet til temaet, ikke et nærliggende eller tilfeldig underområde.",
+    "- IKKE tolk temaet bredt. Bruk eksakt semantikk fra tema og bedriftskontekst.",
+    "- Hvis temaet er spesifikt, skal motivet være like spesifikt.",
+    `- Hvis det brukes tekst i bildet, skal teksten være NØYAKTIG "${companyName}" skrevet korrekt.`,
+    "- Ingen annen tekst, ingen tilfeldige bokstaver, ingen engelske/russiske tegn, ingen stavefeil.",
+    "- Hvis modellen ikke klarer korrekt tekst, skal bildet være helt uten tekst.",
   );
 
   lines.push(

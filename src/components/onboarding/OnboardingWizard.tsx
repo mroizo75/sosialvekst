@@ -36,6 +36,11 @@ const STEPS = [
 ] as const;
 
 const DEFAULT_CHANNELS: SocialChannel[] = ["facebook", "instagram", "linkedin"];
+const CHANNEL_OPTIONS: Array<{ value: SocialChannel; label: string }> = [
+  { value: "facebook", label: "Facebook" },
+  { value: "instagram", label: "Instagram" },
+  { value: "linkedin", label: "LinkedIn" },
+];
 const TOPIC_WINDOWS_STORAGE_KEY = "onboarding_topic_windows_v1";
 
 const Stepper = ({ currentStep }: { currentStep: number }) => (
@@ -118,6 +123,25 @@ export const OnboardingWizard = () => {
 
   const update = <K extends keyof WizardPayload>(key: K, value: WizardPayload[K]) => {
     setForm((previous) => ({ ...previous, [key]: value }));
+  };
+
+  const toggleChannel = (channel: SocialChannel) => {
+    setForm((previous) => {
+      const exists = previous.channels.includes(channel);
+      if (exists) {
+        if (previous.channels.length === 1) {
+          return previous;
+        }
+        return {
+          ...previous,
+          channels: previous.channels.filter((value) => value !== channel),
+        };
+      }
+      return {
+        ...previous,
+        channels: [...previous.channels, channel],
+      };
+    });
   };
 
   type LoadedData = {
@@ -703,6 +727,23 @@ export const OnboardingWizard = () => {
               </select>
             </div>
 
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Sosiale plattformer</label>
+              <div className="space-y-2 rounded-md border border-border bg-muted/30 p-3">
+                {CHANNEL_OPTIONS.map((option) => (
+                  <Checkbox
+                    key={option.value}
+                    checked={form.channels.includes(option.value)}
+                    onChange={() => toggleChannel(option.value)}
+                    label={option.label}
+                  />
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Vi genererer kun innhold for plattformene du har valgt her.
+              </p>
+            </div>
+
             <div className="rounded-md bg-muted/50 p-4">
               <p className="text-sm text-muted-foreground">
                 Du kan laste opp flere bilder og videoer i{" "}
@@ -866,7 +907,7 @@ export const OnboardingWizard = () => {
               </Button>
               <Button
                 onClick={() => void generateContentPlan()}
-                disabled={loading || subscriptionLoading || !subscriptionActive}
+                disabled={loading || subscriptionLoading || !subscriptionActive || form.channels.length === 0}
               >
                 {loading ? "Genererer..." : "Generer 4-ukers plan"}
               </Button>

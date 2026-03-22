@@ -24,12 +24,35 @@ type OverviewResponse = {
   };
 };
 
+type SocialAccountsResponse = {
+  connected: Array<{
+    channel: "facebook" | "instagram" | "linkedin";
+    account_id: string;
+    updated_at: string;
+  }>;
+};
+
 const SUBSCRIPTION_STATUS_LABEL_NO: Record<string, string> = {
   active: "Aktiv",
   trialing: "Prøveperiode",
   past_due: "Forfalt",
   canceled: "Avsluttet",
   inactive: "Inaktiv",
+};
+
+const SOCIAL_CONNECT_MESSAGE_NO: Record<string, string> = {
+  meta_connected: "Meta-konto koblet til (Facebook/Instagram).",
+  meta_invalid_state: "Meta-innlogging feilet (ugyldig state). Prøv igjen.",
+  meta_token_failed: "Meta-innlogging feilet ved henting av token.",
+  meta_no_pages: "Meta-innlogging ok, men ingen sider funnet for kontoen.",
+  meta_save_failed: "Meta-konto ble funnet, men kunne ikke lagres.",
+  meta_callback_failed: "Meta callback feilet. Prøv igjen.",
+  linkedin_connected: "LinkedIn-konto koblet til.",
+  linkedin_invalid_state: "LinkedIn-innlogging feilet (ugyldig state). Prøv igjen.",
+  linkedin_token_failed: "LinkedIn-innlogging feilet ved henting av token.",
+  linkedin_profile_failed: "LinkedIn-innlogging feilet ved henting av profil.",
+  linkedin_save_failed: "LinkedIn-konto ble funnet, men kunne ikke lagres.",
+  linkedin_callback_failed: "LinkedIn callback feilet. Prøv igjen.",
 };
 
 const firstDayOfNextMonthIso = (): string => {
@@ -39,6 +62,7 @@ const firstDayOfNextMonthIso = (): string => {
 
 export const DashboardPanel = () => {
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
+  const [socialAccounts, setSocialAccounts] = useState<SocialAccountsResponse["connected"]>([]);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [checkoutUrl, setCheckoutUrl] = useState("");
@@ -53,14 +77,21 @@ export const DashboardPanel = () => {
       setBillingRequired(options.billingRequired);
     }
     try {
-      const response = await fetch("/api/dashboard/overview");
-      if (!response.ok) {
+      const [overviewResponse, socialResponse] = await Promise.all([
+        fetch("/api/dashboard/overview"),
+        fetch("/api/social/accounts"),
+      ]);
+      if (!overviewResponse.ok) {
         setError("Kunne ikke hente dashboard-data.");
         setStatus("Prøv igjen om noen sekunder.");
         return;
       }
-      const data = (await response.json()) as OverviewResponse;
+      const data = (await overviewResponse.json()) as OverviewResponse;
       setOverview(data);
+      if (socialResponse.ok) {
+        const socialData = (await socialResponse.json()) as SocialAccountsResponse;
+        setSocialAccounts(socialData.connected ?? []);
+      }
       setError("");
     } catch {
       setError("Nettverksfeil ved henting av dashboard-data.");
@@ -74,12 +105,17 @@ export const DashboardPanel = () => {
     const url = new URL(window.location.href);
     const payment = url.searchParams.get("payment");
     const sessionId = url.searchParams.get("session_id");
+    const socialConnectStatus = url.searchParams.get("social_connect");
 
     const run = async () => {
       await refresh({ billingRequired: url.searchParams.get("billing") === "required" });
 
       if (payment === "cancel") {
         setStatus("Betaling ble avbrutt.");
+      }
+
+      if (socialConnectStatus && SOCIAL_CONNECT_MESSAGE_NO[socialConnectStatus]) {
+        setStatus(SOCIAL_CONNECT_MESSAGE_NO[socialConnectStatus]);
       }
 
       if (payment === "success" && sessionId) {
@@ -98,9 +134,10 @@ export const DashboardPanel = () => {
         }
       }
 
-      if (payment || sessionId) {
+      if (payment || sessionId || socialConnectStatus) {
         url.searchParams.delete("payment");
         url.searchParams.delete("session_id");
+        url.searchParams.delete("social_connect");
         window.history.replaceState({}, "", url.toString());
       }
     };
@@ -109,6 +146,9 @@ export const DashboardPanel = () => {
   }, []);
 
   const canPublish = overview?.subscription.active ?? false;
+  const connectedChannels = useMemo(() => {
+    return new Set(socialAccounts.map((account) => account.channel));
+  }, [socialAccounts]);
   const planLabel = useMemo(() => {
     if (!overview) return "Ingen plan";
     return `${overview.subscription.planCode} (${overview.subscription.postsPerWeekAllowance} poster/uke)`;
@@ -311,6 +351,38 @@ export const DashboardPanel = () => {
           <Button variant="outline" size="sm" onClick={() => void runPublishing()} disabled={!canPublish}>
             Kjør publisering nå
           </Button>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <h2 className="text-base font-semibold">Koble sosiale kontoer</h2>
+        <p className="text-sm text-muted-foreground">
+          Koble kontoene du vil publisere til. Meta kobler Facebook + Instagram i én innlogging.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href="/api/social/oauth/meta/start"
+            className="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm hover:bg-muted"
+          >
+            Koble til Meta (Facebook + Instagram)
+          </a>
+          <a
+            href="/api/social/oauth/linkedin/start"
+            className="inline-flex h-9 items-center rounded-md border border-border px-3 text-sm hover:bg-muted"
+          >
+            Koble til LinkedIn
+          </a>
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs">
+          <span className={connectedChannels.has("facebook") ? "text-success" : "text-muted-foreground"}>
+            Facebook: {connectedChannels.has("facebook") ? "Koblet" : "Ikke koblet"}
+          </span>
+          <span className={connectedChannels.has("instagram") ? "text-success" : "text-muted-foreground"}>
+            Instagram: {connectedChannels.has("instagram") ? "Koblet" : "Ikke koblet"}
+          </span>
+          <span className={connectedChannels.has("linkedin") ? "text-success" : "text-muted-foreground"}>
+            LinkedIn: {connectedChannels.has("linkedin") ? "Koblet" : "Ikke koblet"}
+          </span>
         </div>
       </section>
 

@@ -45,20 +45,48 @@ export const createContentPlan = async (input: {
   countryCode: string;
   mediaMode: MediaMode;
   topicWindows: TopicWindow[];
+  channels?: SocialChannel[];
 }): Promise<string> => {
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
+
+  const payloadWithChannels = {
+    user_id: input.userId,
+    posts_per_week: input.postsPerWeek,
+    total_weeks: input.totalWeeks,
+    country_code: input.countryCode,
+    media_mode: input.mediaMode,
+    topic_windows: input.topicWindows,
+    channels: input.channels ?? ["facebook", "instagram", "linkedin"],
+  };
+
+  let data: { id?: string } | null = null;
+  let error: { message?: string } | null = null;
+
+  const withChannels = await supabase
     .from("content_plans")
-    .insert({
-      user_id: input.userId,
-      posts_per_week: input.postsPerWeek,
-      total_weeks: input.totalWeeks,
-      country_code: input.countryCode,
-      media_mode: input.mediaMode,
-      topic_windows: input.topicWindows,
-    })
+    .insert(payloadWithChannels)
     .select("id")
     .single();
+
+  data = withChannels.data as { id?: string } | null;
+  error = withChannels.error as { message?: string } | null;
+
+  if (error?.message?.toLowerCase().includes("channels")) {
+    const fallbackWithoutChannels = await supabase
+      .from("content_plans")
+      .insert({
+        user_id: input.userId,
+        posts_per_week: input.postsPerWeek,
+        total_weeks: input.totalWeeks,
+        country_code: input.countryCode,
+        media_mode: input.mediaMode,
+        topic_windows: input.topicWindows,
+      })
+      .select("id")
+      .single();
+    data = fallbackWithoutChannels.data as { id?: string } | null;
+    error = fallbackWithoutChannels.error as { message?: string } | null;
+  }
 
   if (error || !data?.id) {
     throw toAppError("PLAN_CREATE_FAILED", "Kunne ikke opprette content plan", error?.message);

@@ -170,6 +170,7 @@ export async function POST(request: Request) {
       countryCode: payload.countryCode,
       mediaMode: payload.mediaMode,
       topicWindows: payload.topicWindows,
+      channels: payload.channels,
     });
 
     const slots = buildSlots(
