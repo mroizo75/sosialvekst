@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import type { MediaMode, SocialChannel } from "@/lib/types";
 
 const normalizeR2Url = (url: string | null): string => {
   if (!url) return "";
@@ -20,7 +21,7 @@ export async function GET() {
     const userId = await requireUserId();
     const supabase = await createSupabaseServerClient();
 
-    const [profileResult, brandResult] = await Promise.all([
+    const [profileResult, brandResult, planResult] = await Promise.all([
       supabase
         .from("profiles")
         .select("full_name, company_name, country_code")
@@ -30,6 +31,13 @@ export async function GET() {
         .from("brand_profiles")
         .select("target_audience, brand_voice, key_messages, logo_url, website_url, website_content, company_description, products, unique_selling_points")
         .eq("user_id", userId)
+        .maybeSingle(),
+      supabase
+        .from("content_plans")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle(),
     ]);
 
@@ -49,6 +57,16 @@ export async function GET() {
 
     const profile = profileResult.data;
     const brand = brandResult.data;
+    const latestPlan = planResult.data as { media_mode?: unknown; channels?: unknown } | null;
+    const channels = Array.isArray(latestPlan?.channels)
+      ? (latestPlan?.channels as unknown[])
+        .filter((item): item is string => typeof item === "string")
+        .filter((item): item is SocialChannel => item === "facebook" || item === "instagram" || item === "linkedin")
+      : [];
+    const mediaMode = typeof latestPlan?.media_mode === "string"
+      && (latestPlan.media_mode === "ai_only" || latestPlan.media_mode === "hybrid" || latestPlan.media_mode === "owned_only")
+      ? (latestPlan.media_mode as MediaMode)
+      : "hybrid";
 
     return NextResponse.json({
       exists: Boolean(profile),
@@ -63,6 +81,8 @@ export async function GET() {
       companyDescription: brand?.company_description ?? "",
       products: (brand?.products as string[] | null) ?? [],
       uniqueSellingPoints: (brand?.unique_selling_points as string[] | null) ?? [],
+      mediaMode,
+      channels: channels.length > 0 ? channels : ["facebook", "instagram", "linkedin"],
     });
   } catch (error) {
     const appError = toUnknownAppError(error);

@@ -157,6 +157,8 @@ export const OnboardingWizard = () => {
     companyDescription: string;
     products: string[];
     uniqueSellingPoints: string[];
+    mediaMode: MediaMode;
+    channels: SocialChannel[];
   };
 
   const loadExistingData = useCallback(async () => {
@@ -180,8 +182,8 @@ export const OnboardingWizard = () => {
       brandVoice: data.brandVoice,
       keyMessages: data.keyMessages,
       logoUrl: data.logoUrl,
-      mediaMode: "hybrid",
-      channels: DEFAULT_CHANNELS,
+      mediaMode: data.mediaMode ?? "hybrid",
+      channels: (data.channels && data.channels.length > 0 ? data.channels : DEFAULT_CHANNELS),
     });
     setKeyMessagesText(data.keyMessages.join(", "));
 

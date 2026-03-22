@@ -94,6 +94,36 @@ const getTopicFromPlan = async (
   return getTopicForWeek(week, topicWindows);
 };
 
+const getMediaModeFromPlan = async (
+  userId: string,
+  postId: string,
+): Promise<"ai_only" | "hybrid" | "owned_only" | null> => {
+  const supabase = await createSupabaseServerClient();
+  const { data: postMeta } = await supabase
+    .from("posts")
+    .select("plan_id")
+    .eq("id", postId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!postMeta?.plan_id) {
+    return null;
+  }
+
+  const { data: planMeta } = await supabase
+    .from("content_plans")
+    .select("media_mode")
+    .eq("id", postMeta.plan_id)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const value = planMeta?.media_mode;
+  if (value === "ai_only" || value === "hybrid" || value === "owned_only") {
+    return value;
+  }
+  return null;
+};
+
 export async function PATCH(request: Request, context: RouteContext) {
   const userId = await requireUserId();
   const brandContext = await getBrandContext(userId);
@@ -150,10 +180,16 @@ export async function PATCH(request: Request, context: RouteContext) {
     await requireActiveSubscription(userId);
     const oldImageUrl = post.imageUrl;
     const topicFromPlan = await getTopicFromPlan(userId, postId);
+    const mediaModeFromPlan = await getMediaModeFromPlan(userId, postId);
+    const effectiveMediaMode = mediaModeFromPlan ?? "ai_only";
     const topic = action === "rewrite_topic"
       ? payload.topic ?? topicFromPlan ?? fallbackTopic
       : topicFromPlan ?? fallbackTopic;
-    const mediaMode = action === "regenerate_text" ? "owned_only" : "ai_only";
+    const mediaMode = action === "regenerate_text"
+      ? "owned_only"
+      : effectiveMediaMode === "owned_only"
+        ? "owned_only"
+        : "ai_only";
     const imageProfile = action === "regenerate_image" ? "final" : "preview";
 
     const regenerated = await generatePost({
