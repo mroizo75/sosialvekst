@@ -86,7 +86,15 @@ export default function LandingPage() {
       </main>
 
       <footer className="border-t border-border py-8 text-center text-xs text-muted-foreground">
-        &copy; {new Date().getFullYear()} SosialVekst. Alle rettigheter reservert.
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-3 px-6">
+          <span>&copy; {new Date().getFullYear()} SosialVekst. Alle rettigheter reservert.</span>
+          <Link href="/privacy" className="hover:text-foreground hover:underline">
+            Personvern
+          </Link>
+          <Link href="/terms" className="hover:text-foreground hover:underline">
+            Vilkår
+          </Link>
+        </div>
       </footer>
     </div>
   );
