@@ -463,14 +463,14 @@ export const DashboardPanel = () => {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         <StatCard label="Totalt" value={overview.summary.totalPosts} />
         <StatCard label="Godkjent" value={overview.summary.approvedPosts} accent="success" />
         <StatCard label="I kø" value={overview.summary.queuedJobs} accent="primary" />
         <StatCard label="Publisert" value={overview.summary.publishedPosts} accent="success" />
       </div>
 
-      <section className="rounded-2xl border border-border bg-card p-5 space-y-4">
+      <section className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-3 sm:space-y-4">
         <div>
           <h2 className="text-base font-bold">Abonnement</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -504,7 +504,7 @@ export const DashboardPanel = () => {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-border bg-card p-5 space-y-4">
+      <section className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-3 sm:space-y-4">
         <div>
           <h2 className="text-base font-bold">Planlegg fremover</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -541,7 +541,7 @@ export const DashboardPanel = () => {
         )}
       </section>
 
-      <section className="rounded-2xl border border-border bg-card p-5 space-y-4">
+      <section className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-3 sm:space-y-4">
         <div>
           <h2 className="text-base font-bold">Publisering</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -564,7 +564,7 @@ export const DashboardPanel = () => {
         </p>
       </section>
 
-      <section className="rounded-2xl border border-border bg-card p-5 space-y-4">
+      <section className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-3 sm:space-y-4">
         <div>
           <h2 className="text-base font-bold">Sosiale kontoer</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -612,11 +612,11 @@ const StatCard = ({
   value: number;
   accent?: "primary" | "success";
 }) => (
-  <div className="rounded-2xl border border-border bg-card p-4">
-    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+  <div className="rounded-2xl border border-border bg-card p-3 sm:p-4">
+    <p className="text-[10px] sm:text-xs font-medium text-muted-foreground">{label}</p>
     <p
       className={cn(
-        "mt-1.5 text-3xl font-bold tabular-nums",
+        "mt-1 sm:mt-1.5 text-2xl sm:text-3xl font-bold tabular-nums",
         accent === "success" && value > 0 && "text-success",
         accent === "primary" && value > 0 && "text-primary",
       )}

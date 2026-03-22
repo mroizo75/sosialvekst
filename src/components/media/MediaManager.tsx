@@ -136,7 +136,7 @@ export const MediaManager = () => {
         role="button"
         tabIndex={0}
         className={cn(
-          "flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-10 transition-all",
+          "flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-6 sm:p-10 transition-all",
           dragging
             ? "border-primary bg-primary/5 scale-[1.01]"
             : "border-border bg-muted/20 hover:border-primary/40 hover:bg-muted/40",
@@ -206,7 +206,7 @@ export const MediaManager = () => {
                 </p>
               </div>
 
-              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/60 to-transparent p-2.5 opacity-0 transition-opacity group-hover:opacity-100">
+              <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/60 to-transparent p-2 sm:p-2.5 opacity-100 sm:opacity-0 transition-opacity sm:group-hover:opacity-100">
                 <a
                   href={file.url}
                   target="_blank"

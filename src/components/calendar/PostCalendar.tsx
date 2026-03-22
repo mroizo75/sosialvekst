@@ -429,17 +429,17 @@ const DetailPanel = ({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center sm:p-6">
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Rediger post"
         tabIndex={-1}
-        className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
+        className="flex h-[95vh] sm:h-[90vh] w-full sm:max-w-5xl flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl border border-border bg-card shadow-2xl"
       >
         {/* --- Header --- */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+        <div className="flex items-center justify-between border-b border-border px-3 sm:px-5 py-3">
           <div className="flex items-center gap-3">
             <span className={cn("size-2.5 shrink-0 rounded-full", channelDot[post.channel])} />
             <div>
@@ -483,7 +483,7 @@ const DetailPanel = ({
           <div className="grid grid-cols-1 lg:grid-cols-2">
 
             {/* === LEFT: Forhåndsvisning === */}
-            <div className="p-5 space-y-4 lg:border-r lg:border-border">
+            <div className="p-3 sm:p-5 space-y-4 lg:border-r lg:border-border">
 
               {/* Media preview */}
               <div>
@@ -637,7 +637,7 @@ const DetailPanel = ({
             </div>
 
             {/* === RIGHT: Redigering === */}
-            <div className="p-5 space-y-5">
+            <div className="p-3 sm:p-5 space-y-4 sm:space-y-5">
 
               {/* Text editing */}
               <div>
@@ -1144,8 +1144,8 @@ export const PostCalendar = () => {
   const weekLabel = `Uke ${getIsoWeekNumber(weekDays[0])}, ${weekDays[0].toLocaleDateString("nb-NO", { day: "numeric", month: "short" })} - ${weekDays[6].toLocaleDateString("nb-NO", { day: "numeric", month: "short", year: "numeric" })}`;
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex flex-col gap-3 sm:gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -1164,12 +1164,12 @@ export const PostCalendar = () => {
           >
             &rarr;
           </Button>
-          <h2 className="ml-2 text-lg font-semibold capitalize">
+          <h2 className="ml-1 sm:ml-2 text-sm sm:text-lg font-semibold capitalize truncate">
             {view === "month" ? monthLabel : weekLabel}
           </h2>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto">
           {draftCount > 0 && (
             <Button
               size="sm"
@@ -1215,10 +1215,10 @@ export const PostCalendar = () => {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <p>Tips: Godkjenn poster fortløpende. Godkjente poster publiseres automatisk.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground">
+        <p className="hidden sm:block">Tips: Godkjenn poster fortløpende. Godkjente poster publiseres automatisk.</p>
         <div className={cn(
-          "rounded-lg border px-3 py-1.5 font-medium",
+          "rounded-lg border px-3 py-1.5 font-medium text-center sm:text-left",
           aiEditsRemaining > 0
             ? "border-border bg-muted/30 text-foreground"
             : "border-destructive/30 bg-destructive/5 text-destructive",
@@ -1272,15 +1272,16 @@ export const PostCalendar = () => {
       )}
 
       {view === "month" && (
-        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-          <div className="grid grid-cols-[3rem_repeat(7,1fr)] border-b border-border bg-muted/30">
-            <div className="p-2 text-center text-[10px] font-medium uppercase text-muted-foreground">
+        <div className="rounded-xl border border-border bg-card shadow-sm overflow-x-auto">
+          <div className="min-w-[480px]">
+          <div className="grid grid-cols-[2.5rem_repeat(7,1fr)] sm:grid-cols-[3rem_repeat(7,1fr)] border-b border-border bg-muted/30">
+            <div className="p-1.5 sm:p-2 text-center text-[9px] sm:text-[10px] font-medium uppercase text-muted-foreground">
               Uke
             </div>
             {DAY_NAMES.map((name) => (
               <div
                 key={name}
-                className="border-l border-border p-2 text-center text-[10px] font-medium uppercase text-muted-foreground"
+                className="border-l border-border p-1.5 sm:p-2 text-center text-[9px] sm:text-[10px] font-medium uppercase text-muted-foreground"
               >
                 {name}
               </div>
@@ -1292,9 +1293,9 @@ export const PostCalendar = () => {
             return (
               <div
                 key={weekIdx}
-                className="grid grid-cols-[3rem_repeat(7,1fr)] border-b border-border last:border-b-0"
+                className="grid grid-cols-[2.5rem_repeat(7,1fr)] sm:grid-cols-[3rem_repeat(7,1fr)] border-b border-border last:border-b-0"
               >
-                <div className="flex items-start justify-center border-r border-border p-2 text-[10px] font-medium text-muted-foreground">
+                <div className="flex items-start justify-center border-r border-border p-1.5 sm:p-2 text-[9px] sm:text-[10px] font-medium text-muted-foreground">
                   {weekNum}
                 </div>
                 {week.map((day, dayIdx) => {
@@ -1326,7 +1327,7 @@ export const PostCalendar = () => {
                         setDragOverDateKey(null);
                       }}
                       className={cn(
-                        "min-h-[120px] border-l border-border p-1.5 transition-colors",
+                        "min-h-[80px] sm:min-h-[120px] border-l border-border p-1 sm:p-1.5 transition-colors",
                         !isCurrentMonth && "bg-muted/20",
                         isToday(day) && "bg-primary/5",
                         dragOverDateKey === dateKey && "ring-2 ring-primary/40 ring-inset bg-primary/10",
@@ -1371,27 +1372,29 @@ export const PostCalendar = () => {
               </div>
             );
           })}
+          </div>
         </div>
       )}
 
       {view === "week" && (
-        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-          <div className="grid grid-cols-[3.5rem_repeat(7,1fr)] border-b border-border bg-muted/30">
-            <div className="p-2" />
+        <div className="rounded-xl border border-border bg-card shadow-sm overflow-x-auto">
+          <div className="min-w-[480px]">
+          <div className="grid grid-cols-[2.5rem_repeat(7,1fr)] sm:grid-cols-[3.5rem_repeat(7,1fr)] border-b border-border bg-muted/30">
+            <div className="p-1.5 sm:p-2" />
             {weekDays.map((day, i) => (
               <div
                 key={i}
                 className={cn(
-                  "border-l border-border p-2 text-center",
+                  "border-l border-border p-1.5 sm:p-2 text-center",
                   isToday(day) && "bg-primary/5",
                 )}
               >
-                <div className="text-[10px] font-medium uppercase text-muted-foreground">
+                <div className="text-[9px] sm:text-[10px] font-medium uppercase text-muted-foreground">
                   {DAY_NAMES[i]}
                 </div>
                 <div
                   className={cn(
-                    "mt-0.5 text-lg font-semibold",
+                    "mt-0.5 text-base sm:text-lg font-semibold",
                     isToday(day) ? "text-primary" : "text-foreground",
                   )}
                 >
@@ -1405,7 +1408,7 @@ export const PostCalendar = () => {
             {HOURS.filter((h) => h >= 6 && h <= 22).map((hour) => (
               <div
                 key={hour}
-                className="grid grid-cols-[3.5rem_repeat(7,1fr)] border-b border-border/50 last:border-b-0"
+                className="grid grid-cols-[2.5rem_repeat(7,1fr)] sm:grid-cols-[3.5rem_repeat(7,1fr)] border-b border-border/50 last:border-b-0"
               >
                 <div className="flex items-start justify-center p-1 text-[10px] text-muted-foreground">
                   {String(hour).padStart(2, "0")}:00
@@ -1451,6 +1454,7 @@ export const PostCalendar = () => {
                 })}
               </div>
             ))}
+          </div>
           </div>
         </div>
       )}

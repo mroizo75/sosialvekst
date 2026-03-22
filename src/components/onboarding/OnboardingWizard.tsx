@@ -618,8 +618,8 @@ export const OnboardingWizard = () => {
 
   if (mode === "loading") {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-12">
-        <div className="flex flex-col items-center justify-center gap-3 py-20">
+      <div className="mx-auto max-w-2xl px-3 sm:px-4 py-8 sm:py-12">
+        <div className="flex flex-col items-center justify-center gap-3 py-12 sm:py-20">
           <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           <p className="text-sm text-muted-foreground">Henter informasjonen din...</p>
         </div>
@@ -629,9 +629,9 @@ export const OnboardingWizard = () => {
 
   if (mode === "settings") {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-8">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight">Min bedrift</h1>
+      <div className="mx-auto max-w-2xl px-3 sm:px-4 py-6 sm:py-8">
+        <div className="mb-6 sm:mb-8">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Min bedrift</h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
             Jo mer AI-en vet om bedriften din, desto bedre innhold lager den.
             Fyll ut det du kan — du kan alltid komme tilbake og legge til mer.
@@ -964,9 +964,9 @@ export const OnboardingWizard = () => {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8">
-      <div className="mb-6 text-center">
-        <h1 className="text-2xl font-bold tracking-tight">
+    <div className="mx-auto max-w-2xl px-3 sm:px-4 py-6 sm:py-8">
+      <div className="mb-5 sm:mb-6 text-center">
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
           {step === 1 && "Fortell oss om bedriften din"}
           {step === 2 && "Hvordan vil du bli oppfattet?"}
           {step === 3 && "Velg kanaler og medier"}
