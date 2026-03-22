@@ -7,7 +7,7 @@ import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
 import { deleteFilesByUrls } from "@/lib/cloudflare/r2";
 import { toAppError } from "@/lib/errors";
-import { getPostById, savePost } from "@/lib/posts/repository";
+import { getPostById, savePost, setPostAdditionalImages } from "@/lib/posts/repository";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { TopicWindow } from "@/lib/types";
@@ -16,6 +16,7 @@ const updateSchema = z.object({
   text: z.string().trim().min(1).optional(),
   imageUrl: z.string().url().optional().or(z.literal("")),
   videoUrl: z.string().url().optional().or(z.literal("")),
+  additionalImageUrls: z.array(z.string().url()).optional(),
   topic: z.string().trim().min(2).max(180).optional(),
   scheduledAt: z.string().datetime().optional(),
   action: z
@@ -138,6 +139,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   let updatedText = payload.text ?? post.text;
   let updatedImageUrl = payload.imageUrl === "" ? undefined : payload.imageUrl ?? post.imageUrl;
   let updatedVideoUrl = payload.videoUrl === "" ? undefined : payload.videoUrl ?? post.videoUrl;
+  let updatedAdditionalImageUrls = payload.additionalImageUrls ?? post.additionalImageUrls ?? [];
   const fallbackTopic = brandContext?.companyDescription?.slice(0, 180)
     ?? brandContext?.products?.join(", ")?.slice(0, 180)
     ?? "Generell merkevarebygging";
@@ -206,15 +208,18 @@ export async function PATCH(request: Request, context: RouteContext) {
       updatedText = regenerated.text;
       updatedImageUrl = post.imageUrl;
       updatedVideoUrl = post.videoUrl;
+      updatedAdditionalImageUrls = post.additionalImageUrls ?? [];
     }
     if (action === "regenerate_image") {
       updatedImageUrl = regenerated.imageUrl ?? post.imageUrl;
       updatedVideoUrl = undefined;
+      updatedAdditionalImageUrls = [];
     }
     if (action === "regenerate_all" || action === "rewrite_topic") {
       updatedText = regenerated.text;
       updatedImageUrl = regenerated.imageUrl;
       updatedVideoUrl = undefined;
+      updatedAdditionalImageUrls = [];
     }
 
     if (oldImageUrl && oldImageUrl !== updatedImageUrl) {
@@ -222,16 +227,25 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
   }
 
+  if (updatedVideoUrl) {
+    updatedAdditionalImageUrls = [];
+  } else if (updatedAdditionalImageUrls.length > 0) {
+    updatedVideoUrl = undefined;
+  }
+
   const decision = evaluatePolicy({ text: updatedText, imageUrl: updatedImageUrl, companyName });
 
-  const updated = await savePost(userId, {
+  await savePost(userId, {
     ...post,
     text: updatedText,
     imageUrl: updatedImageUrl,
     videoUrl: updatedVideoUrl,
+    additionalImageUrls: updatedAdditionalImageUrls,
     status: decision.status,
     quality: decision.quality,
   });
 
-  return NextResponse.json(updated);
+  await setPostAdditionalImages(userId, post.id, updatedAdditionalImageUrls);
+  const refreshedPost = await getPostById(userId, post.id);
+  return NextResponse.json(refreshedPost);
 }

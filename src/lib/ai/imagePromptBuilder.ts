@@ -11,63 +11,134 @@ type ImagePromptInput = {
   format?: PostFormat;
 };
 
+const CHANNEL_SPEC: Record<ImagePromptInput["channel"], { format: string; style: string }> = {
+  instagram: {
+    format: "Kvadratisk (1:1) eller portrett (4:5). Tett motiv med tydelig fokuspunkt.",
+    style: "Visuelt sterkt, moderne og engasjerende. Hovedmotiv skal stoppe scroll.",
+  },
+  facebook: {
+    format: "Landskap (16:9 eller 1.91:1). Romslig komposisjon med luft rundt motivet.",
+    style: "Vennlig, troverdig og lettfattelig. Naturlig lys og ekte situasjoner.",
+  },
+  linkedin: {
+    format: "Landskap (1.91:1) eller kvadratisk (1:1). Ryddig og profesjonell komposisjon.",
+    style: "Seriost, faglig og tillitvekkende. Unnga klisjeer og overdramatisering.",
+  },
+};
+
+const TONE_TO_VISUAL: Record<string, string> = {
+  profesjonell: "Noytral fargepalett, ren komposisjon, naturlig lyssetting.",
+  varm: "Varme jordtoner, mykt lys, menneskelig naervaer.",
+  energisk: "Hoyere kontrast, dynamisk komposisjon, aktivt motiv.",
+  noytral: "Balansert lys og farger, tydelig men rolig uttrykk.",
+  innovativ: "Moderne, minimalistisk og teknologisk preg med rene linjer.",
+  tillitvekkende: "Jordnaere farger, aapent kroppssprak, naturlig dagslys.",
+};
+
+const MEDIA_MODE_SPEC: Record<MediaMode, string> = {
+  ai_only: "Generer et nytt, fotorealistisk bilde med hoy kvalitet.",
+  hybrid: "Generer et nytt bilde som visuelt matcher brukerens eksisterende bildebank og brand.",
+  owned_only: "Generer et reservebilde kun dersom det absolutt kreves teknisk. Ellers hold uttrykket tett pa brukerens egne bilder.",
+};
+
+const FORMAT_SPEC: Partial<Record<PostFormat, string>> = {
+  insight: "Kommuniser innsikt med tydelig hovedmotiv og profesjonell kontekst.",
+  tip: "Vis konkret handling eller praksisnaert scenario med klar nytteverdi.",
+  question: "Lag et motiv som inviterer til refleksjon og dialog.",
+  behind_the_scenes: "Autentisk arbeidsmiljo med ekte situasjon i fokus.",
+  case_study: "Resultat- eller leveranseorientert motiv med konkret faglig relevans.",
+  fact: "Noytralt og tydelig informasjonsmotiv uten visuell stoy.",
+  how_to: "Trinnvis eller instruktivt preg med klar handling i bildet.",
+  myth_busting: "Vis kontrast mellom feil praksis og korrekt praksis pa en troverdig mate.",
+  opinion: "Tydelig standpunkt visuelt, men fortsatt profesjonelt og saklig uttrykk.",
+};
+
 export const buildImagePrompt = (input: ImagePromptInput): string => {
   const ctx = input.brandContext ?? {};
   const companyName = ctx.companyName ?? "bedriften";
-  const industry = ctx.companyDescription
-    ? `Bransje/beskrivelse: ${ctx.companyDescription}.`
-    : "";
-  const products = ctx.products && ctx.products.length > 0
-    ? `Produkter/tjenester: ${ctx.products.join(", ")}.`
-    : "";
-
-  const lines = [
-    "Lag et profesjonelt, fotorealistisk bilde for en norsk bedriftspost på sosiale medier.",
-    "",
-    `Bedrift: ${companyName}.`,
-    industry,
-    products,
-    `Tema: ${input.topic}.`,
-    `Kanal: ${input.channel}.`,
-    `Målgruppe: ${input.brandRules.targetAudience}.`,
-  ];
-
-  if (input.imageDirection) {
-    lines.push(
-      "",
-      "VISUELL RETNING:",
-      input.imageDirection,
-    );
+  const contextParts = [`Bedrift: ${companyName}.`];
+  if (ctx.companyDescription) {
+    contextParts.push(`Bransje/beskrivelse: ${ctx.companyDescription}.`);
+  }
+  if (ctx.products && ctx.products.length > 0) {
+    contextParts.push(`Produkter/tjenester: ${ctx.products.join(", ")}.`);
   }
 
-  lines.push(
-    "",
-    "OBLIGATORISKE KRAV:",
-    `- TEMAET "${input.topic}" er obligatorisk og skal være tydelig i motivet.`,
-    `- Bildet SKAL være direkte relevant for ${companyName} og det de faktisk driver med.`,
-    "- Profesjonell bedriftsfotografering-kvalitet med naturlig lys og ren komposisjon.",
-    "- Realistisk og troverdig motiv som passer en seriøs norsk bedrift.",
-    "- Bildet skal fortelle en historie eller kommunisere en tydelig idé.",
-    "- Ingen generiske stockbilder eller tilfeldige elementer.",
-    "- Ingen AI-artefakter, deformerte hender/ansikter eller unaturlige proporsjoner.",
-    "- Ingen overmettet farge, neon, fantasy-elementer eller plastisk AI-look.",
-    "- Motivet skal tydelig kommunisere bedriftens bransje og kompetanse.",
-    `- Bildet skal følge den visuelle stilen: ${input.brandRules.toneOfVoice}.`,
-    "- FOKUSLÅS: motivet skal være direkte knyttet til temaet, ikke et nærliggende eller tilfeldig underområde.",
-    "- IKKE tolk temaet bredt. Bruk eksakt semantikk fra tema og bedriftskontekst.",
-    "- Hvis temaet er spesifikt, skal motivet være like spesifikt.",
-    `- Hvis det brukes tekst i bildet, skal teksten være NØYAKTIG "${companyName}" skrevet korrekt.`,
-    "- Ingen annen tekst, ingen tilfeldige bokstaver, ingen engelske/russiske tegn, ingen stavefeil.",
-    "- Hvis modellen ikke klarer korrekt tekst, skal bildet være helt uten tekst.",
+  const channelSpec = CHANNEL_SPEC[input.channel];
+  const toneKey = input.brandRules.toneOfVoice.toLowerCase().replaceAll("æ", "ae").replaceAll("ø", "o").replaceAll("å", "a");
+  const visualTone = TONE_TO_VISUAL[toneKey] ?? `Visuell stil skal folge tonen: ${input.brandRules.toneOfVoice}.`;
+  const mediaModeSpec = MEDIA_MODE_SPEC[input.mediaMode];
+  const formatSpec = input.format ? FORMAT_SPEC[input.format] : undefined;
+
+  const sections: string[] = [];
+
+  sections.push(
+    [
+      `Lag et profesjonelt bilde for en norsk bedriftspost pa ${input.channel}.`,
+      mediaModeSpec,
+    ].join(" "),
   );
 
-  lines.push(
-    "",
-    "BRANDING I BILDET (UTEN TEKST):",
-    "- Bruk bedriftens visuelle uttrykk gjennom farger, miljø, klær, rekvisitter og motivvalg.",
-    "- Ikke bruk skrift som branding. All branding skal være visuell og tekstfri.",
-    "- Prioriter ren komposisjon med tydelig hovedmotiv og profesjonell lyssetting.",
+  sections.push(["BEDRIFTSKONTEKST:", ...contextParts].join("\n"));
+
+  sections.push(
+    [
+      "TEMA OG MALGRUPPE:",
+      `Tema: ${input.topic}.`,
+      `Malgruppe: ${input.brandRules.targetAudience}.`,
+    ].join("\n"),
   );
 
-  return lines.filter(Boolean).join("\n");
+  const channelBlock = [
+    "KANAL OG FORMAT:",
+    `Kanal: ${input.channel}.`,
+    `Bildeformat: ${channelSpec.format}`,
+    `Kanalstil: ${channelSpec.style}`,
+  ];
+  if (formatSpec) {
+    channelBlock.push(`Postformat: ${formatSpec}`);
+  }
+  sections.push(channelBlock.join("\n"));
+
+  sections.push(
+    [
+      "VISUELL STIL:",
+      `Tone: ${visualTone}`,
+      input.imageDirection ? `Retning: ${input.imageDirection}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
+
+  sections.push(
+    [
+      "OBLIGATORISKE KRAV:",
+      `- Temaet "${input.topic}" skal vaere eksplisitt og tydelig i motivet, ikke et tilgrensende konsept.`,
+      `- Motivet skal kommunisere direkte hva ${companyName} driver med. Ingen generiske stockbilder.`,
+      "- Profesjonell kvalitet: naturlig lys, ren komposisjon, realistiske proporsjoner.",
+      "- Ingen AI-artefakter: ingen deformerte hender/ansikter eller unaturlige proporsjoner.",
+      "- Ingen overmettet farge, neon, fantasy eller kitsch.",
+      "- Bildet skal kommunisere en tydelig ide.",
+      "- FOKUSLAS: Ikke tolk temaet bredt. Bruk eksakt semantikk fra tema og bedriftskontekst.",
+    ].join("\n"),
+  );
+
+  sections.push(
+    [
+      "TEKST I BILDET:",
+      `- Hvis tekst brukes, skal det kun sta noyaktig "${companyName}" korrekt stavet.`,
+      "- Ingen andre ord, ingen tilfeldige bokstaver, ingen engelsk eller russisk tekst.",
+      "- Hvis korrekt tekstgjengivelse er usikkert: lag bildet helt uten tekst.",
+    ].join("\n"),
+  );
+
+  sections.push(
+    [
+      "BRANDING (TEKSTFRI):",
+      "- Formidle brand gjennom farger, miljo, klaer og rekvisitter.",
+      "- Ren komposisjon med tydelig hovedmotiv. Branding skal vaere visuell.",
+    ].join("\n"),
+  );
+
+  return sections.join("\n\n");
 };

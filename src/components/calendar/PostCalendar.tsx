@@ -124,6 +124,7 @@ const PostCardMini = ({ post, onClick, onDragStart, onDragEnd }: PostCardMiniPro
           Video valgt
         </div>
       ) : post.imageUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={post.imageUrl}
           alt=""
@@ -141,6 +142,11 @@ const PostCardMini = ({ post, onClick, onDragStart, onDragEnd }: PostCardMiniPro
         <div className="flex items-center gap-1 text-[10px] opacity-70">
           <span className="font-medium">{time}</span>
           <span className="capitalize">{post.channel}</span>
+          {post.additionalImageUrls && post.additionalImageUrls.length > 0 ? (
+            <span className="rounded bg-muted px-1 py-0.5 text-[9px] text-muted-foreground">
+              +{post.additionalImageUrls.length} bilde{post.additionalImageUrls.length > 1 ? "r" : ""}
+            </span>
+          ) : null}
           {post.status === "approved" && (
             <span className="ml-auto inline-block size-1.5 rounded-full bg-green-500" title="Godkjent" />
           )}
@@ -156,7 +162,10 @@ const PostCardMini = ({ post, onClick, onDragStart, onDragEnd }: PostCardMiniPro
 type DetailPanelProps = {
   post: PostDraft;
   onClose: () => void;
-  onSave: (id: string, payload: { text: string; imageUrl?: string; videoUrl?: string }) => void;
+  onSave: (
+    id: string,
+    payload: { text: string; imageUrl?: string; videoUrl?: string; additionalImageUrls?: string[] },
+  ) => void;
   onRegenerateAll: (id: string) => void;
   onRegenerateText: (id: string) => void;
   onRegenerateImage: (id: string) => void;
@@ -327,8 +336,12 @@ const DetailPanel = ({
   const [textDraft, setTextDraft] = useState(post.text);
   const [imageUrlDraft, setImageUrlDraft] = useState(post.imageUrl ?? "");
   const [videoUrlDraft, setVideoUrlDraft] = useState(post.videoUrl ?? "");
+  const [additionalImageUrlsDraft, setAdditionalImageUrlsDraft] = useState<string[]>(
+    post.additionalImageUrls ?? [],
+  );
   const [topicDraft, setTopicDraft] = useState("");
   const [showMediaPicker, setShowMediaPicker] = useState(false);
+  const [pickerTarget, setPickerTarget] = useState<"primary" | "additional">("primary");
   const [publishJobs, setPublishJobs] = useState<PublishJobHistory[]>([]);
   const [publishHistoryStatus, setPublishHistoryStatus] = useState("");
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -487,6 +500,16 @@ const DetailPanel = ({
                 />
               </div>
             ) : null}
+            {additionalImageUrlsDraft.length > 0 && !videoUrlDraft ? (
+              <div className="grid grid-cols-4 gap-2">
+                {additionalImageUrlsDraft.map((url, index) => (
+                  <div key={`${url}-preview-${index}`} className="rounded border border-border p-1">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt="" className="h-14 w-full rounded object-cover" />
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             <div className="space-y-1 text-xs text-muted-foreground">
               <div className="flex items-center justify-between">
@@ -538,24 +561,71 @@ const DetailPanel = ({
                   setVideoUrlDraft(event.target.value);
                   if (event.target.value.trim().length > 0) {
                     setImageUrlDraft("");
+                    setAdditionalImageUrlsDraft([]);
                   }
                 }}
                 placeholder="https://..."
               />
-              <Button
-                onClick={() => setShowMediaPicker(true)}
-                disabled={isProcessing}
-                variant="outline"
-                size="sm"
-                className="w-full"
-              >
-                Velg fra mediebibliotek
-              </Button>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Button
+                  onClick={() => {
+                    setPickerTarget("primary");
+                    setShowMediaPicker(true);
+                  }}
+                  disabled={isProcessing}
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                >
+                  Velg hovedmedia
+                </Button>
+                <Button
+                  onClick={() => {
+                    setPickerTarget("additional");
+                    setShowMediaPicker(true);
+                  }}
+                  disabled={isProcessing || Boolean(videoUrlDraft)}
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                >
+                  Legg til ekstra bilde
+                </Button>
+              </div>
+              <div className="rounded-md border border-border bg-background p-2">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-medium text-foreground">Ekstra bilder (karusell)</p>
+                  <p className="text-xs text-muted-foreground">{additionalImageUrlsDraft.length} valgt</p>
+                </div>
+                {additionalImageUrlsDraft.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Ingen ekstra bilder valgt.</p>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2">
+                    {additionalImageUrlsDraft.map((url, index) => (
+                      <div key={`${url}-${index}`} className="relative rounded border border-border p-1">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={url} alt="" className="h-16 w-full rounded object-cover" />
+                        <button
+                          type="button"
+                          className="absolute right-1 top-1 rounded bg-black/60 px-1 text-[10px] text-white"
+                          onClick={() => {
+                            setAdditionalImageUrlsDraft((current) => current.filter((_, i) => i !== index));
+                          }}
+                          disabled={isProcessing}
+                        >
+                          x
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               <Button
                 onClick={() => onSave(post.id, {
                   text: textDraft,
                   imageUrl: imageUrlDraft || undefined,
                   videoUrl: videoUrlDraft || undefined,
+                  additionalImageUrls: additionalImageUrlsDraft,
                 })}
                 disabled={isProcessing || textDraft.trim().length === 0}
                 className="w-full"
@@ -677,12 +747,25 @@ const DetailPanel = ({
           onClose={() => setShowMediaPicker(false)}
           onSelect={(file) => {
             const kind = detectMediaKind(file.key);
-            if (kind === "video") {
-              setVideoUrlDraft(file.url);
-              setImageUrlDraft("");
+            if (pickerTarget === "additional") {
+              if (kind === "image") {
+                setAdditionalImageUrlsDraft((current) => {
+                  if (current.includes(file.url) || file.url === imageUrlDraft) {
+                    return current;
+                  }
+                  return [...current, file.url];
+                });
+                setVideoUrlDraft("");
+              }
             } else {
-              setImageUrlDraft(file.url);
-              setVideoUrlDraft("");
+              if (kind === "video") {
+                setVideoUrlDraft(file.url);
+                setImageUrlDraft("");
+                setAdditionalImageUrlsDraft([]);
+              } else {
+                setImageUrlDraft(file.url);
+                setVideoUrlDraft("");
+              }
             }
             setShowMediaPicker(false);
           }}
@@ -744,7 +827,7 @@ export const PostCalendar = () => {
   const updatePost = async (
     postId: string,
     action: "save" | "regenerate_all" | "regenerate_text" | "regenerate_image" | "rewrite_topic",
-    payload: Record<string, string | undefined> = {},
+    payload: Record<string, string | string[] | undefined> = {},
   ) => {
     setProcessingPost({ id: postId, action });
     setStatus(action === "save" ? "Lagrer endringer..." : "AI oppdaterer posten...");

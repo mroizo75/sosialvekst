@@ -73,6 +73,7 @@ export type PostDraft = {
   scheduledAt: string;
   text: string;
   imageUrl?: string;
+  additionalImageUrls?: string[];
   videoUrl?: string;
   status: PostStatus;
   quality: QualityScore;

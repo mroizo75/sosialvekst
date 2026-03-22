@@ -12,6 +12,7 @@ type PublishInput = {
   accessToken: string | null;
   text: string;
   imageUrl: string | null;
+  additionalImageUrls: string[];
   videoUrl: string | null;
   idempotencyKey: string;
 };
@@ -70,18 +71,75 @@ const publishInstagram = async (input: PublishInput): Promise<string> => {
   if (!input.accountId) {
     throw new Error("Mangler Instagram accountId.");
   }
-  if (!input.imageUrl && !input.videoUrl) {
+  const imageUrls = [input.imageUrl, ...input.additionalImageUrls]
+    .filter((value): value is string => Boolean(value));
+  if (imageUrls.length === 0 && !input.videoUrl) {
     throw new Error("Instagram krever bilde eller video for publisering.");
   }
   const apiVersion = process.env.FACEBOOK_GRAPH_API_VERSION ?? "v23.0";
+
+  if (!input.videoUrl && imageUrls.length > 1) {
+    const carouselIds: string[] = [];
+    for (const imageUrl of imageUrls) {
+      const itemForm = new URLSearchParams();
+      itemForm.set("access_token", input.accessToken ?? "");
+      itemForm.set("image_url", imageUrl);
+      itemForm.set("is_carousel_item", "true");
+      const itemResponse = await fetch(
+        `https://graph.facebook.com/${apiVersion}/${input.accountId}/media`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: itemForm.toString(),
+        },
+      );
+      const itemPayload = await ensureJson<{ id?: string }>(itemResponse);
+      if (!itemPayload.id) {
+        throw new Error("Instagram karusell-element ble ikke opprettet.");
+      }
+      carouselIds.push(itemPayload.id);
+    }
+
+    const parentForm = new URLSearchParams();
+    parentForm.set("access_token", input.accessToken ?? "");
+    parentForm.set("media_type", "CAROUSEL");
+    parentForm.set("children", carouselIds.join(","));
+    parentForm.set("caption", input.text);
+    const parentResponse = await fetch(
+      `https://graph.facebook.com/${apiVersion}/${input.accountId}/media`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: parentForm.toString(),
+      },
+    );
+    const parentPayload = await ensureJson<{ id?: string }>(parentResponse);
+    if (!parentPayload.id) {
+      throw new Error("Instagram karusell-container ble ikke opprettet.");
+    }
+
+    const publishForm = new URLSearchParams();
+    publishForm.set("access_token", input.accessToken ?? "");
+    publishForm.set("creation_id", parentPayload.id);
+    const publishResponse = await fetch(
+      `https://graph.facebook.com/${apiVersion}/${input.accountId}/media_publish`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: publishForm.toString(),
+      },
+    );
+    const publishPayload = await ensureJson<{ id?: string }>(publishResponse);
+    return publishPayload.id ?? `instagram_${input.idempotencyKey}`;
+  }
 
   const createForm = new URLSearchParams();
   createForm.set("access_token", input.accessToken ?? "");
   if (input.videoUrl) {
     createForm.set("video_url", input.videoUrl);
     createForm.set("media_type", "REELS");
-  } else if (input.imageUrl) {
-    createForm.set("image_url", input.imageUrl);
+  } else if (imageUrls[0]) {
+    createForm.set("image_url", imageUrls[0]);
   }
   createForm.set("caption", input.text);
   const createResponse = await fetch(
@@ -231,7 +289,7 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
 
     processed += 1;
     try {
-      const [{ data: post }, { data: social }] = await Promise.all([
+      const [{ data: post }, { data: social }, { data: mediaRows }] = await Promise.all([
         admin
           .from("posts")
           .select("id, text_content, image_url, video_url")
@@ -245,6 +303,11 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
           .eq("channel", job.channel)
           .limit(1)
           .maybeSingle(),
+        admin
+          .from("post_media_assets")
+          .select("file_url, sort_order")
+          .eq("post_id", job.post_id)
+          .order("sort_order", { ascending: true }),
       ]);
 
       if (!post) {
@@ -257,6 +320,7 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
         accessToken: social?.access_token ?? null,
         text: post.text_content,
         imageUrl: post.image_url,
+        additionalImageUrls: (mediaRows ?? []).map((row) => row.file_url).filter((url) => Boolean(url)),
         videoUrl: post.video_url,
         idempotencyKey: job.id,
       });

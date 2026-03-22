@@ -13,6 +13,12 @@ type DbPostRow = {
   quality_score: PostDraft["quality"];
 };
 
+type DbPostMediaRow = {
+  post_id: string;
+  file_url: string;
+  sort_order: number;
+};
+
 const normalizeR2Url = (url: string | null): string | undefined => {
   if (!url) return undefined;
 
@@ -37,6 +43,27 @@ const toPostDraft = (row: DbPostRow): PostDraft => ({
   videoUrl: row.video_url ?? undefined,
   quality: row.quality_score,
 });
+
+const attachAdditionalImages = (
+  posts: PostDraft[],
+  mediaRows: DbPostMediaRow[],
+): PostDraft[] => {
+  if (posts.length === 0) {
+    return posts;
+  }
+  const mediaByPost = new Map<string, string[]>();
+  for (const row of mediaRows) {
+    const normalized = normalizeR2Url(row.file_url);
+    if (!normalized) continue;
+    const existing = mediaByPost.get(row.post_id) ?? [];
+    existing.push(normalized);
+    mediaByPost.set(row.post_id, existing);
+  }
+  return posts.map((post) => ({
+    ...post,
+    additionalImageUrls: mediaByPost.get(post.id) ?? [],
+  }));
+};
 
 export const createContentPlan = async (input: {
   userId: string;
@@ -132,7 +159,22 @@ export const listPosts = async (userId: string): Promise<PostDraft[]> => {
     throw toAppError("POSTS_LIST_FAILED", "Kunne ikke hente poster", error.message);
   }
 
-  return (data ?? []).map((row) => toPostDraft(row as DbPostRow));
+  const posts = (data ?? []).map((row) => toPostDraft(row as DbPostRow));
+  if (posts.length === 0) {
+    return posts;
+  }
+
+  const { data: mediaData, error: mediaError } = await supabase
+    .from("post_media_assets")
+    .select("post_id, file_url, sort_order")
+    .in("post_id", posts.map((post) => post.id))
+    .order("sort_order", { ascending: true });
+
+  if (mediaError && !mediaError.message.toLowerCase().includes("post_media_assets")) {
+    throw toAppError("POST_MEDIA_LIST_FAILED", "Kunne ikke hente postmedier", mediaError.message);
+  }
+
+  return attachAdditionalImages(posts, (mediaData ?? []) as DbPostMediaRow[]);
 };
 
 export const getPostById = async (userId: string, postId: string): Promise<PostDraft | null> => {
@@ -151,7 +193,19 @@ export const getPostById = async (userId: string, postId: string): Promise<PostD
     return null;
   }
 
-  return toPostDraft(data as DbPostRow);
+  const post = toPostDraft(data as DbPostRow);
+  const { data: mediaData, error: mediaError } = await supabase
+    .from("post_media_assets")
+    .select("post_id, file_url, sort_order")
+    .eq("post_id", postId)
+    .order("sort_order", { ascending: true });
+
+  if (mediaError && !mediaError.message.toLowerCase().includes("post_media_assets")) {
+    throw toAppError("POST_MEDIA_GET_FAILED", "Kunne ikke hente postmedier", mediaError.message);
+  }
+
+  const [withMedia] = attachAdditionalImages([post], (mediaData ?? []) as DbPostMediaRow[]);
+  return withMedia;
 };
 
 export const savePost = async (userId: string, post: PostDraft): Promise<PostDraft> => {
@@ -176,5 +230,62 @@ export const savePost = async (userId: string, post: PostDraft): Promise<PostDra
     throw toAppError("POST_UPDATE_FAILED", "Kunne ikke oppdatere post", error.message);
   }
 
-  return toPostDraft(data as DbPostRow);
+  const savedPost = toPostDraft(data as DbPostRow);
+  const { data: mediaData, error: mediaError } = await supabase
+    .from("post_media_assets")
+    .select("post_id, file_url, sort_order")
+    .eq("post_id", post.id)
+    .order("sort_order", { ascending: true });
+
+  if (mediaError && !mediaError.message.toLowerCase().includes("post_media_assets")) {
+    throw toAppError("POST_MEDIA_GET_FAILED", "Kunne ikke hente postmedier", mediaError.message);
+  }
+
+  const [withMedia] = attachAdditionalImages([savedPost], (mediaData ?? []) as DbPostMediaRow[]);
+  return withMedia;
+};
+
+export const setPostAdditionalImages = async (
+  userId: string,
+  postId: string,
+  imageUrls: string[],
+): Promise<void> => {
+  const supabase = await createSupabaseServerClient();
+  const { data: postRow, error: postError } = await supabase
+    .from("posts")
+    .select("id")
+    .eq("id", postId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (postError || !postRow?.id) {
+    throw toAppError("POST_NOT_FOUND", "Fant ikke post for oppdatering av ekstra bilder.", postError?.message);
+  }
+
+  const { error: deleteError } = await supabase
+    .from("post_media_assets")
+    .delete()
+    .eq("post_id", postId);
+
+  if (deleteError && !deleteError.message.toLowerCase().includes("post_media_assets")) {
+    throw toAppError("POST_MEDIA_DELETE_FAILED", "Kunne ikke oppdatere ekstra bilder.", deleteError.message);
+  }
+
+  if (imageUrls.length === 0) {
+    return;
+  }
+
+  const rows = imageUrls.map((url, index) => ({
+    post_id: postId,
+    file_url: url,
+    sort_order: index,
+  }));
+
+  const { error: insertError } = await supabase
+    .from("post_media_assets")
+    .insert(rows);
+
+  if (insertError) {
+    throw toAppError("POST_MEDIA_SAVE_FAILED", "Kunne ikke lagre ekstra bilder.", insertError.message);
+  }
 };
