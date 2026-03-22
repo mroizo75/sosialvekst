@@ -70,6 +70,12 @@ export const signUpAction = async (formData: FormData): Promise<void> => {
   redirect(`/login?message=check_email&email=${encodeURIComponent(email)}`);
 };
 
+export const signOutAction = async (): Promise<void> => {
+  const supabase = await createSupabaseServerClient();
+  await supabase.auth.signOut();
+  redirect("/login");
+};
+
 export const resendConfirmationAction = async (formData: FormData): Promise<void> => {
   const email = getStringValue(formData, "email");
   const appUrl = getAppUrl();

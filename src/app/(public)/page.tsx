@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 
 const steps = [
@@ -43,11 +44,8 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <header className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-lg">
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-5">
-          <span className="text-base font-bold tracking-tight text-primary">
-            SosialVekst
-          </span>
-          <nav className="flex items-center gap-3">
+        <div className="mx-auto flex h-12 max-w-5xl items-center justify-end px-4 sm:px-5">
+          <nav className="flex items-center gap-2 sm:gap-3">
             <Link
               href="/login"
               className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
@@ -65,31 +63,45 @@ export default function LandingPage() {
       </header>
 
       <main className="flex-1">
-        <section className="relative overflow-hidden py-20 sm:py-28">
+        <section className="relative overflow-hidden py-16 sm:py-24">
           <div className="absolute inset-0 bg-gradient-to-b from-primary-light via-background to-background" />
-          <div className="relative mx-auto max-w-3xl px-5 text-center">
-            <h1 className="text-4xl font-extrabold tracking-tight text-foreground sm:text-5xl lg:text-[3.5rem] lg:leading-[1.15]">
-              Sosiale medier
-              <br />
-              <span className="text-primary">på autopilot</span>
-            </h1>
-            <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-muted-foreground">
-              Vi lager poster med tekst og bilder tilpasset bedriften din, og
-              publiserer automatisk til Facebook, Instagram og LinkedIn.
-            </p>
-            <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-              <Link
-                href="/register"
-                className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-primary px-8 text-base font-semibold text-primary-foreground shadow-md transition-all hover:bg-primary-hover hover:shadow-lg sm:w-auto"
-              >
-                Kom i gang gratis
-              </Link>
-              <a
-                href="#slik-fungerer-det"
-                className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-border bg-card px-8 text-base font-semibold text-foreground shadow-sm transition-colors hover:bg-secondary sm:w-auto"
-              >
+          <div className="relative mx-auto max-w-5xl px-5">
+            <div className="flex flex-col items-center gap-8 md:flex-row md:items-center md:gap-12">
+              <div className="shrink-0">
+                <Image
+                  src="/logo.png"
+                  alt="SosialVekst"
+                  width={400}
+                  height={400}
+                  className="h-48 sm:h-64 md:h-80 w-auto object-contain"
+                  priority
+                />
+              </div>
+              <div className="text-center md:text-left">
+                <h1 className="text-3xl font-extrabold tracking-tight text-foreground sm:text-5xl lg:text-[3.5rem] lg:leading-[1.15]">
+                  Sosiale medier
+                  <br />
+                  <span className="text-primary">på autopilot</span>
+                </h1>
+                <p className="mt-5 max-w-xl text-base sm:text-lg leading-relaxed text-muted-foreground">
+                  Vi lager poster med tekst og bilder tilpasset bedriften din, og
+                  publiserer automatisk til Facebook, Instagram og LinkedIn.
+                </p>
+                <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row md:justify-start sm:justify-center">
+                  <Link
+                    href="/register"
+                    className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-primary px-8 text-base font-semibold text-primary-foreground shadow-md transition-all hover:bg-primary-hover hover:shadow-lg sm:w-auto"
+                  >
+                    Kom i gang gratis
+                  </Link>
+                  <a
+                    href="#slik-fungerer-det"
+                    className="inline-flex h-12 w-full items-center justify-center rounded-xl border border-border bg-card px-8 text-base font-semibold text-foreground shadow-sm transition-colors hover:bg-secondary sm:w-auto"
+                  >
                 Se hvordan det fungerer
               </a>
+            </div>
+              </div>
             </div>
           </div>
         </section>

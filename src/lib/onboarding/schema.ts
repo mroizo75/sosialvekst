@@ -25,28 +25,33 @@ export const onboardingChannelsSchema = z.object({
   channels: z.array(z.enum(["facebook", "instagram", "linkedin"])).min(1),
 });
 
-export const onboardingWizardSchema = onboardingProfileSchema
-  .merge(onboardingBrandingSchema)
-  .merge(onboardingMediaSchema)
-  .merge(onboardingChannelsSchema)
-  .extend({
-    websiteUrl: z.string().url().optional().or(z.literal("")),
-    companyDescription: optionalText,
-    industry: optionalText,
-    foundedYear: optionalText,
-    teamDescription: optionalText,
-    coreValues: optionalTextArray,
-    customerPainPoints: optionalTextArray,
-    customerSuccessStories: optionalTextArray,
-    products: optionalTextArray,
-    services: optionalTextArray,
-    uniqueSellingPoints: optionalTextArray,
-    priceRange: optionalText,
-    brandPersonality: optionalText,
-    brandDosAndDonts: optionalText,
-    competitorDifferentiators: optionalText,
-    commonQuestions: optionalTextArray,
-    seasonalFocus: optionalText,
-  });
+export const onboardingWizardSchema = z.object({
+  companyName: optionalText.or(nonEmptyText),
+  fullName: optionalText.or(nonEmptyText),
+  countryCode: z.string().trim().min(1).max(5).default("NO"),
+  targetAudience: optionalText.or(nonEmptyText),
+  brandVoice: optionalText.or(nonEmptyText),
+  keyMessages: z.array(z.string().trim().min(1)).optional().default([]),
+  logoUrl: z.string().url().optional().or(z.literal("")),
+  mediaMode: z.enum(["ai_only", "hybrid", "owned_only"]).default("hybrid"),
+  channels: z.array(z.enum(["facebook", "instagram", "linkedin"])).optional().default([]),
+  websiteUrl: z.string().url().optional().or(z.literal("")),
+  companyDescription: optionalText,
+  industry: optionalText,
+  foundedYear: optionalText,
+  teamDescription: optionalText,
+  coreValues: optionalTextArray,
+  customerPainPoints: optionalTextArray,
+  customerSuccessStories: optionalTextArray,
+  products: optionalTextArray,
+  services: optionalTextArray,
+  uniqueSellingPoints: optionalTextArray,
+  priceRange: optionalText,
+  brandPersonality: optionalText,
+  brandDosAndDonts: optionalText,
+  competitorDifferentiators: optionalText,
+  commonQuestions: optionalTextArray,
+  seasonalFocus: optionalText,
+});
 
 export type OnboardingWizardSchema = z.infer<typeof onboardingWizardSchema>;

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 
+import { signOutAction } from "@/app/(auth)/actions";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -44,6 +45,15 @@ export const AppNav = () => {
             </Link>
           ))}
         </nav>
+
+        <form action={signOutAction} className="hidden sm:block">
+          <button
+            type="submit"
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors cursor-pointer"
+          >
+            Logg ut
+          </button>
+        </form>
 
         <button
           type="button"
@@ -90,6 +100,16 @@ export const AppNav = () => {
                 {item.label}
               </Link>
             ))}
+            <div className="border-t border-border mt-1 pt-1">
+              <form action={signOutAction}>
+                <button
+                  type="submit"
+                  className="w-full rounded-lg px-4 py-3 text-left text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors cursor-pointer"
+                >
+                  Logg ut
+                </button>
+              </form>
+            </div>
           </nav>
         </div>
       )}
