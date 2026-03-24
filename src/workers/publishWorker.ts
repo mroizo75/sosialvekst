@@ -287,13 +287,7 @@ const ensureTikTokToken = async (input: PublishInput): Promise<string> => {
   return input.accessToken;
 };
 
-const publishTikTok = async (input: PublishInput): Promise<string> => {
-  if (!input.videoUrl) {
-    throw new Error("TikTok krever video for publisering.");
-  }
-
-  const accessToken = await ensureTikTokToken(input);
-
+const publishTikTokVideo = async (input: PublishInput, accessToken: string): Promise<string> => {
   const initResponse = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
     method: "POST",
     headers: {
@@ -321,11 +315,69 @@ const publishTikTok = async (input: PublishInput): Promise<string> => {
   };
 
   if (!initResponse.ok || initPayload.error?.code !== "ok") {
-    const errMsg = initPayload.error?.message ?? `TikTok API svarte med HTTP ${initResponse.status}`;
+    const errMsg = initPayload.error?.message ?? `TikTok video API svarte med HTTP ${initResponse.status}`;
     throw new Error(errMsg);
   }
 
-  return initPayload.data?.publish_id ?? `tiktok_${input.idempotencyKey}`;
+  return initPayload.data?.publish_id ?? `tiktok_video_${input.idempotencyKey}`;
+};
+
+const publishTikTokPhoto = async (input: PublishInput, accessToken: string): Promise<string> => {
+  const imageUrls = [input.imageUrl, ...input.additionalImageUrls]
+    .filter((url): url is string => Boolean(url));
+
+  if (imageUrls.length === 0) {
+    throw new Error("TikTok krever minst ett bilde for foto-publisering.");
+  }
+
+  const initResponse = await fetch("https://open.tiktokapis.com/v2/post/publish/content/init/", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json; charset=UTF-8",
+    },
+    body: JSON.stringify({
+      post_info: {
+        title: input.text.slice(0, 2200),
+        privacy_level: "PUBLIC_TO_EVERYONE",
+        disable_comment: false,
+      },
+      source_info: {
+        source: "PULL_FROM_URL",
+        photo_cover_index: 0,
+        photo_images: imageUrls.slice(0, 35),
+      },
+      post_mode: "DIRECT_POST",
+      media_type: "PHOTO",
+    }),
+  });
+
+  const initPayload = (await initResponse.json().catch(() => ({}))) as {
+    data?: { publish_id?: string };
+    error?: { code?: string; message?: string; log_id?: string };
+  };
+
+  if (!initResponse.ok || initPayload.error?.code !== "ok") {
+    const errMsg = initPayload.error?.message ?? `TikTok foto API svarte med HTTP ${initResponse.status}`;
+    logger.warn("TikTok foto-publisering feilet", {
+      status: initResponse.status,
+      error: initPayload.error,
+      userId: input.userId,
+    });
+    throw new Error(errMsg);
+  }
+
+  return initPayload.data?.publish_id ?? `tiktok_photo_${input.idempotencyKey}`;
+};
+
+const publishTikTok = async (input: PublishInput): Promise<string> => {
+  const accessToken = await ensureTikTokToken(input);
+
+  if (input.videoUrl) {
+    return publishTikTokVideo(input, accessToken);
+  }
+
+  return publishTikTokPhoto(input, accessToken);
 };
 
 const publishToChannel = async (input: PublishInput): Promise<string> => {

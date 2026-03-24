@@ -44,12 +44,12 @@ const CTA_MAP: Record<PostIntent, string> = {
 };
 
 const IMAGE_DIRECTION_MAP: Record<PostFormat, string> = {
-  insight: "Profesjonelt bilde som illustrerer en nøkkelinnsikt, gjerne med tekst-overlay.",
+  insight: "Profesjonelt bilde som illustrerer en nøkkelinnsikt. Ingen tekst i bildet.",
   tip: "Rent, minimalistisk bilde med fokus på et enkelt konsept eller verktøy.",
-  question: "Engasjerende bilde som inviterer til refleksjon, gjerne med et spørsmålstegn-element.",
+  question: "Engasjerende bilde som inviterer til refleksjon. Visuelt uttrykk, ingen tekst.",
   case_study: "Dokumentarisk stil som viser et resultat eller en prosess.",
-  how_to: "Steg-for-steg visuelt som viser en prosess eller metode.",
-  fact: "Infografikk-inspirert bilde med tydelig visuell kommunikasjon av data eller fakta.",
+  how_to: "Visuelt steg-for-steg som viser en prosess eller metode. Ingen tekstoverlegg.",
+  fact: "Visuelt bilde som kommuniserer data eller innsikt gjennom motiv, ikke tekst.",
   behind_the_scenes: "Autentisk, upolert bilde fra daglig drift eller arbeidsmiljø.",
   myth_busting: "Kontrastfylt bilde som visuelt viser forskjellen mellom myte og virkelighet.",
   opinion: "Bilde med tydelig karakter og personlighet som understreker et standpunkt.",

@@ -86,7 +86,6 @@ export async function POST(request: Request) {
     }
 
     const publishablePosts = connectedPosts.filter((post) => {
-      if (post.channel === "tiktok" && !post.video_url) return false;
       if (post.channel === "linkedin" && Boolean(post.video_url)) return false;
       return true;
     });
@@ -94,7 +93,6 @@ export async function POST(request: Request) {
     const skippedPosts = [
       ...disconnectedPosts,
       ...connectedPosts.filter((post) => {
-        if (post.channel === "tiktok" && !post.video_url) return true;
         if (post.channel === "linkedin" && Boolean(post.video_url)) return true;
         return false;
       }),
@@ -102,10 +100,8 @@ export async function POST(request: Request) {
 
     if (publishablePosts.length === 0) {
       const reasons: string[] = [];
-      const tiktokSkipped = skippedPosts.filter((p) => p.channel === "tiktok" && !p.video_url);
       const linkedinSkipped = skippedPosts.filter((p) => p.channel === "linkedin" && Boolean(p.video_url));
       const disconnected = [...new Set(disconnectedPosts.map((p) => p.channel))];
-      if (tiktokSkipped.length > 0) reasons.push(`${tiktokSkipped.length} TikTok-poster mangler video`);
       if (linkedinSkipped.length > 0) reasons.push(`${linkedinSkipped.length} LinkedIn-poster har video (ikke støttet)`);
       if (disconnected.length > 0) reasons.push(`Kanaler ikke koblet til: ${disconnected.join(", ")}`);
       return NextResponse.json(

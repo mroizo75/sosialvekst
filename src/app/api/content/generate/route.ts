@@ -338,13 +338,30 @@ async function generateSingleSlot(
       `${slot.channel}/${slot.id.slice(0, 8)}`,
     );
 
-    return await updatePostWithRetry(supabase, slot.id, userId, workspaceId, {
+    const dbOk = await updatePostWithRetry(supabase, slot.id, userId, workspaceId, {
       text_content: post.text,
       image_url: post.imageUrl ?? null,
       video_url: post.videoUrl ?? null,
       status: post.status,
       quality_score: post.quality,
     });
+
+    if (dbOk && post.additionalImageUrls && post.additionalImageUrls.length > 0) {
+      const mediaRows = post.additionalImageUrls.map((url, idx) => ({
+        post_id: slot.id,
+        file_url: url,
+        sort_order: idx + 1,
+      }));
+      const { error: mediaErr } = await supabase
+        .from("post_media_assets")
+        .upsert(mediaRows, { onConflict: "post_id,sort_order" });
+
+      if (mediaErr) {
+        console.error(`[generate] Karusell-lagring feilet for ${slot.id.slice(0, 8)}:`, mediaErr.message);
+      }
+    }
+
+    return dbOk;
   } catch (err) {
     console.error(`[generate] Post ${slot.id.slice(0, 8)} feilet:`, err instanceof Error ? err.message : err);
 

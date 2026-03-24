@@ -94,24 +94,64 @@ const falFetchQueued = async <T>(endpointId: string, input: Record<string, unkno
     throw new Error(`fal.ai ${endpointId} returnerte ingen request_id.`);
   }
 
-  const statusBase = `https://queue.fal.run/${endpointId}/requests/${submitData.request_id}`;
+  const statusBase = submitData.status_url
+    ?? `https://queue.fal.run/${endpointId}/requests/${submitData.request_id}`;
+  const responseBase = submitData.response_url
+    ?? `https://queue.fal.run/${endpointId}/requests/${submitData.request_id}`;
   const startTime = Date.now();
   let pollInterval = FAL_QUEUE_INITIAL_POLL_MS;
+  let pollCount = 0;
+
+  logger.info(`[fal.ai] Jobb sendt til kø`, {
+    endpoint: endpointId,
+    requestId: submitData.request_id,
+    statusUrl: statusBase,
+  });
 
   while (Date.now() - startTime < FAL_QUEUE_MAX_WAIT_MS) {
     await new Promise((resolve) => setTimeout(resolve, pollInterval));
     pollInterval = Math.min(pollInterval * 1.5, FAL_QUEUE_MAX_POLL_MS);
+    pollCount += 1;
 
-    const statusResponse = await fetch(`${statusBase}/status`, { headers });
-    if (!statusResponse.ok) continue;
+    const statusUrl = statusBase.includes("/status") ? statusBase : `${statusBase}/status`;
+    const statusResponse = await fetch(statusUrl, { headers });
+    if (!statusResponse.ok) {
+      logger.warn(`[fal.ai] Status-poll feilet`, {
+        endpoint: endpointId,
+        poll: pollCount,
+        httpStatus: statusResponse.status,
+      });
+      continue;
+    }
 
-    const statusData = (await statusResponse.json()) as { status?: string };
+    const statusData = (await statusResponse.json()) as {
+      status?: string;
+      queue_position?: number;
+      response_url?: string;
+    };
+
+    if (pollCount <= 3 || pollCount % 5 === 0) {
+      logger.info(`[fal.ai] Status-poll`, {
+        endpoint: endpointId,
+        poll: pollCount,
+        status: statusData.status,
+        queuePosition: statusData.queue_position,
+        elapsedMs: Date.now() - startTime,
+      });
+    }
+
     if (statusData.status === "COMPLETED") {
-      const resultResponse = await fetch(statusBase, { headers });
+      const resultUrl = statusData.response_url ?? responseBase;
+      const resultResponse = await fetch(resultUrl, { headers });
       if (!resultResponse.ok) {
         const body = await resultResponse.text().catch(() => "");
         throw new Error(`fal.ai ${endpointId} resultat feilet (${resultResponse.status}): ${body.slice(0, 300)}`);
       }
+      logger.info(`[fal.ai] Jobb fullført`, {
+        endpoint: endpointId,
+        elapsedMs: Date.now() - startTime,
+        polls: pollCount,
+      });
       return resultResponse.json() as Promise<T>;
     }
 
@@ -180,22 +220,18 @@ export const generateImageToVideo = async (
 
   try {
     const result = await falFetchQueued<{ video?: FalVideoResult }>(
-      "fal-ai/wan/turbo/image-to-video",
+      "fal-ai/minimax/hailuo-02-fast/image-to-video",
       {
         prompt: input.prompt,
         image_url: input.imageUrl,
-        resolution: input.resolution ?? "480p",
-        aspect_ratio: "auto",
-        negative_prompt: "blur, distort, low quality, watermark, text overlay",
-        enable_prompt_expansion: true,
-        enable_safety_checker: true,
-        write_mode: "faster",
+        duration: "6",
+        prompt_optimizer: true,
       },
     );
 
     return result.video ?? null;
   } catch (error) {
-    logger.warn("fal.ai Wan Turbo image-to-video feilet", {
+    logger.warn("fal.ai Hailuo Fast image-to-video feilet", {
       error: error instanceof Error ? error.message : "ukjent",
     });
     return null;

@@ -388,8 +388,20 @@ const DetailPanel = ({
   const [showPublishHistory, setShowPublishHistory] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
+  const prevPostRef = useRef(post);
+  useEffect(() => {
+    if (prevPostRef.current !== post) {
+      setTextDraft(post.text);
+      setImageUrlDraft(post.imageUrl ?? "");
+      setVideoUrlDraft(post.videoUrl ?? "");
+      setAdditionalImageUrlsDraft(post.additionalImageUrls ?? []);
+      prevPostRef.current = post;
+    }
+  }, [post]);
+
   const isProcessing = Boolean(processingAction);
-  const aiBlocked = aiEditsRemaining <= 0;
+  // TODO: Aktiver igjen etter test
+  const aiBlocked = false; // aiEditsRemaining <= 0;
   const quality = qualityLabel(post.quality.total);
   const hasMedia = Boolean(imageUrlDraft) || Boolean(videoUrlDraft);
   const canApprove = post.status === "draft" || post.status === "needs_review";
@@ -886,7 +898,8 @@ export const PostCalendar = () => {
     }
   }, []);
 
-  const aiEditsRemaining = aiLimits.limit - aiLimits.used;
+  // TODO: Aktiver igjen etter test
+  const aiEditsRemaining = aiLimits.limit; // aiLimits.limit - aiLimits.used;
 
   const updatePost = async (
     postId: string,
@@ -895,10 +908,11 @@ export const PostCalendar = () => {
   ) => {
     const isAiAction = action !== "save";
 
-    if (isAiAction && aiEditsRemaining <= 0) {
-      setStatus("Du har brukt opp dine AI-redigeringer for denne perioden. Du kan fortsatt redigere tekst og bilder manuelt.");
-      return;
-    }
+    // TODO: Aktiver igjen etter test
+    // if (isAiAction && aiEditsRemaining <= 0) {
+    //   setStatus("Du har brukt opp dine AI-redigeringer for denne perioden. Du kan fortsatt redigere tekst og bilder manuelt.");
+    //   return;
+    // }
 
     setProcessingPost({ id: postId, action });
     setStatus(action === "save" ? "Lagrer endringer..." : "AI oppdaterer posten...");
@@ -922,9 +936,10 @@ export const PostCalendar = () => {
     setStatus("");
     setProcessingPost(null);
 
-    if (isAiAction) {
-      setAiLimits((prev) => ({ ...prev, used: prev.used + 1 }));
-    }
+    // TODO: Aktiver igjen etter test
+    // if (isAiAction) {
+    //   setAiLimits((prev) => ({ ...prev, used: prev.used + 1 }));
+    // }
   };
 
   const draftCount = useMemo(

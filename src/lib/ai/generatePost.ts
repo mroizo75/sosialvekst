@@ -4,6 +4,7 @@ import { generateImageToVideo, isFalAvailable } from "@/lib/ai/falClient";
 import { generateProfessionalImage } from "@/lib/ai/imageGeneration";
 import { generateProductImage } from "@/lib/ai/imageEngine";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
+import { applyLogoOverlay, shouldApplyLogo } from "@/lib/ai/logoOverlay";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
 import { uploadUserFile, listUserFiles } from "@/lib/cloudflare/r2";
@@ -345,6 +346,120 @@ const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<string
   return undefined;
 };
 
+const CAROUSEL_FORMATS: PostFormat[] = [
+  "how_to",
+  "case_study",
+  "behind_the_scenes",
+  "tip",
+];
+
+const shouldGenerateCarousel = (
+  channel: SocialChannel,
+  format?: PostFormat,
+  scheduledAt?: string,
+): boolean => {
+  if (channel !== "instagram") return false;
+  if (!format || !CAROUSEL_FORMATS.includes(format)) return false;
+  const hash = hashStringToIndex(scheduledAt ?? crypto.randomUUID());
+  return (hash % 100) < 40;
+};
+
+const CAROUSEL_ANGLE_VARIANTS = [
+  "fra en annen vinkel, nærmere detaljer",
+  "i bruk, kontekst og miljø rundt",
+  "ovenfra-perspektiv med omgivelsene",
+];
+
+const generateCarouselImages = async (
+  input: GeneratePostInput,
+  primaryImagePrompt: string,
+): Promise<string[]> => {
+  const extraCount = 1 + Math.floor(Math.random() * 2);
+  const urls: string[] = [];
+
+  for (let i = 0; i < extraCount; i += 1) {
+    const variant = CAROUSEL_ANGLE_VARIANTS[i % CAROUSEL_ANGLE_VARIANTS.length];
+    const variantPrompt = `${primaryImagePrompt}\n\nVARIASJON: Vis dette ${variant}. Behold samme stil og kvalitet.`;
+
+    try {
+      const url = await generateProfessionalImage({
+        userId: input.userId,
+        prompt: variantPrompt,
+        profile: input.imageProfile,
+      });
+
+      if (url) {
+        const withLogo = await maybeApplyLogoOverlay(
+          url,
+          input.userId,
+          input.brandContext?.logoUrl,
+          `${input.scheduledAt}-carousel-${i}`,
+        );
+        urls.push(withLogo);
+      }
+    } catch (error) {
+      logger.warn("Karusellbilde generering feilet", {
+        userId: input.userId,
+        variant: i,
+        error: error instanceof Error ? error.message : "ukjent",
+      });
+    }
+  }
+
+  return urls;
+};
+
+const hashStringToIndex = (str: string): number => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i += 1) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+};
+
+const maybeApplyLogoOverlay = async (
+  imageUrl: string,
+  userId: string,
+  logoUrl: string | undefined,
+  scheduledAt: string,
+): Promise<string> => {
+  if (!logoUrl) {
+    logger.info("Logo-overlay hoppet over: ingen logoUrl", { userId });
+    return imageUrl;
+  }
+
+  const postIndex = hashStringToIndex(scheduledAt);
+  if (!shouldApplyLogo(postIndex)) {
+    logger.info("Logo-overlay hoppet over: ikke valgt for denne posten", { userId, postIndex, scheduledAt });
+    return imageUrl;
+  }
+
+  try {
+    const imageRes = await fetch(imageUrl);
+    if (!imageRes.ok) return imageUrl;
+
+    const imageBytes = Buffer.from(await imageRes.arrayBuffer());
+    const withLogo = await applyLogoOverlay({ imageBytes, logoUrl });
+
+    const uploaded = await uploadUserFile({
+      userId,
+      fileName: `branded-${crypto.randomUUID()}.png`,
+      contentType: "image/png",
+      mediaKind: "image",
+      body: new Uint8Array(withLogo),
+    });
+
+    logger.info("Logo-overlay lagt til bilde", { userId, scheduledAt });
+    return uploaded.publicUrl;
+  } catch (error) {
+    logger.warn("Logo-overlay feilet, bruker originalbilde", {
+      userId,
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    return imageUrl;
+  }
+};
+
 const buildVideoMotionPrompt = (input: GeneratePostInput): string => {
   const productName = input.brandContext?.productImages?.[0]?.productName;
   const companyName = input.brandContext?.companyName ?? "bedriften";
@@ -439,6 +554,42 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     imageUrl = undefined;
   }
 
+  if (imageUrl && input.mediaMode !== "owned_only") {
+    imageUrl = await maybeApplyLogoOverlay(
+      imageUrl,
+      input.userId,
+      input.brandContext?.logoUrl,
+      input.scheduledAt,
+    );
+  }
+
+  let additionalImageUrls: string[] | undefined;
+  if (imageUrl && shouldGenerateCarousel(input.channel, input.format, input.scheduledAt)) {
+    const brandRules = mergeBrandRules({
+      targetAudience: input.brandContext?.targetAudience,
+      brandVoice: input.brandContext?.brandVoice,
+      keyMessages: input.brandContext?.keyMessages,
+      coreValues: input.brandContext?.coreValues,
+    });
+    const carouselPrompt = buildImagePrompt({
+      topic: input.topic,
+      channel: input.channel,
+      mediaMode: input.mediaMode,
+      brandRules,
+      brandContext: input.brandContext,
+      imageDirection: input.imageDirection,
+      format: input.format,
+    });
+    additionalImageUrls = await generateCarouselImages(input, carouselPrompt);
+    if (additionalImageUrls.length > 0) {
+      logger.info("Instagram karusell generert", {
+        userId: input.userId,
+        extraImages: additionalImageUrls.length,
+        format: input.format,
+      });
+    }
+  }
+
   let videoUrl: string | undefined;
   if (input.channel === "tiktok" && imageUrl && !input.skipVideo) {
     videoUrl = await createVideoFromImage(input.userId, imageUrl, input);
@@ -467,6 +618,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     scheduledAt: input.scheduledAt,
     text: normalizedText,
     imageUrl,
+    additionalImageUrls: additionalImageUrls?.length ? additionalImageUrls : undefined,
     videoUrl,
     status: decision.status,
     quality: decision.quality,

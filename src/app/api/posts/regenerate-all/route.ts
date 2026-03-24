@@ -347,6 +347,21 @@ async function regenerateSlots(
         console.error(`[regenerate-all] DB-oppdatering feilet for ${slot.id}:`, error.message);
       }
 
+      if (!error && post.additionalImageUrls && post.additionalImageUrls.length > 0) {
+        const mediaRows = post.additionalImageUrls.map((url, idx) => ({
+          post_id: slot.id,
+          file_url: url,
+          sort_order: idx + 1,
+        }));
+        const { error: mediaErr } = await admin
+          .from("post_media_assets")
+          .upsert(mediaRows, { onConflict: "post_id,sort_order" });
+
+        if (mediaErr) {
+          console.error(`[regenerate-all] Karusell-lagring feilet for ${slot.id}:`, mediaErr.message);
+        }
+      }
+
       completed += 1;
       console.log(`[regenerate-all] Post ${completed}/${slots.length} ferdig`);
     } catch (err) {

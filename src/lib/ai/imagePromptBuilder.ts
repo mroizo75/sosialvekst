@@ -129,18 +129,20 @@ export const buildImagePrompt = (input: ImagePromptInput): string => {
 
   sections.push(
     [
-      "TEKST I BILDET:",
-      `- Hvis tekst brukes, skal det kun sta noyaktig "${companyName}" korrekt stavet.`,
-      "- Ingen andre ord, ingen tilfeldige bokstaver, ingen engelsk eller russisk tekst.",
-      "- Hvis korrekt tekstgjengivelse er usikkert: lag bildet helt uten tekst.",
+      "ABSOLUTT INGEN TEKST I BILDET:",
+      "- Bildet skal IKKE inneholde noen form for tekst, bokstaver, ord, tall eller typografi.",
+      "- Ingen firmanavn, ingen slagord, ingen overskrifter, ingen vannmerker med tekst.",
+      "- Hvis det er skilt, plakater eller skjermer i scenen, skal de vaere uten lesbar tekst.",
+      "- Dette kravet er UFRAVIKELIG. Ethvert bilde med synlig tekst er feil.",
     ].join("\n"),
   );
 
   sections.push(
     [
-      "BRANDING (TEKSTFRI):",
-      "- Formidle brand gjennom farger, miljo, klaer og rekvisitter.",
-      "- Ren komposisjon med tydelig hovedmotiv. Branding skal vaere visuell.",
+      "VISUELL BRANDING (UTEN TEKST):",
+      "- Formidle brand gjennom farger, miljo, klaer, rekvisitter og lyssetting.",
+      "- Ren komposisjon med tydelig hovedmotiv.",
+      "- Branding kommuniseres kun visuelt — aldri med tekst.",
     ].join("\n"),
   );
 
