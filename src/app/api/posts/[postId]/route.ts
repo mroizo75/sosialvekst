@@ -208,6 +208,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         mediaMode,
         imageProfile,
         brandContext,
+        skipVideo: true,
       });
 
       if (action === "regenerate_image") {

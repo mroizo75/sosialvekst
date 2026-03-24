@@ -32,6 +32,7 @@ type GeneratePostInput = {
   ctaType?: string;
   imageDirection?: string;
   imageProfile?: ImageProfile;
+  skipVideo?: boolean;
 };
 
 type CachedOwnedImages = {
@@ -439,7 +440,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   }
 
   let videoUrl: string | undefined;
-  if (input.channel === "tiktok" && imageUrl) {
+  if (input.channel === "tiktok" && imageUrl && !input.skipVideo) {
     videoUrl = await createVideoFromImage(input.userId, imageUrl, input);
   }
 
