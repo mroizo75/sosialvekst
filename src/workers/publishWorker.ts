@@ -7,14 +7,17 @@ type RunPublishWorkerInput = {
 };
 
 type PublishInput = {
-  channel: "facebook" | "instagram" | "linkedin";
+  channel: "facebook" | "instagram" | "linkedin" | "tiktok";
   accountId: string | null;
   accessToken: string | null;
+  refreshToken: string | null;
+  tokenExpiresAt: string | null;
   text: string;
   imageUrl: string | null;
   additionalImageUrls: string[];
   videoUrl: string | null;
   idempotencyKey: string;
+  userId: string;
 };
 
 const MAX_ATTEMPTS = 3;
@@ -206,6 +209,125 @@ const publishLinkedIn = async (input: PublishInput): Promise<string> => {
   return payload.id ?? restliId ?? `linkedin_${input.idempotencyKey}`;
 };
 
+const refreshTikTokToken = async (
+  refreshToken: string,
+  userId: string,
+  accountId: string,
+): Promise<{ accessToken: string; refreshToken: string; expiresAt: string }> => {
+  const clientKey = process.env.TIKTOK_CLIENT_KEY;
+  const clientSecret = process.env.TIKTOK_CLIENT_SECRET;
+  if (!clientKey || !clientSecret) {
+    throw new Error("TIKTOK_CLIENT_KEY eller TIKTOK_CLIENT_SECRET mangler.");
+  }
+
+  const body = new URLSearchParams();
+  body.set("client_key", clientKey);
+  body.set("client_secret", clientSecret);
+  body.set("grant_type", "refresh_token");
+  body.set("refresh_token", refreshToken);
+
+  const response = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+    cache: "no-store",
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    error?: string;
+  };
+
+  if (!response.ok || !payload.access_token) {
+    throw new Error(payload.error ?? "Kunne ikke fornye TikTok-token.");
+  }
+
+  const expiresAt = new Date(Date.now() + (payload.expires_in ?? 86400) * 1000).toISOString();
+  const newRefreshToken = payload.refresh_token ?? refreshToken;
+
+  const admin = createSupabaseAdminClient();
+  await admin
+    .from("social_accounts")
+    .update({
+      access_token: payload.access_token,
+      refresh_token: newRefreshToken,
+      token_expires_at: expiresAt,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("user_id", userId)
+    .eq("channel", "tiktok")
+    .eq("account_id", accountId);
+
+  return {
+    accessToken: payload.access_token,
+    refreshToken: newRefreshToken,
+    expiresAt,
+  };
+};
+
+const ensureTikTokToken = async (input: PublishInput): Promise<string> => {
+  if (!input.accessToken) {
+    throw new Error("Mangler TikTok tilgangstoken.");
+  }
+
+  const tokenExpired = input.tokenExpiresAt
+    && new Date(input.tokenExpiresAt).getTime() < Date.now() + 5 * 60 * 1000;
+
+  if (tokenExpired && input.refreshToken && input.accountId) {
+    const refreshed = await refreshTikTokToken(
+      input.refreshToken,
+      input.userId,
+      input.accountId,
+    );
+    return refreshed.accessToken;
+  }
+
+  return input.accessToken;
+};
+
+const publishTikTok = async (input: PublishInput): Promise<string> => {
+  if (!input.videoUrl) {
+    throw new Error("TikTok krever video for publisering.");
+  }
+
+  const accessToken = await ensureTikTokToken(input);
+
+  const initResponse = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json; charset=UTF-8",
+    },
+    body: JSON.stringify({
+      post_info: {
+        title: input.text.slice(0, 2200),
+        privacy_level: "PUBLIC_TO_EVERYONE",
+        disable_duet: false,
+        disable_stitch: false,
+        disable_comment: false,
+      },
+      source_info: {
+        source: "PULL_FROM_URL",
+        video_url: input.videoUrl,
+      },
+    }),
+  });
+
+  const initPayload = (await initResponse.json().catch(() => ({}))) as {
+    data?: { publish_id?: string };
+    error?: { code?: string; message?: string };
+  };
+
+  if (!initResponse.ok || initPayload.error?.code !== "ok") {
+    const errMsg = initPayload.error?.message ?? `TikTok API svarte med HTTP ${initResponse.status}`;
+    throw new Error(errMsg);
+  }
+
+  return initPayload.data?.publish_id ?? `tiktok_${input.idempotencyKey}`;
+};
+
 const publishToChannel = async (input: PublishInput): Promise<string> => {
   if (!input.accessToken || input.accessToken.startsWith("pending-")) {
     throw new Error(`Mangler gyldig tilgangstoken for ${input.channel}`);
@@ -216,6 +338,9 @@ const publishToChannel = async (input: PublishInput): Promise<string> => {
   }
   if (input.channel === "instagram") {
     return publishInstagram(input);
+  }
+  if (input.channel === "tiktok") {
+    return publishTikTok(input);
   }
   return publishLinkedIn(input);
 };
@@ -298,7 +423,7 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
           .single(),
         admin
           .from("social_accounts")
-          .select("account_id, access_token")
+          .select("account_id, access_token, refresh_token, token_expires_at")
           .eq("user_id", job.user_id)
           .eq("channel", job.channel)
           .limit(1)
@@ -315,14 +440,17 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
       }
 
       const externalPostId = await publishToChannel({
-        channel: job.channel as "facebook" | "instagram" | "linkedin",
+        channel: job.channel as "facebook" | "instagram" | "linkedin" | "tiktok",
         accountId: social?.account_id ?? null,
         accessToken: social?.access_token ?? null,
+        refreshToken: social?.refresh_token ?? null,
+        tokenExpiresAt: social?.token_expires_at ?? null,
         text: post.text_content,
         imageUrl: post.image_url,
         additionalImageUrls: (mediaRows ?? []).map((row) => row.file_url).filter((url) => Boolean(url)),
         videoUrl: post.video_url,
         idempotencyKey: job.id,
+        userId: job.user_id,
       });
 
       await admin

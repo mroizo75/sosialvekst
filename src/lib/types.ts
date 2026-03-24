@@ -1,4 +1,4 @@
-export type SocialChannel = "facebook" | "instagram" | "linkedin";
+export type SocialChannel = "facebook" | "instagram" | "linkedin" | "tiktok";
 
 export type MediaMode = "ai_only" | "hybrid" | "owned_only";
 export type ImageProfile = "preview" | "final";
@@ -41,6 +41,13 @@ export type TopicWindow = {
   endWeek: number;
 };
 
+export type ProductImage = {
+  id: string;
+  productName: string;
+  imageUrl: string;
+  sortOrder: number;
+};
+
 export type BrandContext = {
   companyName?: string;
   companyDescription?: string;
@@ -65,6 +72,7 @@ export type BrandContext = {
   logoUrl?: string;
   websiteUrl?: string;
   websiteContent?: string;
+  productImages?: ProductImage[];
 };
 
 export type OnboardingInput = {

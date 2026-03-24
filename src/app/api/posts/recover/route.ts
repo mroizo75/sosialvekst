@@ -5,6 +5,7 @@ import { assignPostStrategy } from "@/lib/ai/postStrategy";
 import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
+import { requireWorkspaceId } from "@/lib/workspace";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { BrandContext, SocialChannel, TopicWindow } from "@/lib/types";
 
@@ -166,12 +167,14 @@ const recoverPost = async (
 export async function POST() {
   try {
     const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
     const admin = createSupabaseAdminClient();
 
     const { data: stuckPosts, error: fetchError } = await admin
       .from("posts")
       .select("id, user_id, plan_id, channel, status, scheduled_at, updated_at, created_at, retry_count")
       .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .in("status", ["generating", "failed"])
       .order("scheduled_at", { ascending: true });
 
@@ -203,7 +206,7 @@ export async function POST() {
       });
     }
 
-    const brandContext = await getBrandContext(userId);
+    const brandContext = await getBrandContext(userId, workspaceId);
 
     const results = [];
     for (const post of eligible) {
@@ -232,12 +235,14 @@ export async function POST() {
 export async function GET() {
   try {
     const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
     const admin = createSupabaseAdminClient();
 
     const { data: stuckPosts, error } = await admin
       .from("posts")
       .select("id, status, scheduled_at, updated_at, created_at, retry_count")
       .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .in("status", ["generating", "failed"]);
 
     if (error) {

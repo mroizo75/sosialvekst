@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { toAppError } from "@/lib/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireWorkspaceId } from "@/lib/workspace";
 import type { SocialChannel } from "@/lib/types";
 
 type SocialAccountRow = {
@@ -14,11 +15,13 @@ type SocialAccountRow = {
 export async function GET() {
   try {
     const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from("social_accounts")
       .select("channel, account_id, updated_at")
       .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .order("updated_at", { ascending: false });
 
     if (error) {

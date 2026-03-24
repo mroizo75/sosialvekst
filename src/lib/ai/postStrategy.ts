@@ -57,7 +57,7 @@ const IMAGE_DIRECTION_MAP: Record<PostFormat, string> = {
 
 export const assignPostStrategy = (slot: PostSlot): PostStrategyResult => {
   const globalIndex = slot.weekIndex * 3 + slot.dayIndex;
-  const channelOffset = slot.channel === "facebook" ? 0 : slot.channel === "instagram" ? 1 : 2;
+  const channelOffset = slot.channel === "facebook" ? 0 : slot.channel === "instagram" ? 1 : slot.channel === "linkedin" ? 2 : 3;
 
   const intentIndex = (globalIndex + channelOffset) % INTENT_ROTATION.length;
   const formatIndex = (globalIndex * 3 + channelOffset * 2) % FORMAT_ROTATION.length;

@@ -22,7 +22,7 @@ export const onboardingMediaSchema = z.object({
 });
 
 export const onboardingChannelsSchema = z.object({
-  channels: z.array(z.enum(["facebook", "instagram", "linkedin"])).min(1),
+  channels: z.array(z.enum(["facebook", "instagram", "linkedin", "tiktok"])).min(1),
 });
 
 export const onboardingWizardSchema = z.object({
@@ -34,7 +34,7 @@ export const onboardingWizardSchema = z.object({
   keyMessages: z.array(z.string().trim().min(1)).optional().default([]),
   logoUrl: z.string().url().optional().or(z.literal("")),
   mediaMode: z.enum(["ai_only", "hybrid", "owned_only"]).default("hybrid"),
-  channels: z.array(z.enum(["facebook", "instagram", "linkedin"])).optional().default([]),
+  channels: z.array(z.enum(["facebook", "instagram", "linkedin", "tiktok"])).optional().default([]),
   websiteUrl: z.string().url().optional().or(z.literal("")),
   companyDescription: optionalText,
   industry: optionalText,

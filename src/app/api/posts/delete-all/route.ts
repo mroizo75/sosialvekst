@@ -3,17 +3,20 @@ import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { deleteFilesByUrls } from "@/lib/cloudflare/r2";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
+import { requireWorkspaceId } from "@/lib/workspace";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export async function POST() {
   try {
     const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
     const admin = createSupabaseAdminClient();
 
     const { data: posts, error: postsError } = await admin
       .from("posts")
       .select("image_url, video_url")
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .eq("workspace_id", workspaceId);
 
     if (postsError) {
       return NextResponse.json(
@@ -29,7 +32,8 @@ export async function POST() {
     const { error: jobsDeleteError } = await admin
       .from("publish_jobs")
       .delete()
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .eq("workspace_id", workspaceId);
 
     if (jobsDeleteError) {
       return NextResponse.json(
@@ -41,7 +45,8 @@ export async function POST() {
     const { error: postsDeleteError } = await admin
       .from("posts")
       .delete()
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .eq("workspace_id", workspaceId);
 
     if (postsDeleteError) {
       return NextResponse.json(

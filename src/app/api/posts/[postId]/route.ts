@@ -5,6 +5,7 @@ import { generatePost } from "@/lib/ai/generatePost";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
+import { requireWorkspaceId } from "@/lib/workspace";
 import { deleteFilesByUrls } from "@/lib/cloudflare/r2";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { consumeAiEdit } from "@/lib/posts/aiEditLimits";
@@ -129,6 +130,7 @@ const getMediaModeFromPlan = async (
 export async function PATCH(request: Request, context: RouteContext) {
   try {
     const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
     const brandContext = await getBrandContext(userId);
     const { postId } = await context.params;
     const post = await getPostById(userId, postId);
@@ -182,7 +184,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     if (action !== "save") {
       await requireActiveSubscription(userId);
-      await consumeAiEdit(userId);
+      await consumeAiEdit(userId, workspaceId);
       const oldImageUrl = post.imageUrl;
       const topicFromPlan = await getTopicFromPlan(userId, postId);
       const mediaModeFromPlan = await getMediaModeFromPlan(userId, postId);

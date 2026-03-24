@@ -3,17 +3,34 @@ import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { getAppUrl, getRequiredEnv } from "@/lib/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireWorkspaceId } from "@/lib/workspace";
 
 const OAUTH_STATE_COOKIE = "social_oauth_state_linkedin";
+const RETURN_PATH_COOKIE = "social_oauth_return_path_linkedin";
 
-const redirectToDashboard = (status: string): NextResponse => {
-  const url = new URL("/dashboard", getAppUrl());
+const getReturnPath = (request: Request): string => {
+  const raw = request.headers
+    .get("cookie")
+    ?.split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${RETURN_PATH_COOKIE}=`))
+    ?.split("=")[1];
+  if (!raw) return "/dashboard";
+  try { return decodeURIComponent(raw); } catch { return raw; }
+};
+
+const redirectToReturnPath = (returnPath: string, status: string): NextResponse => {
+  const url = new URL(returnPath, getAppUrl());
   url.searchParams.set("social_connect", status);
-  return NextResponse.redirect(url.toString());
+  const response = NextResponse.redirect(url.toString());
+  response.cookies.delete(RETURN_PATH_COOKIE);
+  return response;
 };
 
 export async function GET(request: Request) {
   const userId = await requireUserId();
+  const workspaceId = await requireWorkspaceId(userId);
+  const returnPath = getReturnPath(request);
   const url = new URL(request.url);
   const state = url.searchParams.get("state");
   const code = url.searchParams.get("code");
@@ -27,7 +44,7 @@ export async function GET(request: Request) {
     ?.split("=")[1];
 
   if (!state || !cookieState || state !== cookieState || !code) {
-    const invalid = redirectToDashboard("linkedin_invalid_state");
+    const invalid = redirectToReturnPath(returnPath, "linkedin_invalid_state");
     invalid.cookies.delete(OAUTH_STATE_COOKIE);
     return invalid;
   }
@@ -51,7 +68,7 @@ export async function GET(request: Request) {
       expires_in?: number;
     };
     if (!tokenResponse.ok || !tokenPayload.access_token) {
-      const failed = redirectToDashboard("linkedin_token_failed");
+      const failed = redirectToReturnPath(returnPath, "linkedin_token_failed");
       failed.cookies.delete(OAUTH_STATE_COOKIE);
       return failed;
     }
@@ -64,7 +81,7 @@ export async function GET(request: Request) {
     });
     const userInfo = (await userInfoResponse.json().catch(() => ({}))) as { sub?: string };
     if (!userInfoResponse.ok || !userInfo.sub) {
-      const failed = redirectToDashboard("linkedin_profile_failed");
+      const failed = redirectToReturnPath(returnPath, "linkedin_profile_failed");
       failed.cookies.delete(OAUTH_STATE_COOKIE);
       return failed;
     }
@@ -74,6 +91,7 @@ export async function GET(request: Request) {
       .from("social_accounts")
       .delete()
       .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .eq("channel", "linkedin");
 
     const tokenExpiresAt = tokenPayload.expires_in
@@ -83,6 +101,7 @@ export async function GET(request: Request) {
     const { error } = await supabase.from("social_accounts").upsert(
       {
         user_id: userId,
+        workspace_id: workspaceId,
         channel: "linkedin",
         account_id: `urn:li:person:${userInfo.sub}`,
         access_token: tokenPayload.access_token,
@@ -93,11 +112,11 @@ export async function GET(request: Request) {
       { onConflict: "user_id,channel,account_id" },
     );
 
-    const done = redirectToDashboard(error ? "linkedin_save_failed" : "linkedin_connected");
+    const done = redirectToReturnPath(returnPath, error ? "linkedin_save_failed" : "linkedin_connected");
     done.cookies.delete(OAUTH_STATE_COOKIE);
     return done;
   } catch {
-    const failed = redirectToDashboard("linkedin_callback_failed");
+    const failed = redirectToReturnPath(returnPath, "linkedin_callback_failed");
     failed.cookies.delete(OAUTH_STATE_COOKIE);
     return failed;
   }

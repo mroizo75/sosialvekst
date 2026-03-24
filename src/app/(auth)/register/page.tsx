@@ -30,7 +30,7 @@ export default async function RegisterPage({ searchParams }: RegisterPageProps) 
           </Link>
           <CardTitle>Opprett konto</CardTitle>
           <CardDescription>
-            Fortell oss litt om bedriften din, så setter vi opp alt for deg.
+            Kom i gang på under ett minutt. Vi guider deg gjennom resten etterpå.
           </CardDescription>
         </CardHeader>
 
@@ -57,29 +57,12 @@ export default async function RegisterPage({ searchParams }: RegisterPageProps) 
           ) : null}
 
           <form action={signUpAction} className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input
-                name="fullName"
-                type="text"
-                label="Ditt navn"
-                required
-                placeholder="Ola Nordmann"
-              />
-              <Input
-                name="companyName"
-                type="text"
-                label="Bedriftsnavn"
-                required
-                placeholder="Mitt Firma AS"
-              />
-            </div>
             <Input
-              name="targetAudience"
+              name="fullName"
               type="text"
-              label="Hvem er kundene dine?"
+              label="Ditt navn"
               required
-              placeholder="F.eks. småbedrifter, privatpersoner, restauranter..."
-              hint="Vi bruker dette for å tilpasse innholdet til dine kunder."
+              placeholder="Ola Nordmann"
             />
             <Input
               name="email"

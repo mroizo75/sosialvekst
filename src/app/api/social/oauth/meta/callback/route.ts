@@ -3,8 +3,10 @@ import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { getAppUrl, getRequiredEnv } from "@/lib/env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireWorkspaceId } from "@/lib/workspace";
 
 const OAUTH_STATE_COOKIE = "social_oauth_state_meta";
+const RETURN_PATH_COOKIE = "social_oauth_return_path_meta";
 
 type MetaPage = {
   id: string;
@@ -13,14 +15,29 @@ type MetaPage = {
   instagram_business_account?: { id?: string };
 };
 
-const redirectToDashboard = (status: string): NextResponse => {
-  const url = new URL("/dashboard", getAppUrl());
+const getReturnPath = (request: Request): string => {
+  const raw = request.headers
+    .get("cookie")
+    ?.split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${RETURN_PATH_COOKIE}=`))
+    ?.split("=")[1];
+  if (!raw) return "/dashboard";
+  try { return decodeURIComponent(raw); } catch { return raw; }
+};
+
+const redirectToReturnPath = (returnPath: string, status: string): NextResponse => {
+  const url = new URL(returnPath, getAppUrl());
   url.searchParams.set("social_connect", status);
-  return NextResponse.redirect(url.toString());
+  const response = NextResponse.redirect(url.toString());
+  response.cookies.delete(RETURN_PATH_COOKIE);
+  return response;
 };
 
 export async function GET(request: Request) {
   const userId = await requireUserId();
+  const workspaceId = await requireWorkspaceId(userId);
+  const returnPath = getReturnPath(request);
 
   const url = new URL(request.url);
   const state = url.searchParams.get("state");
@@ -35,7 +52,7 @@ export async function GET(request: Request) {
     ?.split("=")[1];
 
   if (!state || !cookieState || state !== cookieState || !code) {
-    const invalid = redirectToDashboard("meta_invalid_state");
+    const invalid = redirectToReturnPath(returnPath, "meta_invalid_state");
     invalid.cookies.delete(OAUTH_STATE_COOKIE);
     return invalid;
   }
@@ -53,7 +70,7 @@ export async function GET(request: Request) {
     };
     const userAccessToken = tokenPayload.access_token;
     if (!tokenResponse.ok || !userAccessToken) {
-      const failed = redirectToDashboard("meta_token_failed");
+      const failed = redirectToReturnPath(returnPath, "meta_token_failed");
       failed.cookies.delete(OAUTH_STATE_COOKIE);
       return failed;
     }
@@ -73,7 +90,7 @@ export async function GET(request: Request) {
     );
 
     if (!facebookPage) {
-      const none = redirectToDashboard("meta_no_pages");
+      const none = redirectToReturnPath(returnPath, "meta_no_pages");
       none.cookies.delete(OAUTH_STATE_COOKIE);
       return none;
     }
@@ -84,10 +101,12 @@ export async function GET(request: Request) {
       .from("social_accounts")
       .delete()
       .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .in("channel", ["facebook", "instagram"]);
 
     const upserts: Array<{
       user_id: string;
+      workspace_id: string;
       channel: "facebook" | "instagram";
       account_id: string;
       access_token: string;
@@ -96,6 +115,7 @@ export async function GET(request: Request) {
     }> = [
       {
         user_id: userId,
+        workspace_id: workspaceId,
         channel: "facebook",
         account_id: facebookPage.id,
         access_token: facebookPage.access_token ?? "",
@@ -107,6 +127,7 @@ export async function GET(request: Request) {
     if (instagramPage?.instagram_business_account?.id) {
       upserts.push({
         user_id: userId,
+        workspace_id: workspaceId,
         channel: "instagram",
         account_id: instagramPage.instagram_business_account.id,
         access_token: instagramPage.access_token ?? "",
@@ -119,11 +140,11 @@ export async function GET(request: Request) {
       onConflict: "user_id,channel,account_id",
     });
 
-    const done = redirectToDashboard(error ? "meta_save_failed" : "meta_connected");
+    const done = redirectToReturnPath(returnPath, error ? "meta_save_failed" : "meta_connected");
     done.cookies.delete(OAUTH_STATE_COOKIE);
     return done;
   } catch {
-    const failed = redirectToDashboard("meta_callback_failed");
+    const failed = redirectToReturnPath(returnPath, "meta_callback_failed");
     failed.cookies.delete(OAUTH_STATE_COOKIE);
     return failed;
   }

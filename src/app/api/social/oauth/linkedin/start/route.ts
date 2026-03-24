@@ -4,9 +4,13 @@ import { requireUserId } from "@/lib/auth";
 import { getAppUrl, getRequiredEnv } from "@/lib/env";
 
 const OAUTH_STATE_COOKIE = "social_oauth_state_linkedin";
+const RETURN_PATH_COOKIE = "social_oauth_return_path_linkedin";
 
-export async function GET() {
+export async function GET(request: Request) {
   await requireUserId();
+
+  const url = new URL(request.url);
+  const returnTo = url.searchParams.get("returnTo") ?? "/dashboard";
 
   const clientId = getRequiredEnv("LINKEDIN_CLIENT_ID");
   const callbackUrl = `${getAppUrl()}/api/social/oauth/linkedin/callback`;
@@ -22,6 +26,13 @@ export async function GET() {
 
   const response = NextResponse.redirect(authUrl.toString());
   response.cookies.set(OAUTH_STATE_COOKIE, state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 10,
+  });
+  response.cookies.set(RETURN_PATH_COOKIE, returnTo, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",

@@ -7,6 +7,7 @@ import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { createContentPlan } from "@/lib/posts/repository";
+import { requireWorkspaceId } from "@/lib/workspace";
 import { getPostsPerWeekAllowance, requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -15,10 +16,12 @@ import type { BrandContext, SocialChannel, TopicWindow } from "@/lib/types";
 const generateSchema = z.object({
   postsPerWeek: z.number().int().min(1).max(7).default(3),
   totalWeeks: z.number().int().min(1).max(12).default(4),
-  channels: z.array(z.enum(["facebook", "instagram", "linkedin"])).min(1),
+  channels: z.array(z.enum(["facebook", "instagram", "linkedin", "tiktok"])).min(1),
   mediaMode: z.enum(["ai_only", "hybrid", "owned_only"]).default("hybrid"),
   countryCode: z.string().length(2).default("NO"),
   startDate: z.string().datetime().optional(),
+  postingDays: z.array(z.number().int().min(0).max(6)).optional(),
+  postingHours: z.array(z.number().int().min(0).max(23)).optional(),
   topicWindows: z
     .array(
       z.object({
@@ -58,7 +61,10 @@ const startOfWeekMonday = (value: Date): Date => {
   return date;
 };
 
-const getPostingDayOffsets = (postsPerWeek: number): number[] => {
+const getPostingDayOffsets = (postsPerWeek: number, customDays?: number[]): number[] => {
+  if (customDays && customDays.length > 0) {
+    return [...customDays].sort((a, b) => a - b).slice(0, postsPerWeek);
+  }
   if (postsPerWeek <= defaultPostingDayOffsets.length) {
     return defaultPostingDayOffsets.slice(0, postsPerWeek);
   }
@@ -88,14 +94,16 @@ const buildSlots = (
   countryCode: string,
   topicWindows: TopicWindow[],
   startDate?: string,
+  customDays?: number[],
+  customHours?: number[],
 ): PlaceholderSlot[] => {
   const slots: PlaceholderSlot[] = [];
   const now = new Date();
-  const dayOffsets = getPostingDayOffsets(postsPerWeek);
+  const dayOffsets = getPostingDayOffsets(postsPerWeek, customDays);
   const targetTotal = postsPerWeek * totalWeeks * channels.length;
 
   const baseDate = startDate ? new Date(startDate) : now;
-  const earliestAllowed = startDate ? baseDate : now;
+  const earliestAllowed = new Date(Math.max(baseDate.getTime(), now.getTime()));
   const thisMonday = startOfWeekMonday(baseDate);
 
   const weekCursor = new Date(thisMonday);
@@ -108,7 +116,9 @@ const buildSlots = (
       if (slots.length >= targetTotal) break;
 
       const dayOffset = dayOffsets[dayIndex];
-      const hour = getHour(countryCode, dayIndex);
+      const hour = customHours && customHours[dayIndex] !== undefined
+        ? customHours[dayIndex]
+        : getHour(countryCode, dayIndex);
       const scheduled = scheduleDate(weekCursor, dayOffset, hour);
 
       if (new Date(scheduled).getTime() < earliestAllowed.getTime()) {
@@ -148,8 +158,9 @@ const placeholderQuality = {
 export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
     const subscription = await requireActiveSubscription(userId);
-    const brandContext = await getBrandContext(userId);
+    const brandContext = await getBrandContext(userId, workspaceId);
     const json = await request.json();
     const payload = generateSchema.parse(json);
     const allowance = getPostsPerWeekAllowance(subscription);
@@ -166,6 +177,7 @@ export async function POST(request: Request) {
 
     const planId = await createContentPlan({
       userId,
+      workspaceId,
       postsPerWeek: payload.postsPerWeek,
       totalWeeks: payload.totalWeeks,
       countryCode: payload.countryCode,
@@ -181,12 +193,15 @@ export async function POST(request: Request) {
       payload.countryCode,
       payload.topicWindows,
       payload.startDate,
+      payload.postingDays,
+      payload.postingHours,
     );
 
     const supabase = await createSupabaseServerClient();
     const placeholderRows = slots.map((slot) => ({
       id: slot.id,
       user_id: userId,
+      workspace_id: workspaceId,
       plan_id: planId,
       channel: slot.channel,
       status: "generating",
@@ -208,11 +223,12 @@ export async function POST(request: Request) {
     const adminClient = createSupabaseAdminClient();
     await adminClient.from("generation_log").insert({
       user_id: userId,
+      workspace_id: workspaceId,
       action: "generate_plan",
       post_count: slots.length,
     });
 
-    void processSlots(userId, slots, payload.mediaMode, brandContext);
+    void processSlots(userId, workspaceId, slots, payload.mediaMode, brandContext);
 
     const placeholderPosts = slots.map((s) => ({
       id: s.id,
@@ -250,6 +266,7 @@ async function updatePostWithRetry(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   postId: string,
   userId: string,
+  workspaceId: string,
   payload: Record<string, unknown>,
 ): Promise<boolean> {
   for (let attempt = 1; attempt <= DB_RETRY_ATTEMPTS; attempt += 1) {
@@ -257,7 +274,8 @@ async function updatePostWithRetry(
       .from("posts")
       .update({ ...payload, updated_at: new Date().toISOString() })
       .eq("id", postId)
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .eq("workspace_id", workspaceId);
 
     if (!error) return true;
 
@@ -285,6 +303,7 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
 async function generateSingleSlot(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
   userId: string,
+  workspaceId: string,
   slot: PlaceholderSlot,
   mediaMode: "ai_only" | "hybrid" | "owned_only",
   brandContext: BrandContext | undefined,
@@ -314,7 +333,7 @@ async function generateSingleSlot(
       `${slot.channel}/${slot.id.slice(0, 8)}`,
     );
 
-    return await updatePostWithRetry(supabase, slot.id, userId, {
+    return await updatePostWithRetry(supabase, slot.id, userId, workspaceId, {
       text_content: post.text,
       image_url: post.imageUrl ?? null,
       status: post.status,
@@ -323,7 +342,7 @@ async function generateSingleSlot(
   } catch (err) {
     console.error(`[generate] Post ${slot.id.slice(0, 8)} feilet:`, err instanceof Error ? err.message : err);
 
-    await updatePostWithRetry(supabase, slot.id, userId, {
+    await updatePostWithRetry(supabase, slot.id, userId, workspaceId, {
       text_content: "Generering feilet. Klikk «Generer på nytt» for å prøve igjen.",
       status: "failed",
     });
@@ -333,6 +352,7 @@ async function generateSingleSlot(
 
 async function processSlots(
   userId: string,
+  workspaceId: string,
   slots: PlaceholderSlot[],
   mediaMode: "ai_only" | "hybrid" | "owned_only",
   brandContext?: BrandContext,
@@ -349,7 +369,7 @@ async function processSlots(
     console.log(`[generate] Batch ${batchLabel} (${batch.map((s) => s.channel).join(", ")})`);
 
     const results = await Promise.allSettled(
-      batch.map((slot) => generateSingleSlot(supabase, userId, slot, mediaMode, brandContext)),
+      batch.map((slot) => generateSingleSlot(supabase, userId, workspaceId, slot, mediaMode, brandContext)),
     );
 
     for (const result of results) {

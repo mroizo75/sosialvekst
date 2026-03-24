@@ -3,7 +3,7 @@ import type { BrandContext, MediaMode, PostFormat } from "@/lib/types";
 
 type ImagePromptInput = {
   topic: string;
-  channel: "facebook" | "instagram" | "linkedin";
+  channel: "facebook" | "instagram" | "linkedin" | "tiktok";
   mediaMode: MediaMode;
   brandRules: BrandRules;
   brandContext?: BrandContext;
@@ -23,6 +23,10 @@ const CHANNEL_SPEC: Record<ImagePromptInput["channel"], { format: string; style:
   linkedin: {
     format: "Landskap (1.91:1) eller kvadratisk (1:1). Ryddig og profesjonell komposisjon.",
     style: "Seriost, faglig og tillitvekkende. Unnga klisjeer og overdramatisering.",
+  },
+  tiktok: {
+    format: "Portrett (9:16). Fullt vertikalt format for mobilvisning.",
+    style: "Dynamisk, fengende og autentisk. Passer som thumbnail eller videostillbilde.",
   },
 };
 

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireUserId } from "@/lib/auth";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireWorkspaceId } from "@/lib/workspace";
 
 const approveSchema = z.object({
   postIds: z.array(z.string().uuid()).min(1),
@@ -12,6 +13,7 @@ const approveSchema = z.object({
 export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
     const json = await request.json();
     const { postIds } = approveSchema.parse(json);
     const supabase = await createSupabaseServerClient();
@@ -20,6 +22,7 @@ export async function POST(request: Request) {
       .from("posts")
       .select("id, status, scheduled_at")
       .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .in("id", postIds);
 
     if (fetchError) {
@@ -47,6 +50,7 @@ export async function POST(request: Request) {
       .from("posts")
       .update({ status: "approved", updated_at: now.toISOString() })
       .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .in("id", approvable.map((p) => p.id));
 
     if (updateError) {

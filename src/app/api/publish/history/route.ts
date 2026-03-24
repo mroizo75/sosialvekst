@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireUserId } from "@/lib/auth";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireWorkspaceId } from "@/lib/workspace";
 
 const querySchema = z.object({
   postId: z.string().uuid(),
@@ -12,6 +13,7 @@ const querySchema = z.object({
 export async function GET(request: Request) {
   try {
     const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
     const url = new URL(request.url);
     const parsed = querySchema.safeParse({
       postId: url.searchParams.get("postId"),
@@ -29,6 +31,7 @@ export async function GET(request: Request) {
       .from("publish_jobs")
       .select("id, status, attempts, last_error, run_at, updated_at, created_at, channel, processing_started_at, external_post_id")
       .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .eq("post_id", parsed.data.postId)
       .order("created_at", { ascending: false })
       .limit(10);

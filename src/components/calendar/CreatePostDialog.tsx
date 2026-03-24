@@ -80,6 +80,7 @@ export const CreatePostDialog = ({ onClose, onCreated }: CreatePostDialogProps) 
               <option value="facebook">Facebook</option>
               <option value="instagram">Instagram</option>
               <option value="linkedin">LinkedIn</option>
+              <option value="tiktok">TikTok</option>
             </select>
           </div>
 

@@ -1,6 +1,7 @@
 import { buildNorwegianCopyPrompt } from "@/lib/ai/copyPromptBuilderNo";
 import { mergeBrandRules } from "@/lib/ai/brandRules";
 import { generateProfessionalImage } from "@/lib/ai/imageGeneration";
+import { generateProductImage } from "@/lib/ai/imageEngine";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
@@ -14,6 +15,7 @@ import type {
   PostDraft,
   PostFormat,
   PostIntent,
+  ProductImage,
   SocialChannel,
 } from "@/lib/types";
 
@@ -56,6 +58,7 @@ const fallbackText = (topic: string, companyName?: string): string => {
 const getMaxOutputTokens = (channel: SocialChannel): number => {
   if (channel === "facebook") return 520;
   if (channel === "linkedin") return 420;
+  if (channel === "tiktok") return 200;
   return 280;
 };
 
@@ -228,6 +231,12 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     return pickOwnedImageUrl(input);
   }
 
+  const productImages = input.brandContext?.productImages ?? [];
+  if (productImages.length > 0) {
+    const productResult = await tryProductImageGeneration(input, productImages);
+    if (productResult) return productResult;
+  }
+
   if (input.mediaMode === "hybrid") {
     const ownedImageUrl = await pickOwnedImageUrl(input);
     if (ownedImageUrl) {
@@ -260,6 +269,39 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     prompt: imagePrompt,
     profile: input.imageProfile,
   });
+};
+
+const tryProductImageGeneration = async (
+  input: GeneratePostInput,
+  productImages: ProductImage[],
+): Promise<string | undefined> => {
+  try {
+    const result = await generateProductImage({
+      userId: input.userId,
+      channel: input.channel,
+      topic: input.topic,
+      productImages,
+      brandContext: input.brandContext,
+      format: input.format,
+    });
+
+    if (result) {
+      logger.info("Produktbilde generert med motor", {
+        userId: input.userId,
+        channel: input.channel,
+        engine: result.engine,
+        topic: input.topic,
+      });
+      return result.url;
+    }
+  } catch (error) {
+    logger.warn("Produktbildegenerering feilet, faller tilbake til standard", {
+      userId: input.userId,
+      channel: input.channel,
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+  }
+  return undefined;
 };
 
 const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<string | undefined> => {

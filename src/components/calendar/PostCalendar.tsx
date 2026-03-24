@@ -62,12 +62,14 @@ const channelColor: Record<SocialChannel, string> = {
   facebook: "bg-facebook/15 border-facebook/30 text-facebook",
   instagram: "bg-instagram/15 border-instagram/30 text-instagram",
   linkedin: "bg-linkedin/15 border-linkedin/30 text-linkedin",
+  tiktok: "bg-foreground/10 border-foreground/20 text-foreground",
 };
 
 const channelDot: Record<SocialChannel, string> = {
   facebook: "bg-facebook",
   instagram: "bg-instagram",
   linkedin: "bg-linkedin",
+  tiktok: "bg-foreground",
 };
 
 type PostCardMiniProps = {
@@ -104,6 +106,11 @@ const PostCardMini = ({ post, onClick, onDragStart, onDragEnd }: PostCardMiniPro
     );
   }
 
+  const isApproved = post.status === "approved";
+  const isFailed = post.status === "failed";
+  const isScheduled = post.status === "scheduled";
+  const isPublished = post.status === "published";
+
   return (
     <button
       type="button"
@@ -116,9 +123,39 @@ const PostCardMini = ({ post, onClick, onDragStart, onDragEnd }: PostCardMiniPro
       onDragEnd={() => onDragEnd?.()}
       className={cn(
         "w-full rounded-md border overflow-hidden text-left transition-all hover:shadow-md hover:scale-[1.02] cursor-pointer",
-        channelColor[post.channel],
+        isScheduled
+          ? "border-success bg-success/5 ring-1 ring-success/30"
+          : isApproved
+            ? "border-primary/50 bg-primary/5 ring-1 ring-primary/20"
+            : isPublished
+              ? "border-success/40 bg-success/5"
+              : isFailed
+                ? "border-destructive/50 bg-destructive/5"
+                : channelColor[post.channel],
       )}
     >
+      {isApproved && (
+        <div className="flex items-center gap-1 bg-primary/10 px-1.5 py-0.5">
+          <span className="flex size-3 items-center justify-center rounded-full bg-primary text-[7px] text-white font-bold">✓</span>
+          <span className="text-[9px] font-semibold text-primary">Godkjent</span>
+        </div>
+      )}
+      {isScheduled && (
+        <div className="flex items-center gap-1 bg-success/15 px-1.5 py-0.5">
+          <span className="flex size-3 items-center justify-center rounded-full bg-success text-[7px] text-white font-bold">✓</span>
+          <span className="text-[9px] font-semibold text-success">Publiseres automatisk</span>
+        </div>
+      )}
+      {isPublished && (
+        <div className="flex items-center gap-1 bg-success/10 px-1.5 py-0.5">
+          <span className="text-[9px] font-semibold text-success">Publisert</span>
+        </div>
+      )}
+      {isFailed && (
+        <div className="flex items-center gap-1 bg-destructive/10 px-1.5 py-0.5">
+          <span className="text-[9px] font-semibold text-destructive">Feilet</span>
+        </div>
+      )}
       {post.videoUrl ? (
         <div className="flex h-12 w-full items-center justify-center bg-muted/40 text-[10px] font-medium text-muted-foreground">
           Video valgt
@@ -141,18 +178,13 @@ const PostCardMini = ({ post, onClick, onDragStart, onDragEnd }: PostCardMiniPro
         </p>
         <div className="flex items-center gap-1 text-[10px] opacity-70">
           <span className="font-medium">{time}</span>
+          <span className={cn("size-1.5 rounded-full", channelDot[post.channel])} />
           <span className="capitalize">{post.channel}</span>
           {post.additionalImageUrls && post.additionalImageUrls.length > 0 ? (
             <span className="rounded bg-muted px-1 py-0.5 text-[9px] text-muted-foreground">
               +{post.additionalImageUrls.length} bilde{post.additionalImageUrls.length > 1 ? "r" : ""}
             </span>
           ) : null}
-          {post.status === "approved" && (
-            <span className="ml-auto inline-block size-1.5 rounded-full bg-green-500" title="Godkjent" />
-          )}
-          {post.status === "failed" && (
-            <span className="ml-auto inline-block size-1.5 rounded-full bg-red-500" title="Feilet" />
-          )}
         </div>
       </div>
     </button>
@@ -207,6 +239,7 @@ const CHANNEL_LABEL_NO: Record<SocialChannel, string> = {
   facebook: "Facebook",
   instagram: "Instagram",
   linkedin: "LinkedIn",
+  tiktok: "TikTok",
 };
 
 const PUBLISH_JOB_STATUS_LABEL_NO: Record<string, string> = {
@@ -1428,27 +1461,47 @@ export const PostCalendar = () => {
                         isToday(day) && "bg-primary/3",
                       )}
                     >
-                      {hourPosts.map((post) => (
-                        <button
-                          key={post.id}
-                          type="button"
-                          onClick={() => setSelectedPost(post)}
-                          className={cn(
-                            "mb-0.5 w-full rounded border p-1.5 text-left text-[11px] leading-tight transition-opacity hover:opacity-80 cursor-pointer",
-                            channelColor[post.channel],
-                          )}
-                        >
-                          <div className="flex items-center gap-1">
-                            <span
-                              className={cn("size-1.5 rounded-full", channelDot[post.channel])}
-                            />
-                            <span className="font-medium capitalize">{post.channel}</span>
-                          </div>
-                          <p className="mt-0.5 line-clamp-2 text-foreground/70">
-                            {post.text.slice(0, 60)}...
-                          </p>
-                        </button>
-                      ))}
+                      {hourPosts.map((post) => {
+                        const weekScheduled = post.status === "scheduled";
+                        const weekApproved = post.status === "approved";
+                        const weekFailed = post.status === "failed";
+                        return (
+                          <button
+                            key={post.id}
+                            type="button"
+                            onClick={() => setSelectedPost(post)}
+                            className={cn(
+                              "mb-0.5 w-full rounded border p-1.5 text-left text-[11px] leading-tight transition-opacity hover:opacity-80 cursor-pointer",
+                              weekScheduled
+                                ? "border-success bg-success/5"
+                                : weekApproved
+                                  ? "border-primary/50 bg-primary/5"
+                                  : weekFailed
+                                    ? "border-destructive/50 bg-destructive/5"
+                                    : channelColor[post.channel],
+                            )}
+                          >
+                            <div className="flex items-center gap-1">
+                              <span
+                                className={cn("size-1.5 rounded-full", channelDot[post.channel])}
+                              />
+                              <span className="font-medium capitalize">{post.channel}</span>
+                              {weekScheduled && (
+                                <span className="ml-auto flex size-3.5 items-center justify-center rounded-full bg-success text-[8px] text-white font-bold">✓</span>
+                              )}
+                              {weekApproved && (
+                                <span className="ml-auto flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] text-white font-bold">✓</span>
+                              )}
+                              {weekFailed && (
+                                <span className="ml-auto text-[9px] font-semibold text-destructive">!</span>
+                              )}
+                            </div>
+                            <p className="mt-0.5 line-clamp-2 text-foreground/70">
+                              {post.text.slice(0, 60)}...
+                            </p>
+                          </button>
+                        );
+                      })}
                     </div>
                   );
                 })}
@@ -1459,8 +1512,8 @@ export const PostCalendar = () => {
         </div>
       )}
 
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-3">
           <span className="flex items-center gap-1">
             <span className="size-2 rounded-full bg-facebook" /> Facebook
           </span>
@@ -1469,6 +1522,18 @@ export const PostCalendar = () => {
           </span>
           <span className="flex items-center gap-1">
             <span className="size-2 rounded-full bg-linkedin" /> LinkedIn
+          </span>
+          <span className="hidden sm:inline text-border">|</span>
+          <span className="flex items-center gap-1">
+            <span className="size-2 rounded-full bg-muted-foreground/30" /> Utkast
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="flex size-3 items-center justify-center rounded-full bg-primary text-[7px] text-white font-bold">✓</span>
+            Godkjent
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="flex size-3 items-center justify-center rounded-full bg-success text-[7px] text-white font-bold">✓</span>
+            Publiseres
           </span>
         </div>
         <span>{posts.length} poster totalt</span>

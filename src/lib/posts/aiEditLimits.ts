@@ -8,12 +8,14 @@ type AiEditLimits = {
   limit: number;
 };
 
-export const getAiEditLimits = async (userId: string): Promise<AiEditLimits> => {
+export const getAiEditLimits = async (userId: string, workspaceId?: string): Promise<AiEditLimits> => {
   const supabase = await createSupabaseServerClient();
-  const { data } = await supabase
+  let query = supabase
     .from("content_plans")
     .select("ai_edits_used, ai_edits_limit")
-    .eq("user_id", userId)
+    .eq("user_id", userId);
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  const { data } = await query
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -28,12 +30,14 @@ export const getAiEditLimits = async (userId: string): Promise<AiEditLimits> => 
   };
 };
 
-export const consumeAiEdit = async (userId: string): Promise<AiEditLimits> => {
+export const consumeAiEdit = async (userId: string, workspaceId?: string): Promise<AiEditLimits> => {
   const supabase = await createSupabaseServerClient();
-  const { data: plan } = await supabase
+  let query = supabase
     .from("content_plans")
     .select("id, ai_edits_used, ai_edits_limit")
-    .eq("user_id", userId)
+    .eq("user_id", userId);
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  const { data: plan } = await query
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();

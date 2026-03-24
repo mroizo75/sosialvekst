@@ -73,7 +73,8 @@ export default function LandingPage() {
                   alt="SosialVekst"
                   width={400}
                   height={400}
-                  className="h-48 sm:h-64 md:h-80 w-auto object-contain"
+                  className="h-48 w-auto sm:h-64 md:h-80 object-contain"
+                  style={{ width: "auto" }}
                   priority
                 />
               </div>

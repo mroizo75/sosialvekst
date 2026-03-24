@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireWorkspaceId } from "@/lib/workspace";
 import type { MediaMode, SocialChannel } from "@/lib/types";
 
 const normalizeR2Url = (url: string | null): string => {
@@ -19,6 +20,7 @@ const normalizeR2Url = (url: string | null): string => {
 export async function GET() {
   try {
     const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
     const supabase = await createSupabaseServerClient();
 
     const [profileResult, brandResult, planResult] = await Promise.all([
@@ -31,11 +33,13 @@ export async function GET() {
         .from("brand_profiles")
         .select("target_audience, brand_voice, key_messages, logo_url, website_url, website_content, company_description, products, unique_selling_points, industry, founded_year, team_description, core_values, customer_pain_points, customer_success_stories, services, price_range, brand_personality, brand_dos_and_donts, competitor_differentiators, common_questions, seasonal_focus")
         .eq("user_id", userId)
+        .eq("workspace_id", workspaceId)
         .maybeSingle(),
       supabase
         .from("content_plans")
         .select("*")
         .eq("user_id", userId)
+        .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
@@ -61,7 +65,7 @@ export async function GET() {
     const channels = Array.isArray(latestPlan?.channels)
       ? (latestPlan?.channels as unknown[])
         .filter((item): item is string => typeof item === "string")
-        .filter((item): item is SocialChannel => item === "facebook" || item === "instagram" || item === "linkedin")
+        .filter((item): item is SocialChannel => item === "facebook" || item === "instagram" || item === "linkedin" || item === "tiktok")
       : [];
     const mediaMode = typeof latestPlan?.media_mode === "string"
       && (latestPlan.media_mode === "ai_only" || latestPlan.media_mode === "hybrid" || latestPlan.media_mode === "owned_only")
@@ -95,7 +99,7 @@ export async function GET() {
       commonQuestions: ((brand as Record<string, unknown>)?.common_questions as string[] | null) ?? [],
       seasonalFocus: (brand as Record<string, unknown>)?.seasonal_focus ?? "",
       mediaMode,
-      channels: channels.length > 0 ? channels : ["facebook", "instagram", "linkedin"],
+      channels: channels.length > 0 ? channels : ["facebook", "instagram", "linkedin", "tiktok"],
     });
   } catch (error) {
     const appError = toUnknownAppError(error);

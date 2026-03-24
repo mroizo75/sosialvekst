@@ -13,7 +13,7 @@ import type { BrandContext, SocialChannel, TopicWindow } from "@/lib/types";
 
 const DEFAULT_POSTS_PER_WEEK = 3;
 const DEFAULT_TOTAL_WEEKS = 4;
-const DEFAULT_CHANNELS: SocialChannel[] = ["facebook", "instagram", "linkedin"];
+const DEFAULT_CHANNELS: SocialChannel[] = ["facebook", "instagram", "linkedin", "tiktok"];
 
 const normalizePositiveInt = (value: unknown, fallback: number): number => {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
@@ -34,7 +34,7 @@ const normalizeChannels = (value: unknown): SocialChannel[] => {
   }
   const valid = value
     .filter((item): item is string => typeof item === "string")
-    .filter((item): item is SocialChannel => item === "facebook" || item === "instagram" || item === "linkedin");
+    .filter((item): item is SocialChannel => item === "facebook" || item === "instagram" || item === "linkedin" || item === "tiktok");
   return [...new Set(valid)];
 };
 

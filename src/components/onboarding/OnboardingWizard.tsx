@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Checkbox, Input, Textarea } from "@/components/ui/Input";
 import { cn } from "@/lib/utils";
-import type { MediaMode, SocialChannel, TopicWindow } from "@/lib/types";
+import type { MediaMode, ProductImage, SocialChannel, TopicWindow } from "@/lib/types";
 
 type WizardPayload = {
   companyName: string;
@@ -52,6 +52,7 @@ const CHANNEL_OPTIONS: Array<{ value: SocialChannel; label: string }> = [
   { value: "facebook", label: "Facebook" },
   { value: "instagram", label: "Instagram" },
   { value: "linkedin", label: "LinkedIn" },
+  { value: "tiktok", label: "TikTok" },
 ];
 const TOPIC_WINDOWS_STORAGE_KEY = "onboarding_topic_windows_v1";
 
@@ -113,6 +114,8 @@ export const OnboardingWizard = () => {
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [subscriptionActive, setSubscriptionActive] = useState(false);
   const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+  const [postsPerWeekAllowance, setPostsPerWeekAllowance] = useState(3);
+  const [postsPerWeek, setPostsPerWeek] = useState(3);
   const [keyMessagesText, setKeyMessagesText] = useState("");
   const [savedMessage, setSavedMessage] = useState("");
   const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([]);
@@ -207,6 +210,10 @@ export const OnboardingWizard = () => {
   const [servicesText, setServicesText] = useState("");
   const [commonQuestionsText, setCommonQuestionsText] = useState("");
 
+  const [productImages, setProductImages] = useState<ProductImage[]>([]);
+  const [productImageName, setProductImageName] = useState("");
+  const [uploadingProductImage, setUploadingProductImage] = useState(false);
+
   const fetchConnectedAccounts = useCallback(async (): Promise<SocialChannel[]> => {
     try {
       const response = await fetch("/api/social/accounts");
@@ -220,10 +227,79 @@ export const OnboardingWizard = () => {
     }
   }, []);
 
+  const fetchProductImages = useCallback(async () => {
+    try {
+      const response = await fetch("/api/products/images");
+      if (!response.ok) return;
+      const data = (await response.json()) as { items: ProductImage[] };
+      setProductImages(data.items ?? []);
+    } catch {
+      /* ignorerer nettverksfeil */
+    }
+  }, []);
+
+  const uploadProductImage = async (file: File) => {
+    if (!productImageName.trim()) {
+      setStatus("Skriv inn produktnavn først.");
+      return;
+    }
+    setUploadingProductImage(true);
+    setStatus("Laster opp produktbilde...");
+
+    const payload = new FormData();
+    payload.append("file", file);
+    payload.append("mediaKind", "image");
+
+    const uploadResponse = await fetch("/api/media/upload", {
+      method: "POST",
+      body: payload,
+    });
+
+    if (!uploadResponse.ok) {
+      setStatus("Kunne ikke laste opp bildet. Prøv igjen.");
+      setUploadingProductImage(false);
+      return;
+    }
+
+    const uploadData = (await uploadResponse.json()) as { publicUrl: string };
+
+    const saveResponse = await fetch("/api/products/images", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productName: productImageName.trim(),
+        imageUrl: uploadData.publicUrl,
+        sortOrder: productImages.filter((pi) => pi.productName === productImageName.trim()).length,
+      }),
+    });
+
+    if (!saveResponse.ok) {
+      setStatus("Bildet ble lastet opp, men kunne ikke lagres som produktbilde.");
+      setUploadingProductImage(false);
+      return;
+    }
+
+    setStatus("Produktbilde lagt til!");
+    setUploadingProductImage(false);
+    await fetchProductImages();
+  };
+
+  const deleteProductImage = async (id: string) => {
+    const response = await fetch("/api/products/images", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    if (response.ok) {
+      setProductImages((prev) => prev.filter((pi) => pi.id !== id));
+    }
+  };
+
   const loadExistingData = useCallback(async () => {
     const [response, liveChannels] = await Promise.all([
       fetch("/api/onboarding/load"),
       fetchConnectedAccounts(),
+      fetchProductImages(),
     ]);
 
     if (!response.ok) {
@@ -310,8 +386,11 @@ export const OnboardingWizard = () => {
         setSubscriptionActive(false);
         return;
       }
-      const data = (await response.json()) as { active: boolean };
+      const data = (await response.json()) as { active: boolean; postsPerWeekAllowance?: number };
       setSubscriptionActive(Boolean(data.active));
+      const allowance = data.postsPerWeekAllowance ?? 3;
+      setPostsPerWeekAllowance(allowance);
+      setPostsPerWeek(allowance);
     } catch {
       setSubscriptionActive(false);
     } finally {
@@ -543,7 +622,7 @@ export const OnboardingWizard = () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        postsPerWeek: 3,
+        postsPerWeek,
         totalWeeks: 4,
         channels: validChannels,
         mediaMode: form.mediaMode,
@@ -764,6 +843,80 @@ export const OnboardingWizard = () => {
                 placeholder="F.eks. Vi er de eneste i regionen som... Til forskjell fra store kjeder..."
                 hint="Valgfritt. Hjelper AI å posisjonere innholdet."
               />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Produktbilder for AI</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Last opp bilder av produktene dine. AI bruker disse som referanse for å generere
+                innhold der produktet er synlig og gjenkjennelig.
+              </p>
+
+              {productImages.length > 0 && (
+                <div className="space-y-3">
+                  {Object.entries(
+                    productImages.reduce<Record<string, ProductImage[]>>((acc, pi) => {
+                      const key = pi.productName;
+                      if (!acc[key]) acc[key] = [];
+                      acc[key].push(pi);
+                      return acc;
+                    }, {}),
+                  ).map(([name, images]) => (
+                    <div key={name} className="rounded-xl border border-border bg-muted/20 p-3">
+                      <p className="text-sm font-medium text-foreground mb-2">{name}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {images.map((pi) => (
+                          <div key={pi.id} className="group relative">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={pi.imageUrl}
+                              alt={pi.productName}
+                              className="size-16 rounded-lg border border-border object-cover"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void deleteProductImage(pi.id)}
+                              className="absolute -right-1.5 -top-1.5 hidden size-5 items-center justify-center rounded-full bg-destructive text-[10px] text-white group-hover:flex"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="space-y-3 rounded-xl border border-dashed border-border p-3">
+                <Input
+                  label="Produktnavn"
+                  value={productImageName}
+                  onChange={(e) => setProductImageName(e.target.value)}
+                  placeholder="F.eks. Glow Serum, Premium Kaffe..."
+                  hint="Skriv navnet på produktet bildet viser."
+                />
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={uploadingProductImage || !productImageName.trim()}
+                  onChange={(e) => {
+                    const selected = e.target.files?.[0];
+                    if (!selected) return;
+                    void uploadProductImage(selected);
+                    e.target.value = "";
+                  }}
+                  className="block text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary-hover file:cursor-pointer disabled:opacity-50"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Last opp flere bilder fra ulike vinkler for best resultat. Bildet bør vise produktet tydelig
+                  mot en ren bakgrunn.
+                </p>
+              </div>
             </CardContent>
           </Card>
 
@@ -1175,16 +1328,22 @@ export const OnboardingWizard = () => {
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <a
-                      href="/api/social/oauth/meta/start"
+                      href={`/api/social/oauth/meta/start?returnTo=${encodeURIComponent("/onboarding?step=3")}`}
                       className="inline-flex h-8 items-center rounded-lg border border-border bg-card px-3 text-xs font-medium hover:bg-secondary transition-colors"
                     >
                       Koble Facebook + Instagram
                     </a>
                     <a
-                      href="/api/social/oauth/linkedin/start"
+                      href={`/api/social/oauth/linkedin/start?returnTo=${encodeURIComponent("/onboarding?step=3")}`}
                       className="inline-flex h-8 items-center rounded-lg border border-border bg-card px-3 text-xs font-medium hover:bg-secondary transition-colors"
                     >
                       Koble LinkedIn
+                    </a>
+                    <a
+                      href={`/api/social/oauth/tiktok/start?returnTo=${encodeURIComponent("/onboarding?step=3")}`}
+                      className="inline-flex h-8 items-center rounded-lg border border-border bg-card px-3 text-xs font-medium hover:bg-secondary transition-colors"
+                    >
+                      Koble TikTok
                     </a>
                   </div>
                 </div>
@@ -1264,7 +1423,7 @@ export const OnboardingWizard = () => {
                     Aktiver abonnement for å lage innhold
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Du får 3 poster per uke til Facebook, Instagram og LinkedIn.
+                    Aktiver abonnement for å lage innhold for dine kanaler.
                   </p>
                   <Button onClick={() => void startBaseCheckout()} disabled={checkoutLoading}>
                     {checkoutLoading ? "Sender til betaling..." : "Aktiver abonnement"}
@@ -1294,6 +1453,23 @@ export const OnboardingWizard = () => {
                     {form.mediaMode === "ai_only" && "AI-bilder"}
                     {form.mediaMode === "hybrid" && "Egne + AI"}
                     {form.mediaMode === "owned_only" && "Egne bilder"}
+                  </dd>
+                </div>
+                <div className="flex items-center justify-between">
+                  <dt className="text-muted-foreground">Poster per uke</dt>
+                  <dd>
+                    <select
+                      value={postsPerWeek}
+                      onChange={(e) => setPostsPerWeek(Number(e.target.value))}
+                      className="h-7 rounded-md border border-border bg-background px-2 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {Array.from(
+                        { length: postsPerWeekAllowance },
+                        (_, i) => i + 1,
+                      ).map((n) => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
                   </dd>
                 </div>
               </dl>
@@ -1375,8 +1551,10 @@ export const OnboardingWizard = () => {
 
             <div className="rounded-xl bg-muted/30 p-4">
               <p className="text-sm text-muted-foreground">
-                Vi lager <strong className="text-foreground">3 poster per uke i 4 uker</strong> for
-                hver kanal du har valgt. Postene legges på mandag, onsdag og fredag.
+                Vi lager <strong className="text-foreground">{postsPerWeek} poster per uke i 4 uker</strong> for
+                hver kanal du har valgt.
+                {postsPerWeek <= 3 && " Postene legges på mandag, onsdag og fredag."}
+                {postsPerWeek > 3 && " Postene fordeles jevnt utover uken."}
               </p>
             </div>
 

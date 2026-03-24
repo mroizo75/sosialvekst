@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { ContentPlanDialog } from "@/components/dashboard/ContentPlanDialog";
+import type { GenerateConfig } from "@/components/dashboard/ContentPlanDialog";
 import { cn } from "@/lib/utils";
+import type { SocialChannel } from "@/lib/types";
 
 type OverviewResponse = {
   summary: {
@@ -35,7 +38,7 @@ type RecoveryStatus = {
 
 type SocialAccountsResponse = {
   connected: Array<{
-    channel: "facebook" | "instagram" | "linkedin";
+    channel: "facebook" | "instagram" | "linkedin" | "tiktok";
     account_id: string;
     updated_at: string;
   }>;
@@ -62,23 +65,12 @@ const SOCIAL_CONNECT_MESSAGE_NO: Record<string, string> = {
   linkedin_profile_failed: "Kunne ikke hente LinkedIn-profil. Prøv igjen.",
   linkedin_save_failed: "Fant kontoen, men kunne ikke lagre den. Prøv igjen.",
   linkedin_callback_failed: "Noe gikk galt. Prøv igjen.",
-};
-
-const dayAfterDate = (isoDate: string): string => {
-  const date = new Date(isoDate);
-  date.setDate(date.getDate() + 1);
-  date.setHours(9, 0, 0, 0);
-  return date.toISOString();
-};
-
-const nextMondayFromNow = (): string => {
-  const now = new Date();
-  const day = now.getDay();
-  const daysUntilMonday = day === 0 ? 1 : 8 - day;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + daysUntilMonday);
-  monday.setHours(9, 0, 0, 0);
-  return monday.toISOString();
+  tiktok_connected: "TikTok er nå koblet til!",
+  tiktok_auth_denied: "Du avbrøt TikTok-innloggingen. Prøv igjen.",
+  tiktok_invalid_state: "Noe gikk galt med TikTok-innloggingen. Prøv igjen.",
+  tiktok_token_failed: "Kunne ikke koble til TikTok. Prøv igjen.",
+  tiktok_save_failed: "Fant kontoen, men kunne ikke lagre den. Prøv igjen.",
+  tiktok_callback_failed: "Noe gikk galt. Prøv igjen.",
 };
 
 const POLL_INTERVAL_MS = 15_000;
@@ -93,6 +85,8 @@ export const DashboardPanel = () => {
   const [loading, setLoading] = useState(true);
   const [billingRequired, setBillingRequired] = useState(false);
   const [recovering, setRecovering] = useState(false);
+  const [planDialogOpen, setPlanDialogOpen] = useState(false);
+  const [planGenerating, setPlanGenerating] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const checkRecoveryStatus = useCallback(async () => {
@@ -298,31 +292,24 @@ export const DashboardPanel = () => {
     }
   };
 
-  const planNextMonth = async () => {
-    const channels = Array.from(connectedChannels);
-    if (channels.length === 0) {
-      setStatus("Du må koble til minst én sosial konto før du kan planlegge innhold.");
-      return;
-    }
-
+  const handlePlanGenerate = async (config: GenerateConfig) => {
     try {
-      setStatus("Lager innhold for neste periode...");
-
-      const startDate = overview?.summary.latestScheduledAt
-        ? dayAfterDate(overview.summary.latestScheduledAt)
-        : nextMondayFromNow();
+      setPlanGenerating(true);
+      setStatus("Lager innhold — dette tar ca. 1–2 minutter...");
 
       const response = await fetch("/api/content/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          postsPerWeek: 3,
-          totalWeeks: 4,
-          channels,
+          postsPerWeek: config.postsPerWeek,
+          totalWeeks: config.totalWeeks,
+          channels: config.channels,
           mediaMode: "hybrid",
           countryCode: "NO",
-          topicWindows: [],
-          startDate,
+          topicWindows: config.topicWindows,
+          startDate: config.startDate,
+          postingDays: config.postingDays,
+          postingHours: config.postingHours,
         }),
       });
       const data = (await response.json().catch(() => ({}))) as { message?: string };
@@ -330,10 +317,13 @@ export const DashboardPanel = () => {
         setStatus(data.message ?? "Kunne ikke lage innhold for neste periode.");
         return;
       }
-      setStatus("Neste periode er planlagt!");
+      setPlanDialogOpen(false);
+      setStatus("Innholdsplan opprettet! Postene genereres i bakgrunnen.");
       await refresh({ quiet: true });
     } catch {
       setStatus("Nettverksfeil.");
+    } finally {
+      setPlanGenerating(false);
     }
   };
 
@@ -509,7 +499,7 @@ export const DashboardPanel = () => {
           <h2 className="text-base font-bold">Planlegg fremover</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {overview.summary.latestScheduledAt
-              ? `Siste planlagte post: ${new Date(overview.summary.latestScheduledAt).toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}. Neste periode starter etter denne.`
+              ? `Siste planlagte post: ${new Date(overview.summary.latestScheduledAt).toLocaleDateString("nb-NO", { day: "numeric", month: "long", year: "numeric" })}.`
               : "Lag innhold for kommende uker. Du kan planlegge opptil 1 år fremover."}
           </p>
           {connectedChannels.size > 0 && (
@@ -529,14 +519,17 @@ export const DashboardPanel = () => {
           <div className="rounded-xl bg-warning/10 border border-warning/20 px-4 py-3 text-sm text-foreground">
             <p className="font-medium">Ingen kontoer koblet til</p>
             <p className="mt-1 text-muted-foreground">
-              Koble til minst én sosial konto (Facebook, Instagram eller LinkedIn) før du planlegger innhold.
+              Koble til minst én sosial konto (Facebook, Instagram, LinkedIn eller TikTok) før du planlegger innhold.
             </p>
           </div>
         ) : (
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => void planNextMonth()}>
-              Lag innhold for neste 4 uker
+          <div className="flex flex-wrap items-center gap-3">
+            <Button size="sm" onClick={() => setPlanDialogOpen(true)}>
+              Planlegg innhold
             </Button>
+            <span className="text-xs text-muted-foreground">
+              Opptil {overview.subscription.postsPerWeekAllowance} poster per uke
+            </span>
           </div>
         )}
       </section>
@@ -550,7 +543,7 @@ export const DashboardPanel = () => {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Button size="sm" onClick={() => void queuePublishing()} disabled={!canPublish}>
+          <Button size="sm" onClick={() => void queuePublishing()} disabled={!canPublish || overview.summary.approvedPosts === 0}>
             Legg godkjente i kø
           </Button>
           {overview && overview.summary.queuedJobs > 0 && (
@@ -563,6 +556,8 @@ export const DashboardPanel = () => {
           Postene publiseres på det tidspunktet de er planlagt for. Ingenting publiseres umiddelbart — du har full kontroll.
         </p>
       </section>
+
+      <ProductImageStatus />
 
       <section className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-3 sm:space-y-4">
         <div>
@@ -584,11 +579,18 @@ export const DashboardPanel = () => {
           >
             Koble LinkedIn
           </a>
+          <a
+            href="/api/social/oauth/tiktok/start"
+            className="inline-flex h-9 items-center rounded-lg border border-border bg-card px-4 text-sm font-medium hover:bg-secondary transition-colors"
+          >
+            Koble TikTok
+          </a>
         </div>
         <div className="flex flex-wrap gap-4 text-sm">
           <ChannelStatus label="Facebook" connected={connectedChannels.has("facebook")} />
           <ChannelStatus label="Instagram" connected={connectedChannels.has("instagram")} />
           <ChannelStatus label="LinkedIn" connected={connectedChannels.has("linkedin")} />
+          <ChannelStatus label="TikTok" connected={connectedChannels.has("tiktok")} />
         </div>
       </section>
 
@@ -599,7 +601,88 @@ export const DashboardPanel = () => {
           {status}
         </div>
       ) : null}
+
+      <ContentPlanDialog
+        open={planDialogOpen}
+        onClose={() => setPlanDialogOpen(false)}
+        onGenerate={(config) => void handlePlanGenerate(config)}
+        postsPerWeekAllowance={overview?.subscription.postsPerWeekAllowance ?? 3}
+        connectedChannels={Array.from(connectedChannels) as SocialChannel[]}
+        loading={planGenerating}
+        latestScheduledAt={overview?.summary.latestScheduledAt ?? null}
+      />
     </div>
+  );
+};
+
+type ProductImageItem = {
+  id: string;
+  productName: string;
+  imageUrl: string;
+  sortOrder: number;
+};
+
+const ProductImageStatus = () => {
+  const [items, setItems] = useState<ProductImageItem[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const response = await fetch("/api/products/images");
+        if (!response.ok) return;
+        const data = (await response.json()) as { items: ProductImageItem[] };
+        setItems(data.items ?? []);
+      } catch {
+        /* ignorer */
+      } finally {
+        setLoaded(true);
+      }
+    };
+    void load();
+  }, []);
+
+  if (!loaded) return null;
+
+  const uniqueProducts = new Set(items.map((i) => i.productName));
+
+  return (
+    <section className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-3 sm:space-y-4">
+      <div>
+        <h2 className="text-base font-bold">Produktbilder</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {items.length === 0
+            ? "Ingen produktbilder lastet opp. AI lager generiske bilder uten produktreferanser."
+            : `${uniqueProducts.size} produkt${uniqueProducts.size !== 1 ? "er" : ""} med ${items.length} referansebilde${items.length !== 1 ? "r" : ""}. AI bruker disse i genererte bilder.`}
+        </p>
+      </div>
+      {items.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {items.slice(0, 8).map((item) => (
+            <div key={item.id} className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/20 px-2 py-1">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={item.imageUrl}
+                alt={item.productName}
+                className="size-6 rounded object-cover"
+              />
+              <span className="text-xs font-medium text-foreground">{item.productName}</span>
+            </div>
+          ))}
+          {items.length > 8 && (
+            <span className="flex items-center text-xs text-muted-foreground">
+              +{items.length - 8} til
+            </span>
+          )}
+        </div>
+      )}
+      <a
+        href="/onboarding"
+        className="inline-flex h-8 items-center rounded-lg border border-border bg-card px-3 text-sm font-medium hover:bg-secondary transition-colors"
+      >
+        {items.length === 0 ? "Last opp produktbilder" : "Administrer produktbilder"}
+      </a>
+    </section>
   );
 };
 

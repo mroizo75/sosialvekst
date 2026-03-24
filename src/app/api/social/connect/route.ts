@@ -4,10 +4,11 @@ import { z } from "zod";
 import { requireUserId } from "@/lib/auth";
 import { toAppError } from "@/lib/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireWorkspaceId } from "@/lib/workspace";
 import type { SocialChannel } from "@/lib/types";
 
 const schema = z.object({
-  channel: z.enum(["facebook", "instagram", "linkedin"]),
+  channel: z.enum(["facebook", "instagram", "linkedin", "tiktok"]),
   accountId: z.string().min(1),
   accessToken: z.string().min(1),
   refreshToken: z.string().optional(),
@@ -15,6 +16,7 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   const userId = await requireUserId();
+  const workspaceId = await requireWorkspaceId(userId);
   const parsed = schema.safeParse(await request.json());
   if (!parsed.success) {
     return NextResponse.json(toAppError("VALIDATION_ERROR", "Ugyldig sosial konto payload"), {
@@ -26,6 +28,7 @@ export async function POST(request: Request) {
   const { error } = await supabase.from("social_accounts").upsert(
     {
       user_id: userId,
+      workspace_id: workspaceId,
       channel: parsed.data.channel,
       account_id: parsed.data.accountId,
       access_token: parsed.data.accessToken,
@@ -47,7 +50,8 @@ export async function POST(request: Request) {
   const { data } = await supabase
     .from("social_accounts")
     .select("channel, account_id")
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .eq("workspace_id", workspaceId);
 
   return NextResponse.json({
     ok: true,

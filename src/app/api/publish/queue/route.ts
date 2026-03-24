@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireUserId } from "@/lib/auth";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { requireActiveSubscription } from "@/lib/subscription";
+import { requireWorkspaceId } from "@/lib/workspace";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const queueSchema = z.object({
@@ -13,6 +14,7 @@ const queueSchema = z.object({
 export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
     await requireActiveSubscription(userId);
     const payload = queueSchema.parse(await request.json().catch(() => ({})));
     const supabase = await createSupabaseServerClient();
@@ -21,6 +23,7 @@ export async function POST(request: Request) {
       .from("posts")
       .select("id, channel, scheduled_at, video_url")
       .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .eq("status", "approved");
 
     if (payload.postIds && payload.postIds.length > 0) {
@@ -45,7 +48,8 @@ export async function POST(request: Request) {
     const { data: socialAccounts, error: socialError } = await supabase
       .from("social_accounts")
       .select("channel, access_token")
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .eq("workspace_id", workspaceId);
 
     if (socialError) {
       return NextResponse.json(
@@ -94,10 +98,24 @@ export async function POST(request: Request) {
       );
     }
 
+    const tiktokWithoutVideo = publishablePosts.filter(
+      (post) => post.channel === "tiktok" && !post.video_url,
+    );
+    if (tiktokWithoutVideo.length > 0) {
+      return NextResponse.json(
+        toAppError(
+          "TIKTOK_VIDEO_REQUIRED",
+          `${tiktokWithoutVideo.length} TikTok-poster mangler video. TikTok krever video for publisering. Last opp video på disse postene først.`,
+        ),
+        { status: 400 },
+      );
+    }
+
     const nowIso = new Date().toISOString();
     const queueRows = publishablePosts.map((post) => ({
       post_id: post.id,
       user_id: userId,
+      workspace_id: workspaceId,
       channel: post.channel,
       run_at: post.scheduled_at < nowIso ? nowIso : post.scheduled_at,
       status: "queued",
@@ -124,6 +142,7 @@ export async function POST(request: Request) {
       .from("posts")
       .update({ status: "scheduled", updated_at: new Date().toISOString() })
       .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .in("id", publishablePosts.map((post) => post.id));
 
     if (scheduleError) {

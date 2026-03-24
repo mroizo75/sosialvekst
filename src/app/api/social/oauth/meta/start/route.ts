@@ -5,8 +5,13 @@ import { getAppUrl, getRequiredEnv } from "@/lib/env";
 
 const OAUTH_STATE_COOKIE = "social_oauth_state_meta";
 
-export async function GET() {
+const RETURN_PATH_COOKIE = "social_oauth_return_path_meta";
+
+export async function GET(request: Request) {
   await requireUserId();
+
+  const url = new URL(request.url);
+  const returnTo = url.searchParams.get("returnTo") ?? "/dashboard";
 
   const appId = getRequiredEnv("FACEBOOK_APP_ID");
   const callbackUrl = `${getAppUrl()}/api/social/oauth/meta/callback`;
@@ -29,6 +34,13 @@ export async function GET() {
 
   const response = NextResponse.redirect(authUrl.toString());
   response.cookies.set(OAUTH_STATE_COOKIE, state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 10,
+  });
+  response.cookies.set(RETURN_PATH_COOKIE, returnTo, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",

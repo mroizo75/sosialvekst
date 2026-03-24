@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { requireUserId } from "@/lib/auth";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
+import { requireWorkspaceId } from "@/lib/workspace";
 import { analyzeWebsiteContent } from "@/lib/scraping/analyzer";
 import { parseHtml } from "@/lib/scraping/parser";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -138,6 +139,7 @@ const fetchSafeHtml = async (inputUrl: string): Promise<{ html: string; finalUrl
 export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
     const json = await request.json();
     const { url, companyName } = scrapeSchema.parse(json);
 
@@ -158,7 +160,8 @@ export async function POST(request: Request) {
         unique_selling_points: analysis.uniqueSellingPoints,
         updated_at: new Date().toISOString(),
       })
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .eq("workspace_id", workspaceId);
 
     if (dbError) {
       return NextResponse.json(

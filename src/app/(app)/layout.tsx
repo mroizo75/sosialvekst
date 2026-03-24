@@ -51,7 +51,8 @@ export default async function AppLayout({
               alt="SosialVekst"
               width={624}
               height={250}
-              className="h-28 sm:h-[250px] w-auto object-contain"
+              className="h-28 w-auto sm:h-[250px] object-contain"
+              style={{ width: "auto" }}
               priority
             />
           </Link>

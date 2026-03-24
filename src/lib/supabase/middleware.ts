@@ -36,12 +36,25 @@ export const updateSession = async (request: NextRequest): Promise<SessionResult
     },
   );
 
-  const { data } = await supabase.auth.getUser();
+  const { data, error: authError } = await supabase.auth.getUser();
+  if (authError?.code === "refresh_token_not_found") {
+    await supabase.auth.signOut();
+  }
   const userId = data.user?.id ?? null;
   let hasActiveSubscription = false;
   let hasCompletedOnboarding = false;
 
   if (userId) {
+    const activeWorkspaceId = request.cookies.get("active_workspace_id")?.value ?? null;
+
+    let brandQuery = supabase
+      .from("brand_profiles")
+      .select("target_audience, brand_voice")
+      .eq("user_id", userId);
+    if (activeWorkspaceId) {
+      brandQuery = brandQuery.eq("workspace_id", activeWorkspaceId);
+    }
+
     const [subscriptionResult, brandResult] = await Promise.all([
       supabase
         .from("subscriptions")
@@ -50,11 +63,7 @@ export const updateSession = async (request: NextRequest): Promise<SessionResult
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      supabase
-        .from("brand_profiles")
-        .select("target_audience, brand_voice")
-        .eq("user_id", userId)
-        .maybeSingle(),
+      brandQuery.maybeSingle(),
     ]);
 
     hasActiveSubscription =

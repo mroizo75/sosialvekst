@@ -67,5 +67,17 @@ export const norwegianStyleGuide = {
       "PERSPEKTIV: «Jeg»-perspektiv fungerer godt på LinkedIn. Del personlige observasjoner fra bransjen.",
       "UNNGÅ: Generiske motivasjonsfraser, overdreven selvpromotering, og tekst uten faglig substans.",
     ],
+    tiktok: [
+      "LENGDE: 50–150 ord. TikTok-tekst er videotittel/beskrivelse — kort og fengende.",
+      "STIL: Uformell, energisk og direkte. Skriv som om du snakker til kamera.",
+      "ÅPNING: Start med en hook som fanger oppmerksomheten umiddelbart. Spørsmål og påstander fungerer godt.",
+      "STRUKTUR: Korte setninger. Bruk linjeskift. Teksten skal fungere som overlegg på video.",
+      "EMOJI: Bruk gjerne 2–4 relevante emojis for visuell oppmerksomhet.",
+      "HASHTAGS: 3–5 relevante hashtags, inkluder alltid én trending/niche-hashtag. #fyp kan brukes sparsomt.",
+      "ENGASJEMENT: «Følg for mer» eller «Del med en venn som trenger dette» fungerer godt.",
+      "TONE: Autentisk, underholdende og lærerikt. TikTok-brukere foretrekker ekte over polert.",
+      "FOKUS: Teksten skal beskrive hva videoen handler om og gi folk grunn til å se den.",
+      "UNNGÅ: Formelt språk, lange beskrivelser, og tekst som ikke passer med kort videoformat.",
+    ],
   },
 };

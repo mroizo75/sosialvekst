@@ -67,6 +67,7 @@ const attachAdditionalImages = (
 
 export const createContentPlan = async (input: {
   userId: string;
+  workspaceId: string;
   postsPerWeek: number;
   totalWeeks: number;
   countryCode: string;
@@ -78,12 +79,13 @@ export const createContentPlan = async (input: {
 
   const payloadWithChannels = {
     user_id: input.userId,
+    workspace_id: input.workspaceId,
     posts_per_week: input.postsPerWeek,
     total_weeks: input.totalWeeks,
     country_code: input.countryCode,
     media_mode: input.mediaMode,
     topic_windows: input.topicWindows,
-    channels: input.channels ?? ["facebook", "instagram", "linkedin"],
+    channels: input.channels ?? ["facebook", "instagram", "linkedin", "tiktok"],
   };
 
   let data: { id?: string } | null = null;
@@ -124,6 +126,7 @@ export const createContentPlan = async (input: {
 
 export const upsertPosts = async (input: {
   userId: string;
+  workspaceId: string;
   planId: string;
   posts: PostDraft[];
 }): Promise<void> => {
@@ -131,6 +134,7 @@ export const upsertPosts = async (input: {
   const rows = input.posts.map((post) => ({
     id: post.id,
     user_id: input.userId,
+    workspace_id: input.workspaceId,
     plan_id: input.planId,
     channel: post.channel,
     status: post.status,
@@ -147,13 +151,14 @@ export const upsertPosts = async (input: {
   }
 };
 
-export const listPosts = async (userId: string): Promise<PostDraft[]> => {
+export const listPosts = async (userId: string, workspaceId?: string): Promise<PostDraft[]> => {
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("posts")
     .select("id, channel, status, scheduled_at, text_content, image_url, video_url, quality_score")
-    .eq("user_id", userId)
-    .order("scheduled_at", { ascending: true });
+    .eq("user_id", userId);
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  const { data, error } = await query.order("scheduled_at", { ascending: true });
 
   if (error) {
     throw toAppError("POSTS_LIST_FAILED", "Kunne ikke hente poster", error.message);

@@ -40,8 +40,6 @@ export const signUpAction = async (formData: FormData): Promise<void> => {
   const email = getStringValue(formData, "email");
   const password = getStringValue(formData, "password");
   const fullName = getStringValue(formData, "fullName");
-  const companyName = getStringValue(formData, "companyName");
-  const targetAudience = getStringValue(formData, "targetAudience");
   const termsAccepted = getCheckedValue(formData, "termsAccepted");
   const appUrl = getAppUrl();
   const supabase = await createSupabaseServerClient();
@@ -54,7 +52,7 @@ export const signUpAction = async (formData: FormData): Promise<void> => {
     email,
     password,
     options: {
-      data: { fullName, companyName, targetAudience },
+      data: { fullName },
       emailRedirectTo: `${appUrl}/login?confirmed=1`,
     },
   });

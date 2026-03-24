@@ -7,7 +7,7 @@ import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const customPostSchema = z.object({
-  channel: z.enum(["facebook", "instagram", "linkedin"]),
+  channel: z.enum(["facebook", "instagram", "linkedin", "tiktok"]),
   scheduledAt: z.string().min(1),
   text: z.string().min(1),
   imageUrl: z.string().url().optional().or(z.literal("")),

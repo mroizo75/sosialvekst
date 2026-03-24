@@ -3,24 +3,29 @@ import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { getLatestSubscription, getPostsPerWeekAllowance, hasActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireWorkspaceId } from "@/lib/workspace";
 
 export async function GET() {
   const userId = await requireUserId();
+  const workspaceId = await requireWorkspaceId(userId);
   const supabase = await createSupabaseServerClient();
 
   const [postsResult, jobsResult, latestPostResult, subscription] = await Promise.all([
     supabase
       .from("posts")
       .select("status, scheduled_at")
-      .eq("user_id", userId),
+      .eq("user_id", userId)
+      .eq("workspace_id", workspaceId),
     supabase
       .from("publish_jobs")
       .select("status")
-      .eq("user_id", userId),
+      .eq("user_id", userId)
+      .eq("workspace_id", workspaceId),
     supabase
       .from("posts")
       .select("scheduled_at")
       .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .order("scheduled_at", { ascending: false })
       .limit(1)
       .maybeSingle(),

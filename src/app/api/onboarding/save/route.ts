@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireUserId } from "@/lib/auth";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
+import { requireWorkspaceId } from "@/lib/workspace";
 import { persistOnboarding } from "@/lib/onboarding/persistence";
 import { onboardingWizardSchema } from "@/lib/onboarding/schema";
 import { saveOnboardingState } from "@/lib/onboarding/service";
@@ -9,6 +10,7 @@ import { saveOnboardingState } from "@/lib/onboarding/service";
 export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
     const body = (await request.json()) as Record<string, unknown>;
     const step = Number(body.step ?? 1);
     const payload = onboardingWizardSchema.parse({
@@ -41,7 +43,7 @@ export async function POST(request: Request) {
     });
 
     const record = saveOnboardingState(userId, step, payload);
-    await persistOnboarding(userId, payload);
+    await persistOnboarding(userId, payload, workspaceId);
 
     return NextResponse.json(record);
   } catch (error) {

@@ -1,5 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { BrandContext } from "@/lib/types";
+import type { BrandContext, ProductImage } from "@/lib/types";
 
 type ProfileRow = {
   company_name: string | null;
@@ -30,6 +30,13 @@ type BrandProfileRow = {
   seasonal_focus: string | null;
 };
 
+type ProductImageRow = {
+  id: string;
+  product_name: string;
+  image_url: string;
+  sort_order: number;
+};
+
 const BRAND_FIELDS = [
   "target_audience", "brand_voice", "key_messages", "logo_url",
   "website_url", "website_content", "company_description",
@@ -44,16 +51,43 @@ const toStringArray = (value: unknown): string[] | undefined => {
   return Array.isArray(value) && value.length > 0 ? value : undefined;
 };
 
-export const getBrandContext = async (userId: string): Promise<BrandContext> => {
+const fetchProductImages = async (
+  userId: string,
+  workspaceId: string | undefined,
+): Promise<ProductImage[]> => {
+  const supabase = await createSupabaseServerClient();
+  let query = supabase
+    .from("product_images")
+    .select("id, product_name, image_url, sort_order")
+    .eq("user_id", userId)
+    .order("product_name")
+    .order("sort_order", { ascending: true });
+
+  if (workspaceId) {
+    query = query.eq("workspace_id", workspaceId);
+  }
+
+  const { data } = await query;
+  if (!data || data.length === 0) return [];
+
+  return (data as ProductImageRow[]).map((row) => ({
+    id: row.id,
+    productName: row.product_name,
+    imageUrl: row.image_url,
+    sortOrder: row.sort_order,
+  }));
+};
+
+export const getBrandContext = async (userId: string, workspaceId?: string): Promise<BrandContext> => {
   const supabase = await createSupabaseServerClient();
 
-  const [profileResult, brandResult] = await Promise.all([
+  let brandQuery = supabase.from("brand_profiles").select(BRAND_FIELDS).eq("user_id", userId);
+  if (workspaceId) brandQuery = brandQuery.eq("workspace_id", workspaceId);
+
+  const [profileResult, brandResult, productImages] = await Promise.all([
     supabase.from("profiles").select("company_name").eq("user_id", userId).maybeSingle(),
-    supabase
-      .from("brand_profiles")
-      .select(BRAND_FIELDS)
-      .eq("user_id", userId)
-      .maybeSingle(),
+    brandQuery.maybeSingle(),
+    fetchProductImages(userId, workspaceId),
   ]);
 
   const profile = profileResult.data as ProfileRow | null;
@@ -83,5 +117,6 @@ export const getBrandContext = async (userId: string): Promise<BrandContext> => 
     logoUrl: brand?.logo_url ?? undefined,
     websiteUrl: brand?.website_url ?? undefined,
     websiteContent: brand?.website_content ?? undefined,
+    productImages: productImages.length > 0 ? productImages : undefined,
   };
 };
