@@ -335,6 +335,7 @@ async function regenerateSlots(
         .update({
           text_content: post.text,
           image_url: post.imageUrl ?? null,
+          video_url: post.videoUrl ?? null,
           status: post.status,
           quality_score: post.quality,
           updated_at: new Date().toISOString(),

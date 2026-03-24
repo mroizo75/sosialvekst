@@ -71,11 +71,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const publishablePosts = posts.filter((post) => validChannels.has(post.channel));
-    const skippedPosts = posts.filter((post) => !validChannels.has(post.channel));
+    const connectedPosts = posts.filter((post) => validChannels.has(post.channel));
+    const disconnectedPosts = posts.filter((post) => !validChannels.has(post.channel));
 
-    if (publishablePosts.length === 0) {
-      const skippedChannels = [...new Set(skippedPosts.map((p) => p.channel))];
+    if (connectedPosts.length === 0) {
+      const skippedChannels = [...new Set(disconnectedPosts.map((p) => p.channel))];
       return NextResponse.json(
         toAppError(
           "NO_CONNECTED_CHANNELS",
@@ -85,28 +85,31 @@ export async function POST(request: Request) {
       );
     }
 
-    const unsupportedLinkedInVideos = publishablePosts.filter(
-      (post) => post.channel === "linkedin" && Boolean(post.video_url),
-    );
-    if (unsupportedLinkedInVideos.length > 0) {
-      return NextResponse.json(
-        toAppError(
-          "LINKEDIN_VIDEO_NOT_SUPPORTED",
-          "LinkedIn-video er ikke aktivert ennå. Velg bilde eller fjern video på LinkedIn-poster før kø.",
-        ),
-        { status: 400 },
-      );
-    }
+    const publishablePosts = connectedPosts.filter((post) => {
+      if (post.channel === "tiktok" && !post.video_url) return false;
+      if (post.channel === "linkedin" && Boolean(post.video_url)) return false;
+      return true;
+    });
 
-    const tiktokWithoutVideo = publishablePosts.filter(
-      (post) => post.channel === "tiktok" && !post.video_url,
-    );
-    if (tiktokWithoutVideo.length > 0) {
+    const skippedPosts = [
+      ...disconnectedPosts,
+      ...connectedPosts.filter((post) => {
+        if (post.channel === "tiktok" && !post.video_url) return true;
+        if (post.channel === "linkedin" && Boolean(post.video_url)) return true;
+        return false;
+      }),
+    ];
+
+    if (publishablePosts.length === 0) {
+      const reasons: string[] = [];
+      const tiktokSkipped = skippedPosts.filter((p) => p.channel === "tiktok" && !p.video_url);
+      const linkedinSkipped = skippedPosts.filter((p) => p.channel === "linkedin" && Boolean(p.video_url));
+      const disconnected = [...new Set(disconnectedPosts.map((p) => p.channel))];
+      if (tiktokSkipped.length > 0) reasons.push(`${tiktokSkipped.length} TikTok-poster mangler video`);
+      if (linkedinSkipped.length > 0) reasons.push(`${linkedinSkipped.length} LinkedIn-poster har video (ikke støttet)`);
+      if (disconnected.length > 0) reasons.push(`Kanaler ikke koblet til: ${disconnected.join(", ")}`);
       return NextResponse.json(
-        toAppError(
-          "TIKTOK_VIDEO_REQUIRED",
-          `${tiktokWithoutVideo.length} TikTok-poster mangler video. TikTok krever video for publisering. Last opp video på disse postene først.`,
-        ),
+        toAppError("NO_PUBLISHABLE_POSTS", `Ingen poster kan legges i kø. ${reasons.join(". ")}.`),
         { status: 400 },
       );
     }

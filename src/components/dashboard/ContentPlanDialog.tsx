@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Checkbox } from "@/components/ui/Input";
 import { cn } from "@/lib/utils";
-import type { SocialChannel, TopicWindow } from "@/lib/types";
+import type { MediaMode, SocialChannel, TopicWindow } from "@/lib/types";
 
 type DayConfig = {
   dayOffset: number;
@@ -24,6 +24,7 @@ type ContentPlanDialogProps = {
   connectedChannels: SocialChannel[];
   loading: boolean;
   latestScheduledAt: string | null;
+  savedMediaMode: MediaMode;
 };
 
 export type GenerateConfig = {
@@ -34,6 +35,7 @@ export type GenerateConfig = {
   postingHours: number[];
   startDate?: string;
   topicWindows: TopicWindow[];
+  mediaMode: MediaMode;
 };
 
 const RECOMMENDED_HOURS: Record<number, number> = {
@@ -99,6 +101,12 @@ const parseTimeString = (value: string): { hour: number; minute: number } => {
   return { hour: h ?? 8, minute: m ?? 0 };
 };
 
+const MEDIA_MODE_LABELS: Record<MediaMode, string> = {
+  ai_only: "La AI lage alle bilder",
+  hybrid: "Egne + AI-bilder",
+  owned_only: "Kun egne bilder",
+};
+
 export const ContentPlanDialog = ({
   open,
   onClose,
@@ -107,10 +115,12 @@ export const ContentPlanDialog = ({
   connectedChannels,
   loading,
   latestScheduledAt,
+  savedMediaMode,
 }: ContentPlanDialogProps) => {
   const hasExistingPlan = !!latestScheduledAt;
   const defaultFill = hasExistingPlan && postsPerWeekAllowance > 3;
   const [fillMode, setFillMode] = useState<"new" | "fill">(defaultFill ? "fill" : "new");
+  const [mediaMode, setMediaMode] = useState<MediaMode>(savedMediaMode);
 
   const [days, setDays] = useState<DayConfig[]>(() => {
     if (defaultFill) {
@@ -140,6 +150,7 @@ export const ContentPlanDialog = ({
 
   useEffect(() => {
     if (!open) return;
+    setMediaMode(savedMediaMode);
     const load = async () => {
       try {
         const res = await fetch("/api/onboarding/load");
@@ -150,7 +161,7 @@ export const ContentPlanDialog = ({
       } catch { /* ignorer */ }
     };
     void load();
-  }, [open]);
+  }, [open, savedMediaMode]);
 
   const fillWeeks = hasExistingPlan ? weeksUntil(latestScheduledAt) : 4;
 
@@ -252,6 +263,7 @@ export const ContentPlanDialog = ({
       postingHours,
       startDate,
       topicWindows,
+      mediaMode,
     });
   };
 
@@ -360,6 +372,27 @@ export const ContentPlanDialog = ({
             <p className="text-[10px] text-muted-foreground">
               Valgfritt. La stå tomt for variert innhold basert på brandprofilen.
             </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-foreground">Bilder i innlegg</label>
+            <div className="flex flex-wrap gap-1.5">
+              {(["ai_only", "hybrid", "owned_only"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setMediaMode(mode)}
+                  className={cn(
+                    "rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                    mediaMode === mode
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:bg-muted/40",
+                  )}
+                >
+                  {MEDIA_MODE_LABELS[mode]}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="space-y-1.5">

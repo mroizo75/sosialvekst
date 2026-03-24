@@ -1,11 +1,12 @@
 import { buildNorwegianCopyPrompt } from "@/lib/ai/copyPromptBuilderNo";
 import { mergeBrandRules } from "@/lib/ai/brandRules";
+import { generateImageToVideo, isFalAvailable } from "@/lib/ai/falClient";
 import { generateProfessionalImage } from "@/lib/ai/imageGeneration";
 import { generateProductImage } from "@/lib/ai/imageEngine";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
-import { listUserFiles } from "@/lib/cloudflare/r2";
+import { uploadUserFile, listUserFiles } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
 import type {
@@ -343,6 +344,74 @@ const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<string
   return undefined;
 };
 
+const buildVideoMotionPrompt = (input: GeneratePostInput): string => {
+  const productName = input.brandContext?.productImages?.[0]?.productName;
+  const companyName = input.brandContext?.companyName ?? "bedriften";
+
+  if (productName) {
+    return [
+      `Smooth, cinematic product showcase of ${productName} by ${companyName}.`,
+      "Slow camera push-in revealing product details.",
+      "Subtle ambient lighting shifts. Soft depth-of-field blur in background.",
+      "Professional commercial quality, steady motion, no text overlays.",
+    ].join(" ");
+  }
+
+  return [
+    `Professional social media video for ${companyName}.`,
+    "Gentle camera movement with slow zoom or pan.",
+    "Warm, inviting atmosphere with subtle light transitions.",
+    "Smooth cinematic motion, high production quality, no text overlays.",
+  ].join(" ");
+};
+
+const createVideoFromImage = async (
+  userId: string,
+  imageUrl: string,
+  input: GeneratePostInput,
+): Promise<string | undefined> => {
+  if (!isFalAvailable()) return undefined;
+
+  try {
+    const motionPrompt = buildVideoMotionPrompt(input);
+    const result = await generateImageToVideo({
+      prompt: motionPrompt,
+      imageUrl,
+      duration: "5",
+      resolution: "720p",
+    });
+
+    if (!result?.url) return undefined;
+
+    const videoResponse = await fetch(result.url);
+    if (!videoResponse.ok) return undefined;
+
+    const videoBytes = new Uint8Array(await videoResponse.arrayBuffer());
+    const uploaded = await uploadUserFile({
+      userId,
+      fileName: `tiktok-video-${crypto.randomUUID()}.mp4`,
+      contentType: "video/mp4",
+      mediaKind: "video",
+      body: videoBytes,
+    });
+
+    logger.info("TikTok video generert fra bilde", {
+      userId,
+      channel: input.channel,
+      topic: input.topic,
+    });
+
+    return uploaded.publicUrl;
+  } catch (error) {
+    logger.warn("TikTok videogenerering feilet", {
+      userId,
+      channel: input.channel,
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    return undefined;
+  }
+};
+
 export const generatePost = async (input: GeneratePostInput): Promise<PostDraft> => {
   let rawText = fallbackText(input.topic, input.brandContext?.companyName);
   try {
@@ -369,6 +438,11 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     imageUrl = undefined;
   }
 
+  let videoUrl: string | undefined;
+  if (input.channel === "tiktok" && imageUrl) {
+    videoUrl = await createVideoFromImage(input.userId, imageUrl, input);
+  }
+
   const companyName = input.brandContext?.companyName;
   const websiteUrl = input.brandContext?.websiteUrl?.trim();
   const revision = runRevisionLoop({
@@ -392,6 +466,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     scheduledAt: input.scheduledAt,
     text: normalizedText,
     imageUrl,
+    videoUrl,
     status: decision.status,
     quality: decision.quality,
     intent: input.intent,

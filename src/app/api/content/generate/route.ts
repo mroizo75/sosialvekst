@@ -260,6 +260,7 @@ export async function POST(request: Request) {
 const DB_RETRY_ATTEMPTS = 3;
 const DB_RETRY_DELAY_MS = 800;
 const POST_GENERATION_TIMEOUT_MS = 90_000;
+const TIKTOK_GENERATION_TIMEOUT_MS = 240_000;
 const CONCURRENCY = 3;
 
 async function updatePostWithRetry(
@@ -315,6 +316,10 @@ async function generateSingleSlot(
       channel: slot.channel,
     });
 
+    const timeoutMs = slot.channel === "tiktok"
+      ? TIKTOK_GENERATION_TIMEOUT_MS
+      : POST_GENERATION_TIMEOUT_MS;
+
     const post = await withTimeout(
       generatePost({
         userId,
@@ -329,13 +334,14 @@ async function generateSingleSlot(
         ctaType: strategy.ctaType,
         imageDirection: strategy.imageDirection,
       }),
-      POST_GENERATION_TIMEOUT_MS,
+      timeoutMs,
       `${slot.channel}/${slot.id.slice(0, 8)}`,
     );
 
     return await updatePostWithRetry(supabase, slot.id, userId, workspaceId, {
       text_content: post.text,
       image_url: post.imageUrl ?? null,
+      video_url: post.videoUrl ?? null,
       status: post.status,
       quality_score: post.quality,
     });

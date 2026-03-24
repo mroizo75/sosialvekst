@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { ContentPlanDialog } from "@/components/dashboard/ContentPlanDialog";
 import type { GenerateConfig } from "@/components/dashboard/ContentPlanDialog";
 import { cn } from "@/lib/utils";
-import type { SocialChannel } from "@/lib/types";
+import type { MediaMode, SocialChannel } from "@/lib/types";
 
 type OverviewResponse = {
   summary: {
@@ -19,6 +19,7 @@ type OverviewResponse = {
     failedJobs: number;
     latestScheduledAt: string | null;
   };
+  mediaMode: MediaMode;
   subscription: {
     active: boolean;
     status: string;
@@ -304,7 +305,7 @@ export const DashboardPanel = () => {
           postsPerWeek: config.postsPerWeek,
           totalWeeks: config.totalWeeks,
           channels: config.channels,
-          mediaMode: "hybrid",
+          mediaMode: config.mediaMode,
           countryCode: "NO",
           topicWindows: config.topicWindows,
           startDate: config.startDate,
@@ -610,6 +611,7 @@ export const DashboardPanel = () => {
         connectedChannels={Array.from(connectedChannels) as SocialChannel[]}
         loading={planGenerating}
         latestScheduledAt={overview?.summary.latestScheduledAt ?? null}
+        savedMediaMode={overview?.mediaMode ?? "hybrid"}
       />
     </div>
   );

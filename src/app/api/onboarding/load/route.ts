@@ -31,7 +31,7 @@ export async function GET() {
         .maybeSingle(),
       supabase
         .from("brand_profiles")
-        .select("target_audience, brand_voice, key_messages, logo_url, website_url, website_content, company_description, products, unique_selling_points, industry, founded_year, team_description, core_values, customer_pain_points, customer_success_stories, services, price_range, brand_personality, brand_dos_and_donts, competitor_differentiators, common_questions, seasonal_focus")
+        .select("target_audience, brand_voice, key_messages, logo_url, website_url, website_content, company_description, products, unique_selling_points, industry, founded_year, team_description, core_values, customer_pain_points, customer_success_stories, services, price_range, brand_personality, brand_dos_and_donts, competitor_differentiators, common_questions, seasonal_focus, media_mode")
         .eq("user_id", userId)
         .eq("workspace_id", workspaceId)
         .maybeSingle(),
@@ -67,10 +67,16 @@ export async function GET() {
         .filter((item): item is string => typeof item === "string")
         .filter((item): item is SocialChannel => item === "facebook" || item === "instagram" || item === "linkedin" || item === "tiktok")
       : [];
-    const mediaMode = typeof latestPlan?.media_mode === "string"
-      && (latestPlan.media_mode === "ai_only" || latestPlan.media_mode === "hybrid" || latestPlan.media_mode === "owned_only")
+
+    const validModes: string[] = ["ai_only", "hybrid", "owned_only"];
+    const rawBrandMode = (brand as Record<string, unknown> | null)?.media_mode;
+    const brandMediaMode = typeof rawBrandMode === "string" && validModes.includes(rawBrandMode)
+      ? (rawBrandMode as MediaMode)
+      : null;
+    const planMediaMode = typeof latestPlan?.media_mode === "string" && validModes.includes(latestPlan.media_mode as string)
       ? (latestPlan.media_mode as MediaMode)
-      : "hybrid";
+      : null;
+    const mediaMode = brandMediaMode ?? planMediaMode ?? "hybrid";
 
     return NextResponse.json({
       exists: Boolean(profile),

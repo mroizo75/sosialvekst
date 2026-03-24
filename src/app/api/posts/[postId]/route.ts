@@ -217,13 +217,13 @@ export async function PATCH(request: Request, context: RouteContext) {
       }
       if (action === "regenerate_image") {
         updatedImageUrl = regenerated.imageUrl ?? post.imageUrl;
-        updatedVideoUrl = undefined;
+        updatedVideoUrl = regenerated.videoUrl;
         updatedAdditionalImageUrls = [];
       }
       if (action === "regenerate_all" || action === "rewrite_topic") {
         updatedText = regenerated.text;
         updatedImageUrl = regenerated.imageUrl;
-        updatedVideoUrl = undefined;
+        updatedVideoUrl = regenerated.videoUrl;
         updatedAdditionalImageUrls = [];
       }
 
