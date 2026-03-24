@@ -8,7 +8,7 @@ import { getBrandContext } from "@/lib/branding/context";
 import { requireWorkspaceId } from "@/lib/workspace";
 import { deleteFilesByUrls } from "@/lib/cloudflare/r2";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
-import { consumeAiEdit } from "@/lib/posts/aiEditLimits";
+import { checkAiEditAvailable, consumeAiEdit } from "@/lib/posts/aiEditLimits";
 import { getPostById, savePost, setPostAdditionalImages } from "@/lib/posts/repository";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -184,7 +184,8 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     if (action !== "save") {
       await requireActiveSubscription(userId);
-      await consumeAiEdit(userId, workspaceId);
+      await checkAiEditAvailable(userId, workspaceId);
+
       const oldImageUrl = post.imageUrl;
       const topicFromPlan = await getTopicFromPlan(userId, postId);
       const mediaModeFromPlan = await getMediaModeFromPlan(userId, postId);
@@ -209,16 +210,22 @@ export async function PATCH(request: Request, context: RouteContext) {
         brandContext,
       });
 
+      if (action === "regenerate_image") {
+        if (!regenerated.imageUrl) {
+          return NextResponse.json(
+            toAppError("IMAGE_GENERATION_FAILED", "Bildegenerering feilet. Ingen kreditt ble brukt. Prøv igjen."),
+            { status: 502 },
+          );
+        }
+        updatedImageUrl = regenerated.imageUrl;
+        updatedVideoUrl = regenerated.videoUrl;
+        updatedAdditionalImageUrls = [];
+      }
       if (action === "regenerate_text") {
         updatedText = regenerated.text;
         updatedImageUrl = post.imageUrl;
         updatedVideoUrl = post.videoUrl;
         updatedAdditionalImageUrls = post.additionalImageUrls ?? [];
-      }
-      if (action === "regenerate_image") {
-        updatedImageUrl = regenerated.imageUrl ?? post.imageUrl;
-        updatedVideoUrl = regenerated.videoUrl;
-        updatedAdditionalImageUrls = [];
       }
       if (action === "regenerate_all" || action === "rewrite_topic") {
         updatedText = regenerated.text;
@@ -226,6 +233,8 @@ export async function PATCH(request: Request, context: RouteContext) {
         updatedVideoUrl = regenerated.videoUrl;
         updatedAdditionalImageUrls = [];
       }
+
+      await consumeAiEdit(userId, workspaceId);
 
       if (oldImageUrl && oldImageUrl !== updatedImageUrl) {
         await deleteFilesByUrls([oldImageUrl]).catch(() => {});

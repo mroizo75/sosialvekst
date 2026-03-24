@@ -187,9 +187,13 @@ export const MediaManager = () => {
                     className="size-full object-cover"
                   />
                 ) : isVideoUrl(file.key) ? (
-                  <div className="flex size-full items-center justify-center">
-                    <span className="text-3xl text-muted-foreground">&#9654;</span>
-                  </div>
+                  <video
+                    src={file.url}
+                    controls
+                    preload="metadata"
+                    className="size-full object-cover"
+                    onClick={(e) => e.stopPropagation()}
+                  />
                 ) : (
                   <div className="flex size-full items-center justify-center">
                     <span className="text-2xl text-muted-foreground">&#128196;</span>

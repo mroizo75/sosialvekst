@@ -260,7 +260,7 @@ export async function POST(request: Request) {
 const DB_RETRY_ATTEMPTS = 3;
 const DB_RETRY_DELAY_MS = 800;
 const POST_GENERATION_TIMEOUT_MS = 90_000;
-const TIKTOK_GENERATION_TIMEOUT_MS = 240_000;
+const TIKTOK_GENERATION_TIMEOUT_MS = 480_000;
 const CONCURRENCY = 3;
 
 async function updatePostWithRetry(

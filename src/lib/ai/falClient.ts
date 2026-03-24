@@ -35,8 +35,9 @@ const getFalKey = (): string | null => {
   return process.env.FAL_KEY ?? null;
 };
 
-const FAL_QUEUE_POLL_INTERVAL_MS = 3_000;
-const FAL_QUEUE_MAX_WAIT_MS = 180_000;
+const FAL_QUEUE_INITIAL_POLL_MS = 5_000;
+const FAL_QUEUE_MAX_POLL_MS = 15_000;
+const FAL_QUEUE_MAX_WAIT_MS = 420_000;
 
 const falFetchSync = async <T>(endpointId: string, input: Record<string, unknown>): Promise<T> => {
   const apiKey = getFalKey();
@@ -95,9 +96,11 @@ const falFetchQueued = async <T>(endpointId: string, input: Record<string, unkno
 
   const statusBase = `https://queue.fal.run/${endpointId}/requests/${submitData.request_id}`;
   const startTime = Date.now();
+  let pollInterval = FAL_QUEUE_INITIAL_POLL_MS;
 
   while (Date.now() - startTime < FAL_QUEUE_MAX_WAIT_MS) {
-    await new Promise((resolve) => setTimeout(resolve, FAL_QUEUE_POLL_INTERVAL_MS));
+    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+    pollInterval = Math.min(pollInterval * 1.5, FAL_QUEUE_MAX_POLL_MS);
 
     const statusResponse = await fetch(`${statusBase}/status`, { headers });
     if (!statusResponse.ok) continue;
@@ -177,21 +180,22 @@ export const generateImageToVideo = async (
 
   try {
     const result = await falFetchQueued<{ video?: FalVideoResult }>(
-      "fal-ai/wan-25-preview/image-to-video",
+      "fal-ai/wan/turbo/image-to-video",
       {
         prompt: input.prompt,
         image_url: input.imageUrl,
-        duration: input.duration ?? "5",
-        resolution: input.resolution ?? "720p",
+        resolution: input.resolution ?? "480p",
+        aspect_ratio: "auto",
         negative_prompt: "blur, distort, low quality, watermark, text overlay",
         enable_prompt_expansion: true,
         enable_safety_checker: true,
+        write_mode: "faster",
       },
     );
 
     return result.video ?? null;
   } catch (error) {
-    logger.warn("fal.ai Wan 2.5 image-to-video feilet", {
+    logger.warn("fal.ai Wan Turbo image-to-video feilet", {
       error: error instanceof Error ? error.message : "ukjent",
     });
     return null;

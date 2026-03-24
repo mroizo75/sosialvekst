@@ -59,7 +59,7 @@ const fallbackText = (topic: string, companyName?: string): string => {
 const getMaxOutputTokens = (channel: SocialChannel): number => {
   if (channel === "facebook") return 520;
   if (channel === "linkedin") return 420;
-  if (channel === "tiktok") return 200;
+  if (channel === "tiktok") return 100;
   return 280;
 };
 
@@ -444,7 +444,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   }
 
   const companyName = input.brandContext?.companyName;
-  const websiteUrl = input.brandContext?.websiteUrl?.trim();
+  const websiteUrl = input.channel === "tiktok" ? undefined : input.brandContext?.websiteUrl?.trim();
   const revision = runRevisionLoop({
     initialText: rawText,
     imageUrl,
