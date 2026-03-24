@@ -104,3 +104,72 @@ export const generateProfessionalImage = async (
 
   return uploaded.publicUrl;
 };
+
+type BrandedImageInput = {
+  userId: string;
+  prompt: string;
+  logoUrl: string;
+  profile?: ImageProfile;
+};
+
+export const generateBrandedImage = async (
+  input: BrandedImageInput,
+): Promise<string | undefined> => {
+  const client = getOpenAiClient();
+  if (!client) return undefined;
+
+  const imageClient = client as unknown as {
+    images: {
+      edit: (args: {
+        model: string;
+        prompt: string;
+        image: Array<{ url: string; detail?: string }>;
+        size: string;
+        quality: string;
+      }) => Promise<{ data?: Array<{ b64_json?: string; url?: string }> }>;
+    };
+  };
+
+  const imageQuality = (input.profile ?? "final") === "preview" ? "medium" : "high";
+
+  try {
+    const response = await imageClient.images.edit({
+      model: "gpt-image-1",
+      prompt: input.prompt,
+      image: [{ url: input.logoUrl, detail: "high" }],
+      size: "1024x1024",
+      quality: imageQuality,
+    });
+
+    const payload = response.data?.[0];
+    if (!payload) return undefined;
+
+    const imageBytes = payload.b64_json
+      ? toBytes(payload.b64_json)
+      : payload.url
+        ? await fetchImageBytes(payload.url)
+        : null;
+
+    if (!imageBytes) return undefined;
+
+    const uploaded = await uploadUserFile({
+      userId: input.userId,
+      fileName: `branded-scene-${crypto.randomUUID()}.png`,
+      contentType: "image/png",
+      mediaKind: "image",
+      body: imageBytes,
+    });
+
+    logger.info("Scene-integrert logo-bilde generert", {
+      userId: input.userId,
+    });
+
+    return uploaded.publicUrl;
+  } catch (error) {
+    logger.warn("generateBrandedImage feilet, faller tilbake til standard", {
+      userId: input.userId,
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    return undefined;
+  }
+};

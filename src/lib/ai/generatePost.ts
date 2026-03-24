@@ -1,10 +1,9 @@
 import { buildNorwegianCopyPrompt } from "@/lib/ai/copyPromptBuilderNo";
 import { mergeBrandRules } from "@/lib/ai/brandRules";
 import { generateImageToVideo, isFalAvailable } from "@/lib/ai/falClient";
-import { generateProfessionalImage } from "@/lib/ai/imageGeneration";
+import { generateBrandedImage, generateProfessionalImage } from "@/lib/ai/imageGeneration";
 import { generateProductImage } from "@/lib/ai/imageEngine";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
-import { applyLogoOverlay, shouldApplyLogo } from "@/lib/ai/logoOverlay";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
 import { uploadUserFile, listUserFiles } from "@/lib/cloudflare/r2";
@@ -229,6 +228,15 @@ const createText = async (input: GeneratePostInput): Promise<string> => {
   return response.output_text || fallbackText(input.topic, input.brandContext?.companyName);
 };
 
+type ImageBrandMode = "clean" | "branded" | "text";
+
+const pickImageMode = (scheduledAt: string): ImageBrandMode => {
+  const hash = hashStringToIndex(scheduledAt) % 100;
+  if (hash < 40) return "clean";
+  if (hash < 75) return "branded";
+  return "text";
+};
+
 const createImageUrl = async (input: GeneratePostInput): Promise<string | undefined> => {
   if (input.mediaMode === "owned_only") {
     return pickOwnedImageUrl(input);
@@ -250,6 +258,16 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     }
   }
 
+  const brandMode = pickImageMode(input.scheduledAt);
+  const logoUrl = input.brandContext?.logoUrl;
+
+  logger.info("Bildemodus valgt", {
+    userId: input.userId,
+    channel: input.channel,
+    brandMode,
+    hasLogo: Boolean(logoUrl),
+  });
+
   const brandRules = mergeBrandRules({
     targetAudience: input.brandContext?.targetAudience,
     brandVoice: input.brandContext?.brandVoice,
@@ -265,7 +283,18 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     brandContext: input.brandContext,
     imageDirection: input.imageDirection,
     format: input.format,
+    brandMode,
   });
+
+  if (brandMode === "branded" && logoUrl) {
+    const branded = await generateBrandedImage({
+      userId: input.userId,
+      prompt: imagePrompt,
+      logoUrl,
+      profile: input.imageProfile,
+    });
+    if (branded) return branded;
+  }
 
   return generateProfessionalImage({
     userId: input.userId,
@@ -389,13 +418,7 @@ const generateCarouselImages = async (
       });
 
       if (url) {
-        const withLogo = await maybeApplyLogoOverlay(
-          url,
-          input.userId,
-          input.brandContext?.logoUrl,
-          `${input.scheduledAt}-carousel-${i}`,
-        );
-        urls.push(withLogo);
+        urls.push(url);
       }
     } catch (error) {
       logger.warn("Karusellbilde generering feilet", {
@@ -415,49 +438,6 @@ const hashStringToIndex = (str: string): number => {
     hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
   }
   return Math.abs(hash);
-};
-
-const maybeApplyLogoOverlay = async (
-  imageUrl: string,
-  userId: string,
-  logoUrl: string | undefined,
-  scheduledAt: string,
-): Promise<string> => {
-  if (!logoUrl) {
-    logger.info("Logo-overlay hoppet over: ingen logoUrl", { userId });
-    return imageUrl;
-  }
-
-  const postIndex = hashStringToIndex(scheduledAt);
-  if (!shouldApplyLogo(postIndex)) {
-    logger.info("Logo-overlay hoppet over: ikke valgt for denne posten", { userId, postIndex, scheduledAt });
-    return imageUrl;
-  }
-
-  try {
-    const imageRes = await fetch(imageUrl);
-    if (!imageRes.ok) return imageUrl;
-
-    const imageBytes = Buffer.from(await imageRes.arrayBuffer());
-    const withLogo = await applyLogoOverlay({ imageBytes, logoUrl });
-
-    const uploaded = await uploadUserFile({
-      userId,
-      fileName: `branded-${crypto.randomUUID()}.png`,
-      contentType: "image/png",
-      mediaKind: "image",
-      body: new Uint8Array(withLogo),
-    });
-
-    logger.info("Logo-overlay lagt til bilde", { userId, scheduledAt });
-    return uploaded.publicUrl;
-  } catch (error) {
-    logger.warn("Logo-overlay feilet, bruker originalbilde", {
-      userId,
-      error: error instanceof Error ? error.message : "ukjent",
-    });
-    return imageUrl;
-  }
 };
 
 const buildVideoMotionPrompt = (input: GeneratePostInput): string => {
@@ -552,15 +532,6 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       error: error instanceof Error ? error.message : "unknown",
     });
     imageUrl = undefined;
-  }
-
-  if (imageUrl && input.mediaMode !== "owned_only") {
-    imageUrl = await maybeApplyLogoOverlay(
-      imageUrl,
-      input.userId,
-      input.brandContext?.logoUrl,
-      input.scheduledAt,
-    );
   }
 
   let additionalImageUrls: string[] | undefined;
