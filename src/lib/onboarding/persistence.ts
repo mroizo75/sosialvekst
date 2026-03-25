@@ -36,9 +36,9 @@ export const persistOnboarding = async (
   const brandData = {
     user_id: userId,
     workspace_id: workspaceId ?? null,
-    target_audience: payload.targetAudience,
-    brand_voice: payload.brandVoice,
-    key_messages: payload.keyMessages,
+    target_audience: payload.targetAudience ?? "",
+    brand_voice: payload.brandVoice ?? "",
+    key_messages: payload.keyMessages ?? [],
     logo_url: payload.logoUrl || null,
     website_url: payload.websiteUrl || null,
     company_description: payload.companyDescription || null,

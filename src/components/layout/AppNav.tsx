@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { signOutAction } from "@/app/(auth)/actions";
@@ -23,7 +23,6 @@ type Workspace = {
 
 export const AppNav = () => {
   const pathname = usePathname();
-  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -60,8 +59,7 @@ export const AppNav = () => {
       body: JSON.stringify({ workspaceId: id }),
     });
     if (res.ok) {
-      setActiveId(id);
-      router.refresh();
+      window.location.reload();
     }
   };
 
@@ -74,12 +72,7 @@ export const AppNav = () => {
       body: JSON.stringify({ name: newName.trim() }),
     });
     if (res.ok) {
-      const ws = (await res.json()) as Workspace;
-      setWorkspaces((prev) => [...prev, ws]);
-      setActiveId(ws.id);
-      setNewName("");
-      setWsDropdownOpen(false);
-      router.push("/onboarding");
+      window.location.href = "/onboarding";
     }
     setCreating(false);
   };
