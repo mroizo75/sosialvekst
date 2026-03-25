@@ -52,17 +52,19 @@ export async function GET() {
     ]);
 
     if (profileResult.error) {
-      return NextResponse.json(
-        toAppError("PROFILE_LOAD_FAILED", "Kunne ikke hente profil", profileResult.error.message),
-        { status: 500 },
-      );
+      console.error("[onboarding/load] profile query failed:", profileResult.error.message, profileResult.error.code);
     }
 
     if (brandResult.error) {
-      return NextResponse.json(
-        toAppError("BRAND_LOAD_FAILED", "Kunne ikke hente branding", brandResult.error.message),
-        { status: 500 },
-      );
+      console.error("[onboarding/load] brand query failed:", brandResult.error.message, brandResult.error.code);
+    }
+
+    if (planResult.error) {
+      console.error("[onboarding/load] plan query failed:", planResult.error.message);
+    }
+
+    if (workspaceResult.error) {
+      console.error("[onboarding/load] workspace query failed:", workspaceResult.error.message);
     }
 
     const profile = profileResult.data;
@@ -118,10 +120,11 @@ export async function GET() {
       channels: channels.length > 0 ? channels : ["facebook", "instagram", "linkedin", "tiktok"],
     });
   } catch (error) {
+    console.error("[onboarding/load] unhandled error:", error);
     const appError = toUnknownAppError(error);
     return NextResponse.json(
       toAppError("ONBOARDING_LOAD_FAILED", "Kunne ikke laste onboarding-data", appError),
-      { status: 400 },
+      { status: 500 },
     );
   }
 }

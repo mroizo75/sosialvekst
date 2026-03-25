@@ -59,7 +59,7 @@ export const AppNav = () => {
       body: JSON.stringify({ workspaceId: id }),
     });
     if (res.ok) {
-      window.location.reload();
+      window.location.href = "/dashboard";
     }
   };
 

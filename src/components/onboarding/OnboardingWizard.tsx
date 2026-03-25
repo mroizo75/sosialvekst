@@ -306,6 +306,7 @@ export const OnboardingWizard = () => {
 
     if (!response.ok) {
       setForm((prev) => ({ ...prev, channels: liveChannels }));
+      setStatus("Kunne ikke laste lagret data. Du kan fylle ut skjemaet på nytt.");
       setMode("wizard");
       return;
     }
@@ -1176,8 +1177,8 @@ export const OnboardingWizard = () => {
               >
                 {loading ? "Henter info..." : "Hent fra nettside"}
               </Button>
-              <Button variant="ghost" onClick={() => setStep(2)}>
-                Hopp over
+              <Button variant="ghost" onClick={() => void save()} disabled={loading}>
+                {loading ? "Lagrer..." : "Hopp over"}
               </Button>
             </div>
 
@@ -1204,8 +1205,8 @@ export const OnboardingWizard = () => {
                   onChange={(e) => setEditableUsps(e.target.value)}
                   hint="Hva skiller dere fra konkurrentene?"
                 />
-                <Button onClick={() => setStep(2)}>
-                  Ser bra ut — gå videre
+                <Button onClick={() => void save()} disabled={loading}>
+                  {loading ? "Lagrer..." : "Ser bra ut — gå videre"}
                 </Button>
               </div>
             )}
@@ -1392,8 +1393,8 @@ export const OnboardingWizard = () => {
               <Button variant="outline" onClick={() => setStep(2)}>
                 Tilbake
               </Button>
-              <Button onClick={() => setStep(4)} disabled={form.channels.length === 0}>
-                Gå videre
+              <Button onClick={() => void save()} disabled={loading || form.channels.length === 0}>
+                {loading ? "Lagrer..." : "Lagre og gå videre"}
               </Button>
             </div>
           </CardContent>
