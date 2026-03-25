@@ -23,7 +23,7 @@ export async function GET() {
     const workspaceId = await requireWorkspaceId(userId);
     const supabase = await createSupabaseServerClient();
 
-    const [profileResult, brandResult, planResult] = await Promise.all([
+    const [profileResult, brandResult, planResult, workspaceResult] = await Promise.all([
       supabase
         .from("profiles")
         .select("full_name, company_name, country_code")
@@ -42,6 +42,12 @@ export async function GET() {
         .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: false })
         .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("workspaces")
+        .select("name")
+        .eq("id", workspaceId)
+        .eq("user_id", userId)
         .maybeSingle(),
     ]);
 
@@ -77,10 +83,14 @@ export async function GET() {
       ? (latestPlan.media_mode as MediaMode)
       : null;
     const mediaMode = brandMediaMode ?? planMediaMode ?? "hybrid";
+    const wsName = (workspaceResult.data as { name?: string } | null)?.name ?? "";
+    const hasBrandProfile = Boolean(brand);
 
     return NextResponse.json({
       exists: Boolean(profile),
-      companyName: profile?.company_name ?? "",
+      hasBrandProfile,
+      workspaceName: wsName,
+      companyName: hasBrandProfile ? (profile?.company_name ?? "") : wsName,
       fullName: profile?.full_name ?? "",
       countryCode: profile?.country_code ?? "NO",
       targetAudience: brand?.target_audience ?? "",

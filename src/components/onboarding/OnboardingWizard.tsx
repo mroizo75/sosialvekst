@@ -176,6 +176,8 @@ export const OnboardingWizard = () => {
 
   type LoadedData = {
     exists: boolean;
+    hasBrandProfile: boolean;
+    workspaceName: string;
     companyName: string;
     fullName: string;
     countryCode: string;
@@ -309,8 +311,12 @@ export const OnboardingWizard = () => {
     }
 
     const data = (await response.json()) as LoadedData;
-    if (!data.exists) {
-      setForm((prev) => ({ ...prev, channels: liveChannels }));
+    if (!data.exists && !data.hasBrandProfile) {
+      setForm((prev) => ({
+        ...prev,
+        companyName: data.workspaceName || prev.companyName,
+        channels: liveChannels,
+      }));
       setMode("wizard");
       return;
     }
@@ -363,10 +369,10 @@ export const OnboardingWizard = () => {
       setEditableUsps(data.uniqueSellingPoints.join(", "));
     }
 
-    const onboardingComplete = Boolean(data.targetAudience) && Boolean(data.brandVoice);
+    const onboardingComplete = data.hasBrandProfile && Boolean(data.targetAudience) && Boolean(data.brandVoice);
     if (onboardingComplete) {
       setMode("settings");
-    } else if (data.companyName) {
+    } else if (data.hasBrandProfile && data.companyName) {
       setStep(2);
       setMode("wizard");
     } else {
