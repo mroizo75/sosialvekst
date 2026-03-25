@@ -31,7 +31,7 @@ export async function GET() {
         .maybeSingle(),
       supabase
         .from("brand_profiles")
-        .select("target_audience, brand_voice, key_messages, logo_url, website_url, website_content, company_description, products, unique_selling_points, industry, founded_year, team_description, core_values, customer_pain_points, customer_success_stories, services, price_range, brand_personality, brand_dos_and_donts, competitor_differentiators, common_questions, seasonal_focus, media_mode")
+        .select("target_audience, brand_voice, key_messages, logo_url, website_url, website_content, company_description, products, unique_selling_points, industry, founded_year, team_description, core_values, customer_pain_points, customer_success_stories, services, price_range, brand_personality, brand_dos_and_donts, competitor_differentiators, common_questions, seasonal_focus")
         .eq("user_id", userId)
         .eq("workspace_id", workspaceId)
         .maybeSingle(),
@@ -77,20 +77,18 @@ export async function GET() {
       : [];
 
     const validModes: string[] = ["ai_only", "hybrid", "owned_only"];
-    const rawBrandMode = (brand as Record<string, unknown> | null)?.media_mode;
-    const brandMediaMode = typeof rawBrandMode === "string" && validModes.includes(rawBrandMode)
-      ? (rawBrandMode as MediaMode)
-      : null;
     const planMediaMode = typeof latestPlan?.media_mode === "string" && validModes.includes(latestPlan.media_mode as string)
       ? (latestPlan.media_mode as MediaMode)
       : null;
-    const mediaMode = brandMediaMode ?? planMediaMode ?? "hybrid";
+    const mediaMode = planMediaMode ?? "hybrid";
     const wsName = (workspaceResult.data as { name?: string } | null)?.name ?? "";
     const hasBrandProfile = Boolean(brand);
+    const hasContentPlan = Boolean(latestPlan);
 
     return NextResponse.json({
       exists: Boolean(profile),
       hasBrandProfile,
+      hasContentPlan,
       workspaceName: wsName,
       companyName: hasBrandProfile ? (profile?.company_name ?? "") : wsName,
       fullName: profile?.full_name ?? "",

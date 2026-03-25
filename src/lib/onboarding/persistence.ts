@@ -57,7 +57,6 @@ export const persistOnboarding = async (
     competitor_differentiators: payload.competitorDifferentiators || null,
     common_questions: payload.commonQuestions ?? [],
     seasonal_focus: payload.seasonalFocus || null,
-    media_mode: payload.mediaMode || "hybrid",
     updated_at: new Date().toISOString(),
   };
 

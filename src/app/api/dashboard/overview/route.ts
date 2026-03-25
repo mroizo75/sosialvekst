@@ -10,7 +10,7 @@ export async function GET() {
   const workspaceId = await requireWorkspaceId(userId);
   const supabase = await createSupabaseServerClient();
 
-  const [postsResult, jobsResult, latestPostResult, subscription, brandResult] = await Promise.all([
+  const [postsResult, jobsResult, latestPostResult, subscription, planResult] = await Promise.all([
     supabase
       .from("posts")
       .select("status, scheduled_at")
@@ -31,17 +31,19 @@ export async function GET() {
       .maybeSingle(),
     getLatestSubscription(userId),
     supabase
-      .from("brand_profiles")
+      .from("content_plans")
       .select("media_mode")
       .eq("user_id", userId)
       .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle(),
   ]);
 
   const posts = postsResult.data ?? [];
   const jobs = jobsResult.data ?? [];
   const latestScheduledAt = latestPostResult.data?.scheduled_at ?? null;
-  const rawMode = (brandResult.data as Record<string, unknown> | null)?.media_mode;
+  const rawMode = (planResult.data as Record<string, unknown> | null)?.media_mode;
   const mediaMode = typeof rawMode === "string" && ["ai_only", "hybrid", "owned_only"].includes(rawMode)
     ? rawMode
     : "hybrid";

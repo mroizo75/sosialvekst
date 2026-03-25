@@ -177,6 +177,7 @@ export const OnboardingWizard = () => {
   type LoadedData = {
     exists: boolean;
     hasBrandProfile: boolean;
+    hasContentPlan: boolean;
     workspaceName: string;
     companyName: string;
     fullName: string;
@@ -370,9 +371,12 @@ export const OnboardingWizard = () => {
       setEditableUsps(data.uniqueSellingPoints.join(", "));
     }
 
-    const onboardingComplete = data.hasBrandProfile && Boolean(data.targetAudience) && Boolean(data.brandVoice);
+    const onboardingComplete = data.hasContentPlan && data.hasBrandProfile && Boolean(data.targetAudience) && Boolean(data.brandVoice);
     if (onboardingComplete) {
       setMode("settings");
+    } else if (data.hasBrandProfile && Boolean(data.targetAudience) && Boolean(data.brandVoice)) {
+      setStep(3);
+      setMode("wizard");
     } else if (data.hasBrandProfile && data.companyName) {
       setStep(2);
       setMode("wizard");
