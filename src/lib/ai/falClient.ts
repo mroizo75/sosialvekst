@@ -286,7 +286,7 @@ export const generateVeo3Video = async (
       "fal-ai/veo3/fast",
       {
         prompt: input.prompt,
-        duration: String(input.duration ?? 8),
+        duration: `${input.duration ?? 8}s`,
         aspect_ratio: input.aspectRatio ?? "16:9",
         resolution: input.resolution ?? "720p",
         generate_audio: input.generateAudio ?? true,
