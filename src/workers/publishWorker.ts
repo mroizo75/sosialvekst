@@ -289,6 +289,19 @@ const ensureTikTokToken = async (input: PublishInput): Promise<string> => {
 };
 
 const publishTikTokVideo = async (input: PublishInput, accessToken: string): Promise<string> => {
+  if (!input.videoUrl) {
+    throw new Error("Mangler video-URL for TikTok video-publisering.");
+  }
+
+  const videoResponse = await fetch(input.videoUrl);
+  if (!videoResponse.ok) {
+    throw new Error(`Kunne ikke laste ned video: HTTP ${videoResponse.status}`);
+  }
+  const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
+  const videoSize = videoBuffer.byteLength;
+
+  logger.info("[publishTikTokVideo] FILE_UPLOAD init", { videoSize });
+
   const initResponse = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
     method: "POST",
     headers: {
@@ -304,23 +317,52 @@ const publishTikTokVideo = async (input: PublishInput, accessToken: string): Pro
         disable_comment: false,
       },
       source_info: {
-        source: "PULL_FROM_URL",
-        video_url: input.videoUrl,
+        source: "FILE_UPLOAD",
+        video_size: videoSize,
+        chunk_size: videoSize,
+        total_chunk_count: 1,
       },
     }),
   });
 
   const initPayload = (await initResponse.json().catch(() => ({}))) as {
-    data?: { publish_id?: string };
+    data?: { publish_id?: string; upload_url?: string };
     error?: { code?: string; message?: string };
   };
 
   if (!initResponse.ok || initPayload.error?.code !== "ok") {
-    const errMsg = initPayload.error?.message ?? `TikTok video API svarte med HTTP ${initResponse.status}`;
+    const errMsg = initPayload.error?.message ?? `TikTok video init svarte med HTTP ${initResponse.status}`;
     throw new Error(errMsg);
   }
 
+  const uploadUrl = initPayload.data?.upload_url;
+  if (!uploadUrl) {
+    throw new Error("TikTok returnerte ingen upload_url for video.");
+  }
+
+  const uploadResponse = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Range": `bytes 0-${videoSize - 1}/${videoSize}`,
+      "Content-Length": String(videoSize),
+      "Content-Type": "video/mp4",
+    },
+    body: videoBuffer,
+  });
+
+  if (!uploadResponse.ok) {
+    const uploadBody = await uploadResponse.text().catch(() => "");
+    throw new Error(`TikTok video-opplasting feilet: HTTP ${uploadResponse.status} ${uploadBody}`);
+  }
+
+  logger.info("[publishTikTokVideo] Upload OK", { publishId: initPayload.data?.publish_id });
   return initPayload.data?.publish_id ?? `tiktok_video_${input.idempotencyKey}`;
+};
+
+const toProxyUrl = (originalUrl: string): string => {
+  const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "";
+  if (!appUrl) return originalUrl;
+  return `${appUrl.replace(/\/+$/, "")}/api/media/proxy?url=${encodeURIComponent(originalUrl)}`;
 };
 
 const publishTikTokPhoto = async (input: PublishInput, accessToken: string): Promise<string> => {
@@ -330,6 +372,9 @@ const publishTikTokPhoto = async (input: PublishInput, accessToken: string): Pro
   if (imageUrls.length === 0) {
     throw new Error("TikTok krever minst ett bilde for foto-publisering.");
   }
+
+  const proxiedUrls = imageUrls.map(toProxyUrl).slice(0, 35);
+  logger.info("[publishTikTokPhoto] PULL_FROM_URL via proxy", { count: proxiedUrls.length });
 
   const initResponse = await fetch("https://open.tiktokapis.com/v2/post/publish/content/init/", {
     method: "POST",
@@ -346,7 +391,7 @@ const publishTikTokPhoto = async (input: PublishInput, accessToken: string): Pro
       source_info: {
         source: "PULL_FROM_URL",
         photo_cover_index: 0,
-        photo_images: imageUrls.slice(0, 35),
+        photo_images: proxiedUrls,
       },
       post_mode: "DIRECT_POST",
       media_type: "PHOTO",
