@@ -7,16 +7,52 @@ import { requireWorkspaceId } from "@/lib/workspace";
 
 const OAUTH_STATE_COOKIE = "social_oauth_state_linkedin";
 const RETURN_PATH_COOKIE = "social_oauth_return_path_linkedin";
+const OAUTH_TYPE_COOKIE = "social_oauth_type_linkedin";
 
-const getReturnPath = (request: Request): string => {
-  const raw = request.headers
+const getCookieValue = (request: Request, name: string): string | undefined => {
+  return request.headers
     .get("cookie")
     ?.split(";")
     .map((part) => part.trim())
-    .find((part) => part.startsWith(`${RETURN_PATH_COOKIE}=`))
+    .find((part) => part.startsWith(`${name}=`))
     ?.split("=")[1];
+};
+
+const getReturnPath = (request: Request): string => {
+  const raw = getCookieValue(request, RETURN_PATH_COOKIE);
   if (!raw) return "/dashboard";
   try { return decodeURIComponent(raw); } catch { return raw; }
+};
+
+type LinkedInOrg = { id: string; name: string };
+
+const fetchAdminOrganizations = async (accessToken: string): Promise<LinkedInOrg[]> => {
+  const response = await fetch(
+    "https://api.linkedin.com/v2/organizationalEntityAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED&projection=(elements*(organizationalTarget~(localizedName)))",
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "X-Restli-Protocol-Version": "2.0.0",
+      },
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) return [];
+
+  const payload = (await response.json().catch(() => ({}))) as {
+    elements?: Array<{
+      organizationalTarget?: string;
+      "organizationalTarget~"?: { localizedName?: string };
+    }>;
+  };
+
+  return (payload.elements ?? [])
+    .filter((el) => el.organizationalTarget)
+    .map((el) => ({
+      id: el.organizationalTarget!,
+      name: el["organizationalTarget~"]?.localizedName ?? "Ukjent side",
+    }));
 };
 
 const redirectToReturnPath = (returnPath: string, status: string): NextResponse => {
@@ -73,6 +109,8 @@ export async function GET(request: Request) {
       return failed;
     }
 
+    const oauthType = getCookieValue(request, OAUTH_TYPE_COOKIE) ?? "personal";
+
     const userInfoResponse = await fetch("https://api.linkedin.com/v2/userinfo", {
       headers: {
         Authorization: `Bearer ${tokenPayload.access_token}`,
@@ -83,7 +121,22 @@ export async function GET(request: Request) {
     if (!userInfoResponse.ok || !userInfo.sub) {
       const failed = redirectToReturnPath(returnPath, "linkedin_profile_failed");
       failed.cookies.delete(OAUTH_STATE_COOKIE);
+      failed.cookies.delete(OAUTH_TYPE_COOKIE);
       return failed;
+    }
+
+    let accountId = `urn:li:person:${userInfo.sub}`;
+
+    if (oauthType === "organization") {
+      const orgs = await fetchAdminOrganizations(tokenPayload.access_token);
+      if (orgs.length > 0) {
+        accountId = orgs[0].id;
+      } else {
+        const failed = redirectToReturnPath(returnPath, "linkedin_no_org_found");
+        failed.cookies.delete(OAUTH_STATE_COOKIE);
+        failed.cookies.delete(OAUTH_TYPE_COOKIE);
+        return failed;
+      }
     }
 
     const supabase = await createSupabaseServerClient();
@@ -103,7 +156,7 @@ export async function GET(request: Request) {
         user_id: userId,
         workspace_id: workspaceId,
         channel: "linkedin",
-        account_id: `urn:li:person:${userInfo.sub}`,
+        account_id: accountId,
         access_token: tokenPayload.access_token,
         refresh_token: null,
         token_expires_at: tokenExpiresAt,
@@ -114,6 +167,7 @@ export async function GET(request: Request) {
 
     const done = redirectToReturnPath(returnPath, error ? "linkedin_save_failed" : "linkedin_connected");
     done.cookies.delete(OAUTH_STATE_COOKIE);
+    done.cookies.delete(OAUTH_TYPE_COOKIE);
     return done;
   } catch {
     const failed = redirectToReturnPath(returnPath, "linkedin_callback_failed");

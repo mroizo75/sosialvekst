@@ -587,7 +587,13 @@ export const DashboardPanel = () => {
             href="/api/social/oauth/linkedin/start"
             className="inline-flex h-9 items-center rounded-lg border border-border bg-card px-4 text-sm font-medium hover:bg-secondary transition-colors"
           >
-            Koble LinkedIn
+            Koble LinkedIn (personlig)
+          </a>
+          <a
+            href="/api/social/oauth/linkedin/start?type=organization"
+            className="inline-flex h-9 items-center rounded-lg border border-border bg-card px-4 text-sm font-medium hover:bg-secondary transition-colors"
+          >
+            Koble LinkedIn Bedriftsside
           </a>
           <a
             href="/api/social/oauth/tiktok/start"
