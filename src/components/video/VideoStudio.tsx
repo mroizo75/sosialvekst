@@ -12,12 +12,13 @@ type VideoBalance = {
 
 type GenerationState = "idle" | "generating" | "done" | "error";
 type VideoModel = "veo3" | "kling";
+type VideoType = "product" | "intro" | "service" | "event" | "testimonial";
 
 const MODELS = [
   {
     id: "veo3" as const,
     name: "Tekst til video",
-    description: "Lag video fra en tekstbeskrivelse. Inkluderer lyd.",
+    description: "Lag video fra en tekstbeskrivelse. Inkluderer musikk og lydeffekter.",
     badge: "Google Veo 3",
     durations: [4, 6, 8] as number[],
     defaultDuration: 8,
@@ -27,12 +28,50 @@ const MODELS = [
   {
     id: "kling" as const,
     name: "Bilde til video",
-    description: "Animer et produktbilde eller foto til video. Inkluderer lyd.",
+    description: "Animer et produktbilde eller foto til en profesjonell video.",
     badge: "Kling v3 Pro",
     durations: [5, 10] as number[],
     defaultDuration: 5,
     needsImage: true,
     aspects: ["16:9", "9:16", "1:1"] as string[],
+  },
+] as const;
+
+const VIDEO_TYPES = [
+  {
+    id: "product" as VideoType,
+    label: "Produktvideo",
+    icon: "📦",
+    description: "Vis frem et produkt fra alle vinkler",
+    placeholder: "Hva skal vises? F.eks.: Vårt nye verktøysett i bruk på en byggeplass",
+  },
+  {
+    id: "intro" as VideoType,
+    label: "Bedriftsintro",
+    icon: "🏢",
+    description: "Presenter bedriften profesjonelt",
+    placeholder: "Hva er viktig å formidle? F.eks.: Vi er et lokalt rørleggerfirma med 20 års erfaring",
+  },
+  {
+    id: "service" as VideoType,
+    label: "Tjeneste i aksjon",
+    icon: "⚡",
+    description: "Vis tjenesten deres i arbeid",
+    placeholder: "Hvilken tjeneste? F.eks.: Profesjonell rengjøring av kontorer og næringsbygg",
+  },
+  {
+    id: "event" as VideoType,
+    label: "Kampanje / Event",
+    icon: "🎯",
+    description: "Skap energi rundt en kampanje eller event",
+    placeholder: "Hva promoteres? F.eks.: Sommerkampanje med 30% rabatt på alle tjenester",
+  },
+  {
+    id: "testimonial" as VideoType,
+    label: "Kundehistorie",
+    icon: "💬",
+    description: "Vis en fornøyd kunde-opplevelse",
+    placeholder: "Hva er historien? F.eks.: En bedriftskunde som sparte tid med vår løsning",
   },
 ] as const;
 
@@ -51,6 +90,7 @@ const ASPECT_LABELS: Record<string, string> = {
 export const VideoStudio = () => {
   const [balance, setBalance] = useState<VideoBalance | null>(null);
   const [model, setModel] = useState<VideoModel>("veo3");
+  const [videoType, setVideoType] = useState<VideoType>("intro");
   const [prompt, setPrompt] = useState("");
   const [duration, setDuration] = useState(8);
   const [aspectRatio, setAspectRatio] = useState("9:16");
@@ -60,11 +100,14 @@ export const VideoStudio = () => {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [state, setState] = useState<GenerationState>("idle");
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [enrichedPrompt, setEnrichedPrompt] = useState<string | null>(null);
+  const [showPrompt, setShowPrompt] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingPack, setLoadingPack] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
   const activeModel = MODELS.find((m) => m.id === model) ?? MODELS[0];
+  const activeVideoType = VIDEO_TYPES.find((t) => t.id === videoType) ?? VIDEO_TYPES[1];
 
   const fetchBalance = useCallback(async () => {
     try {
@@ -127,6 +170,7 @@ export const VideoStudio = () => {
     setState("generating");
     setError(null);
     setVideoUrl(null);
+    setEnrichedPrompt(null);
 
     try {
       const res = await fetch("/api/video/generate", {
@@ -135,6 +179,7 @@ export const VideoStudio = () => {
         body: JSON.stringify({
           prompt: prompt.trim(),
           model,
+          videoType,
           duration,
           aspectRatio,
           generateAudio,
@@ -151,6 +196,9 @@ export const VideoStudio = () => {
       }
 
       setVideoUrl(data.videoUrl as string);
+      if (data.enrichedPrompt) {
+        setEnrichedPrompt(data.enrichedPrompt as string);
+      }
       setState("done");
       void fetchBalance();
     } catch {
@@ -182,13 +230,15 @@ export const VideoStudio = () => {
   const resetForm = () => {
     setState("idle");
     setVideoUrl(null);
+    setEnrichedPrompt(null);
     setPrompt("");
     setImageUrl(null);
     setImagePreview(null);
+    setShowPrompt(false);
   };
 
   const hasCredits = (balance?.balance ?? 0) > 0;
-  const canGenerate = prompt.trim().length >= 5 && hasCredits && state !== "generating" && (!activeModel.needsImage || Boolean(imageUrl));
+  const canGenerate = prompt.trim().length >= 3 && hasCredits && state !== "generating" && (!activeModel.needsImage || Boolean(imageUrl));
 
   return (
     <div className="space-y-8">
@@ -207,9 +257,37 @@ export const VideoStudio = () => {
         </div>
       </div>
 
+      {/* Videotype-velger */}
+      <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+        <h2 className="text-lg font-semibold">Hva slags video vil du lage?</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Velg en type — AI-en tilpasser automatisk stil, kamera og stemning basert på bedriften din.
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {VIDEO_TYPES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setVideoType(t.id)}
+              disabled={state === "generating"}
+              className={cn(
+                "flex flex-col items-center gap-1.5 rounded-xl border-2 p-4 text-center transition-all cursor-pointer",
+                videoType === t.id
+                  ? "border-primary bg-primary/5 shadow-sm"
+                  : "border-border bg-background hover:border-primary/40 hover:shadow-sm",
+              )}
+            >
+              <span className="text-2xl">{t.icon}</span>
+              <span className="text-sm font-semibold">{t.label}</span>
+              <span className="text-[11px] leading-tight text-muted-foreground">{t.description}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Modellvelger */}
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-        <h2 className="text-lg font-semibold">Velg videotype</h2>
+        <h2 className="text-lg font-semibold">Velg AI-modell</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           {MODELS.map((m) => (
             <button
@@ -238,11 +316,9 @@ export const VideoStudio = () => {
 
       {/* Generator */}
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-        <h2 className="text-lg font-semibold">Generer video</h2>
+        <h2 className="text-lg font-semibold">Beskriv videoen</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {activeModel.needsImage
-            ? "Last opp et bilde og beskriv hvordan det skal animeres."
-            : "Beskriv videoen du ønsker. AI-en genererer video med lyd."}
+          Skriv kort hva videoen handler om. AI-en bygger automatisk en profesjonell prompt med bedriftsinformasjonen din.
         </p>
 
         <div className="mt-5 space-y-5">
@@ -301,15 +377,11 @@ export const VideoStudio = () => {
 
           {/* Prompt */}
           <div>
-            <label className="mb-2 block text-sm font-medium">Beskrivelse</label>
+            <label className="mb-2 block text-sm font-medium">Hva handler videoen om?</label>
             <textarea
               className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
               rows={3}
-              placeholder={
-                activeModel.needsImage
-                  ? "F.eks.: Produktet roterer sakte med myk belysning, kameraet zoomer inn..."
-                  : "F.eks.: En profesjonell introvideo for et rørleggerfirma med verktøy og arbeidsbil..."
-              }
+              placeholder={activeVideoType.placeholder}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               maxLength={1000}
@@ -372,7 +444,7 @@ export const VideoStudio = () => {
                     : "border-border bg-background text-muted-foreground",
                 )}
               >
-                {generateAudio ? "Lyd på" : "Lyd av"}
+                {generateAudio ? "Musikk og lyd på" : "Lyd av"}
               </button>
             </div>
           </div>
@@ -396,7 +468,9 @@ export const VideoStudio = () => {
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            <span>Videoen genereres med {activeModel.badge} — dette kan ta 1-4 minutter...</span>
+            <span>
+              AI-en lager en {activeVideoType.label.toLowerCase()} med {activeModel.badge} — dette kan ta 1-4 minutter...
+            </span>
           </div>
         )}
 
@@ -407,16 +481,16 @@ export const VideoStudio = () => {
         )}
 
         {videoUrl && (
-          <div className="mt-6 space-y-3">
+          <div className="mt-6 space-y-4">
             <p className="text-sm font-medium text-green-700 dark:text-green-300">
-              Video generert med {activeModel.badge}!
+              {activeVideoType.label} generert med {activeModel.badge}!
             </p>
             <video
               src={videoUrl}
               controls
               className="w-full max-w-lg rounded-lg border border-border shadow-sm"
             />
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <a
                 href={videoUrl}
                 download
@@ -427,7 +501,21 @@ export const VideoStudio = () => {
               <Button variant="outline" size="sm" onClick={resetForm}>
                 Lag ny video
               </Button>
+              {enrichedPrompt && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowPrompt((v) => !v)}
+                >
+                  {showPrompt ? "Skjul AI-prompt" : "Vis AI-prompt"}
+                </Button>
+              )}
             </div>
+            {showPrompt && enrichedPrompt && (
+              <pre className="max-h-60 overflow-auto rounded-lg border border-border bg-background p-4 text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap">
+                {enrichedPrompt}
+              </pre>
+            )}
           </div>
         )}
       </div>
@@ -436,7 +524,7 @@ export const VideoStudio = () => {
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
         <h2 className="text-lg font-semibold">Kjøp videokreditter</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Hver kreditt lar deg generere én AI-video med lyd, uansett modell eller varighet.
+          Hver kreditt lar deg generere en AI-video med musikk, uansett modell eller varighet.
         </p>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-3">

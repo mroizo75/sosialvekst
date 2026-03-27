@@ -8,14 +8,19 @@ import {
   isFalAvailable,
 } from "@/lib/ai/falClient";
 import type { VideoModel } from "@/lib/ai/falClient";
+import { buildVideoPrompt } from "@/lib/ai/videoPromptBuilder";
+import type { VideoType } from "@/lib/ai/videoPromptBuilder";
+import { getBrandContext } from "@/lib/branding/context";
 import { uploadUserFile } from "@/lib/cloudflare/r2";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { consumeVideoCredit } from "@/lib/videoCredits";
+import { requireWorkspaceId } from "@/lib/workspace";
 
 const requestSchema = z.object({
-  prompt: z.string().min(5).max(1000),
+  prompt: z.string().min(3).max(1000),
   model: z.enum(["veo3", "kling"]).default("veo3"),
+  videoType: z.enum(["product", "intro", "service", "event", "testimonial"]).default("intro"),
   duration: z.number().int().min(4).max(15).default(8),
   aspectRatio: z.enum(["16:9", "9:16", "1:1"]).default("9:16"),
   generateAudio: z.boolean().default(true),
@@ -24,6 +29,7 @@ const requestSchema = z.object({
 
 const runGeneration = async (
   model: VideoModel,
+  enrichedPrompt: string,
   data: z.infer<typeof requestSchema>,
 ): Promise<string | null> => {
   if (model === "kling") {
@@ -36,7 +42,7 @@ const runGeneration = async (
     const klingDuration = data.duration <= 5 ? 5 : 10;
     const klingAspect = data.aspectRatio === "1:1" ? "1:1" : data.aspectRatio;
     const result = await generateKlingVideo({
-      prompt: data.prompt,
+      prompt: enrichedPrompt,
       imageUrl: data.imageUrl,
       duration: klingDuration as 5 | 10,
       aspectRatio: klingAspect as "16:9" | "9:16" | "1:1",
@@ -48,7 +54,7 @@ const runGeneration = async (
   const veoDuration = data.duration <= 4 ? 4 : data.duration <= 6 ? 6 : 8;
   const veoAspect = data.aspectRatio === "1:1" ? "16:9" : data.aspectRatio;
   const result = await generateVeo3Video({
-    prompt: data.prompt,
+    prompt: enrichedPrompt,
     duration: veoDuration as 4 | 6 | 8,
     aspectRatio: veoAspect as "16:9" | "9:16",
     generateAudio: data.generateAudio,
@@ -77,21 +83,31 @@ export async function POST(request: Request) {
     }
 
     const data = parsed.data;
+    const workspaceId = await requireWorkspaceId(userId);
+    const brandContext = await getBrandContext(userId, workspaceId);
+
+    const enrichedPrompt = buildVideoPrompt(
+      data.videoType as VideoType,
+      data.prompt,
+      brandContext,
+    );
 
     await consumeVideoCredit(
       userId,
-      `${data.model === "kling" ? "Kling" : "Veo 3"} video: ${data.prompt.slice(0, 60)}`,
+      `${data.model === "kling" ? "Kling" : "Veo 3"} ${data.videoType}: ${data.prompt.slice(0, 50)}`,
     );
 
     logger.info("[video/generate] Starter videogenerering", {
       userId,
       model: data.model,
+      videoType: data.videoType,
       duration: data.duration,
       aspectRatio: data.aspectRatio,
       hasImage: Boolean(data.imageUrl),
+      promptLength: enrichedPrompt.length,
     });
 
-    const videoUrl = await runGeneration(data.model, data);
+    const videoUrl = await runGeneration(data.model, enrichedPrompt, data);
 
     if (!videoUrl) {
       return NextResponse.json(
@@ -123,7 +139,10 @@ export async function POST(request: Request) {
       publicUrl: uploaded.publicUrl,
     });
 
-    return NextResponse.json({ videoUrl: uploaded.publicUrl });
+    return NextResponse.json({
+      videoUrl: uploaded.publicUrl,
+      enrichedPrompt,
+    });
   } catch (error) {
     if (error && typeof error === "object" && "code" in error) {
       const appError = error as { code: string; message: string };
