@@ -8,8 +8,23 @@ import { logger } from "@/lib/logger";
 import { getStripeClient } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
+const VIDEO_CREDIT_MODES = ["video_credits_10", "video_credits_30", "video_credits_100"] as const;
+type VideoCreditMode = typeof VIDEO_CREDIT_MODES[number];
+
+const VIDEO_CREDIT_AMOUNTS: Record<VideoCreditMode, number> = {
+  video_credits_10: 10,
+  video_credits_30: 30,
+  video_credits_100: 100,
+};
+
+const VIDEO_CREDIT_PRICE_ENVS: Record<VideoCreditMode, string> = {
+  video_credits_10: "STRIPE_PRICE_VIDEO_10",
+  video_credits_30: "STRIPE_PRICE_VIDEO_30",
+  video_credits_100: "STRIPE_PRICE_VIDEO_100",
+};
+
 const schema = z.object({
-  mode: z.enum(["base", "extra_posts"]).default("base"),
+  mode: z.enum(["base", "extra_posts", ...VIDEO_CREDIT_MODES]).default("base"),
   returnPath: z
     .string()
     .trim()
@@ -24,20 +39,34 @@ export async function POST(request: Request) {
     const supabase = await createSupabaseServerClient();
     const payload = schema.parse(await request.json());
     const appUrl = getAppUrl();
-    const stripePriceBase = process.env.STRIPE_PRICE_BASE;
-    const stripePriceExtra = process.env.STRIPE_PRICE_EXTRA_POSTS;
+    const isVideoCredits = payload.mode.startsWith("video_credits_");
+    const videoCreditMode = isVideoCredits ? payload.mode as VideoCreditMode : null;
 
-    const priceId = payload.mode === "extra_posts" ? stripePriceExtra : stripePriceBase;
-    if (!priceId) {
-      return NextResponse.json(
-        toAppError(
-          "MISSING_STRIPE_PRICE",
-          payload.mode === "extra_posts"
-            ? "Miljøvariabel STRIPE_PRICE_EXTRA_POSTS mangler."
-            : "Miljøvariabel STRIPE_PRICE_BASE mangler.",
-        ),
-        { status: 400 },
-      );
+    let priceId: string | undefined;
+    if (videoCreditMode) {
+      const envName = VIDEO_CREDIT_PRICE_ENVS[videoCreditMode];
+      priceId = process.env[envName];
+      if (!priceId) {
+        return NextResponse.json(
+          toAppError("MISSING_STRIPE_PRICE", `Miljøvariabel ${envName} mangler.`),
+          { status: 400 },
+        );
+      }
+    } else {
+      const stripePriceBase = process.env.STRIPE_PRICE_BASE;
+      const stripePriceExtra = process.env.STRIPE_PRICE_EXTRA_POSTS;
+      priceId = payload.mode === "extra_posts" ? stripePriceExtra : stripePriceBase;
+      if (!priceId) {
+        return NextResponse.json(
+          toAppError(
+            "MISSING_STRIPE_PRICE",
+            payload.mode === "extra_posts"
+              ? "Miljøvariabel STRIPE_PRICE_EXTRA_POSTS mangler."
+              : "Miljøvariabel STRIPE_PRICE_BASE mangler.",
+          ),
+          { status: 400 },
+        );
+      }
     }
 
     const successPath = payload.returnPath && payload.returnPath !== "/"
@@ -71,14 +100,20 @@ export async function POST(request: Request) {
       customerId = customer.id;
     }
 
+    const checkoutMode = videoCreditMode ? "payment" : "subscription";
+    const metadata: Record<string, string> = { userId, mode: payload.mode };
+    if (videoCreditMode) {
+      metadata.creditAmount = String(VIDEO_CREDIT_AMOUNTS[videoCreditMode]);
+    }
+
     const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
+      mode: checkoutMode,
       line_items: [{ price: priceId, quantity: 1 }],
       success_url: `${appUrl}${withSessionId(successPath)}`,
       cancel_url: `${appUrl}${cancelPath}`,
       customer: customerId,
       client_reference_id: userId,
-      metadata: { userId, mode: payload.mode },
+      metadata,
     });
 
     return NextResponse.json({ url: session.url });

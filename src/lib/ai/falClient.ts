@@ -238,6 +238,34 @@ export const generateImageToVideo = async (
   }
 };
 
+export type TextToVideoInput = {
+  prompt: string;
+  promptOptimizer?: boolean;
+};
+
+export const generateTextToVideo = async (
+  input: TextToVideoInput,
+): Promise<FalVideoResult | null> => {
+  if (!getFalKey()) return null;
+
+  try {
+    const result = await falFetchQueued<{ video?: FalVideoResult }>(
+      "fal-ai/minimax/video-01",
+      {
+        prompt: input.prompt,
+        prompt_optimizer: input.promptOptimizer ?? true,
+      },
+    );
+
+    return result.video ?? null;
+  } catch (error) {
+    logger.warn("fal.ai minimax text-to-video feilet", {
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    return null;
+  }
+};
+
 export const isFalAvailable = (): boolean => {
   return Boolean(getFalKey());
 };

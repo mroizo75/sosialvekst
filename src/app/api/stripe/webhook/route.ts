@@ -7,6 +7,7 @@ import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { getStripeClient } from "@/lib/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { addVideoCredits } from "@/lib/videoCredits";
 
 const handleEvent = async (event: Stripe.Event): Promise<void> => {
   const supabase = createSupabaseAdminClient();
@@ -62,6 +63,20 @@ const handleEvent = async (event: Stripe.Event): Promise<void> => {
     const userId = session.metadata?.userId;
     const mode = session.metadata?.mode ?? "base";
     if (!userId) {
+      return;
+    }
+
+    if (mode.startsWith("video_credits_")) {
+      const creditAmount = Number(session.metadata?.creditAmount ?? "0");
+      if (creditAmount > 0) {
+        await addVideoCredits(userId, creditAmount, session.id);
+        logger.info("Video credits purchased via Stripe", {
+          eventId: event.id,
+          sessionId: session.id,
+          userId,
+          creditAmount,
+        });
+      }
       return;
     }
 

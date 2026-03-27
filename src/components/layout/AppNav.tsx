@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Oversikt" },
   { href: "/kalender", label: "Kalender" },
   { href: "/media", label: "Bilder og video" },
+  { href: "/video-studio", label: "Video Studio" },
   { href: "/publiser", label: "Publiser" },
   { href: "/onboarding", label: "Min bedrift" },
 ] as const;
