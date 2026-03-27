@@ -96,24 +96,21 @@ export const VideoStudio = () => {
   const handleImageUpload = async (file: File) => {
     setUploadingImage(true);
     try {
-      const res = await fetch("/api/media/upload-url", {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("mediaKind", "image");
+
+      const res = await fetch("/api/media/upload", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileName: file.name,
-          contentType: file.type,
-          mediaKind: "image",
-        }),
+        body: formData,
       });
+
+      if (!res.ok) {
+        setError("Bildeopplasting feilet.");
+        return;
+      }
+
       const data = await res.json();
-      if (!data.uploadUrl || !data.publicUrl) return;
-
-      await fetch(data.uploadUrl as string, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-
       setImageUrl(data.publicUrl as string);
       setImagePreview(URL.createObjectURL(file));
     } catch {
