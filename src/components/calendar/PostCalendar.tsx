@@ -591,7 +591,7 @@ const DetailPanel = ({
                             }}
                           />
                           <Button
-                            variant="default"
+                            variant="primary"
                             size="sm"
                             onClick={() => videoInputRef.current?.click()}
                             disabled={isProcessing || uploadingVideo}
