@@ -62,7 +62,17 @@ const falFetchSync = async <T>(endpointId: string, input: Record<string, unknown
   return response.json() as Promise<T>;
 };
 
-const falFetchQueued = async <T>(endpointId: string, input: Record<string, unknown>): Promise<T> => {
+export type FalProgressCallback = (progress: {
+  stage: string;
+  percent: number;
+  detail?: string;
+}) => void;
+
+const falFetchQueued = async <T>(
+  endpointId: string,
+  input: Record<string, unknown>,
+  onProgress?: FalProgressCallback,
+): Promise<T> => {
   const apiKey = getFalKey();
   if (!apiKey) {
     throw new Error("FAL_KEY mangler i miljøvariabler.");
@@ -72,6 +82,8 @@ const falFetchQueued = async <T>(endpointId: string, input: Record<string, unkno
     Authorization: `Key ${apiKey}`,
     "Content-Type": "application/json",
   };
+
+  onProgress?.({ stage: "submitting", percent: 5, detail: "Sender til AI..." });
 
   const submitResponse = await fetch(`https://queue.fal.run/${endpointId}`, {
     method: "POST",
@@ -102,6 +114,8 @@ const falFetchQueued = async <T>(endpointId: string, input: Record<string, unkno
   let pollInterval = FAL_QUEUE_INITIAL_POLL_MS;
   let pollCount = 0;
 
+  onProgress?.({ stage: "queued", percent: 10, detail: "Venter i kø..." });
+
   logger.info(`[fal.ai] Jobb sendt til kø`, {
     endpoint: endpointId,
     requestId: submitData.request_id,
@@ -130,17 +144,30 @@ const falFetchQueued = async <T>(endpointId: string, input: Record<string, unkno
       response_url?: string;
     };
 
+    const elapsedMs = Date.now() - startTime;
+    const elapsedPercent = Math.min(85, 10 + Math.floor((elapsedMs / FAL_QUEUE_MAX_WAIT_MS) * 75));
+
+    if (statusData.status === "IN_QUEUE") {
+      const queueMsg = statusData.queue_position != null
+        ? `Plass ${statusData.queue_position} i kø...`
+        : "Venter i kø...";
+      onProgress?.({ stage: "queued", percent: Math.min(elapsedPercent, 25), detail: queueMsg });
+    } else if (statusData.status === "IN_PROGRESS") {
+      onProgress?.({ stage: "generating", percent: elapsedPercent, detail: "AI genererer videoen..." });
+    }
+
     if (pollCount <= 3 || pollCount % 5 === 0) {
       logger.info(`[fal.ai] Status-poll`, {
         endpoint: endpointId,
         poll: pollCount,
         status: statusData.status,
         queuePosition: statusData.queue_position,
-        elapsedMs: Date.now() - startTime,
+        elapsedMs,
       });
     }
 
     if (statusData.status === "COMPLETED") {
+      onProgress?.({ stage: "downloading", percent: 90, detail: "Henter video..." });
       const resultUrl = statusData.response_url ?? responseBase;
       const resultResponse = await fetch(resultUrl, { headers });
       if (!resultResponse.ok) {
@@ -278,6 +305,7 @@ export type Veo3Input = {
 
 export const generateVeo3Video = async (
   input: Veo3Input,
+  onProgress?: FalProgressCallback,
 ): Promise<FalVideoResult | null> => {
   if (!getFalKey()) return null;
 
@@ -291,6 +319,7 @@ export const generateVeo3Video = async (
         resolution: input.resolution ?? "720p",
         generate_audio: input.generateAudio ?? true,
       },
+      onProgress,
     );
 
     return result.video ?? null;
@@ -314,6 +343,7 @@ export type KlingV3Input = {
 
 export const generateKlingVideo = async (
   input: KlingV3Input,
+  onProgress?: FalProgressCallback,
 ): Promise<FalVideoResult | null> => {
   if (!getFalKey()) return null;
 
@@ -327,6 +357,7 @@ export const generateKlingVideo = async (
         aspect_ratio: input.aspectRatio ?? "16:9",
         generate_audio: input.generateAudio ?? true,
       },
+      onProgress,
     );
 
     return result.video ?? null;

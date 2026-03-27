@@ -103,6 +103,8 @@ export const VideoStudio = () => {
   const [enrichedPrompt, setEnrichedPrompt] = useState<string | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [progressDetail, setProgressDetail] = useState("");
   const [loadingPack, setLoadingPack] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
@@ -171,6 +173,8 @@ export const VideoStudio = () => {
     setError(null);
     setVideoUrl(null);
     setEnrichedPrompt(null);
+    setProgress(0);
+    setProgressDetail("Starter...");
 
     try {
       const res = await fetch("/api/video/generate", {
@@ -187,20 +191,57 @@ export const VideoStudio = () => {
         }),
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        setError(data.message ?? "Noe gikk galt under genereringen.");
+      const reader = res.body?.getReader();
+      if (!reader) {
+        setError("Kunne ikke lese respons fra server.");
         setState("error");
         return;
       }
 
-      setVideoUrl(data.videoUrl as string);
-      if (data.enrichedPrompt) {
-        setEnrichedPrompt(data.enrichedPrompt as string);
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        let eventType = "";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            eventType = line.slice(7).trim();
+          } else if (line.startsWith("data: ") && eventType) {
+            try {
+              const payload = JSON.parse(line.slice(6)) as Record<string, unknown>;
+
+              if (eventType === "progress") {
+                setProgress(payload.percent as number);
+                setProgressDetail(payload.detail as string);
+              } else if (eventType === "done") {
+                setVideoUrl(payload.videoUrl as string);
+                if (payload.enrichedPrompt) {
+                  setEnrichedPrompt(payload.enrichedPrompt as string);
+                }
+                setProgress(100);
+                setProgressDetail("Ferdig!");
+                setState("done");
+                void fetchBalance();
+              } else if (eventType === "error") {
+                setError(payload.message as string ?? "Noe gikk galt.");
+                setState("error");
+              }
+            } catch {
+              /* ignore parse errors */
+            }
+            eventType = "";
+          }
+        }
       }
-      setState("done");
-      void fetchBalance();
+
+      setState((s) => s === "generating" ? "idle" : s);
     } catch {
       setError("Nettverksfeil — prøv igjen.");
       setState("error");
@@ -461,16 +502,22 @@ export const VideoStudio = () => {
           </div>
         </div>
 
-        {/* Status */}
+        {/* Progressbar */}
         {state === "generating" && (
-          <div className="mt-6 flex items-center gap-3 rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
-            <svg className="h-5 w-5 animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-            <span>
-              AI-en lager en {activeVideoType.label.toLowerCase()} med {activeModel.badge} — dette kan ta 1-4 minutter...
-            </span>
+          <div className="mt-6 space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium text-foreground">{progressDetail || "Starter..."}</span>
+              <span className="tabular-nums font-semibold text-primary">{progress}%</span>
+            </div>
+            <div className="h-3 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-500 ease-out"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {activeVideoType.label} med {activeModel.badge} — dette kan ta 1-4 minutter
+            </p>
           </div>
         )}
 
