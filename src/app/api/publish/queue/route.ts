@@ -110,13 +110,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const nowIso = new Date().toISOString();
     const queueRows = publishablePosts.map((post) => ({
       post_id: post.id,
       user_id: userId,
       workspace_id: workspaceId,
       channel: post.channel,
-      run_at: post.scheduled_at < nowIso ? nowIso : post.scheduled_at,
+      run_at: post.scheduled_at,
       status: "queued",
       attempts: 0,
       last_error: null,

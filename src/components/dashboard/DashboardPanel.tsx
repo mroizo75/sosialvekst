@@ -547,6 +547,14 @@ export const DashboardPanel = () => {
           <Button size="sm" onClick={() => void queuePublishing()} disabled={!canPublish || overview.summary.approvedPosts === 0}>
             Legg godkjente i kø
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void runPublishing()}
+            disabled={!canPublish || overview.summary.queuedJobs === 0}
+          >
+            Publiser forfalne nå
+          </Button>
           {overview && overview.summary.queuedJobs > 0 && (
             <p className="text-xs text-muted-foreground">
               {overview.summary.queuedJobs} poster venter i kø
@@ -554,7 +562,8 @@ export const DashboardPanel = () => {
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          Postene publiseres på det tidspunktet de er planlagt for. Ingenting publiseres umiddelbart — du har full kontroll.
+          Poster publiseres automatisk til planlagt tidspunkt via cron.
+          Bruk knappen for å trigge forfalne poster manuelt.
         </p>
       </section>
 

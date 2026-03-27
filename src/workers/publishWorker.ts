@@ -23,6 +23,7 @@ type PublishInput = {
 const MAX_ATTEMPTS = 3;
 const PROCESSING_STALE_MS = 10 * 60 * 1000;
 const RETRY_DELAYS_MS = [2 * 60 * 1000, 10 * 60 * 1000, 30 * 60 * 1000];
+const EXPIRE_AFTER_MS = 48 * 60 * 60 * 1000;
 
 const ensureJson = async <T>(response: Response): Promise<T> => {
   const payload = (await response.json().catch(() => ({}))) as T & {
@@ -429,10 +430,10 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
 
   let query = admin
     .from("publish_jobs")
-    .select("id, post_id, user_id, channel, attempts, status")
+    .select("id, post_id, user_id, channel, attempts, status, run_at")
     .lte("run_at", new Date().toISOString())
     .in("status", ["queued", "retrying"])
-    .order("created_at", { ascending: true })
+    .order("run_at", { ascending: true })
     .limit(limit);
 
   if (input.userId) {
@@ -461,6 +462,26 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
       .maybeSingle();
 
     if (!claimed.data) {
+      continue;
+    }
+
+    const runAtMs = job.run_at ? new Date(job.run_at as string).getTime() : 0;
+    if (runAtMs > 0 && now.getTime() - runAtMs > EXPIRE_AFTER_MS) {
+      logger.warn(`[publishWorker] Jobb ${job.id} er ${Math.round((now.getTime() - runAtMs) / 3600000)}t forsinket — markert som expired`);
+      await admin
+        .from("publish_jobs")
+        .update({
+          status: "failed",
+          last_error: "Posten har passert publiseringsvinduet (>48 timer forsinket).",
+          updated_at: now.toISOString(),
+        })
+        .eq("id", job.id);
+      await admin
+        .from("posts")
+        .update({ status: "failed", updated_at: now.toISOString() })
+        .eq("id", job.post_id);
+      processed += 1;
+      failed += 1;
       continue;
     }
 
