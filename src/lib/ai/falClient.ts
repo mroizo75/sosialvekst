@@ -266,6 +266,80 @@ export const generateTextToVideo = async (
   }
 };
 
+/* ─── Veo 3 Fast: tekst til video med lyd ─── */
+
+export type Veo3Input = {
+  prompt: string;
+  duration?: 4 | 6 | 8;
+  aspectRatio?: "16:9" | "9:16";
+  resolution?: "720p" | "1080p";
+  generateAudio?: boolean;
+};
+
+export const generateVeo3Video = async (
+  input: Veo3Input,
+): Promise<FalVideoResult | null> => {
+  if (!getFalKey()) return null;
+
+  try {
+    const result = await falFetchQueued<{ video?: FalVideoResult }>(
+      "fal-ai/veo3/fast",
+      {
+        prompt: input.prompt,
+        duration: String(input.duration ?? 8),
+        aspect_ratio: input.aspectRatio ?? "16:9",
+        resolution: input.resolution ?? "720p",
+        generate_audio: input.generateAudio ?? true,
+      },
+    );
+
+    return result.video ?? null;
+  } catch (error) {
+    logger.warn("fal.ai Veo 3 Fast text-to-video feilet", {
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    return null;
+  }
+};
+
+/* ─── Kling v3 Pro: bilde til video med lyd ─── */
+
+export type KlingV3Input = {
+  prompt: string;
+  imageUrl: string;
+  duration?: 5 | 10;
+  aspectRatio?: "16:9" | "9:16" | "1:1";
+  generateAudio?: boolean;
+};
+
+export const generateKlingVideo = async (
+  input: KlingV3Input,
+): Promise<FalVideoResult | null> => {
+  if (!getFalKey()) return null;
+
+  try {
+    const result = await falFetchQueued<{ video?: FalVideoResult }>(
+      "fal-ai/kling-video/v3/pro/image-to-video",
+      {
+        prompt: input.prompt,
+        image_url: input.imageUrl,
+        duration: String(input.duration ?? 5),
+        aspect_ratio: input.aspectRatio ?? "16:9",
+        generate_audio: input.generateAudio ?? true,
+      },
+    );
+
+    return result.video ?? null;
+  } catch (error) {
+    logger.warn("fal.ai Kling v3 Pro image-to-video feilet", {
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    return null;
+  }
+};
+
+export type VideoModel = "veo3" | "kling";
+
 export const isFalAvailable = (): boolean => {
   return Boolean(getFalKey());
 };

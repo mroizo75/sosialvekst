@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/utils";
 
 type VideoBalance = {
   balance: number;
@@ -10,6 +11,30 @@ type VideoBalance = {
 };
 
 type GenerationState = "idle" | "generating" | "done" | "error";
+type VideoModel = "veo3" | "kling";
+
+const MODELS = [
+  {
+    id: "veo3" as const,
+    name: "Tekst til video",
+    description: "Lag video fra en tekstbeskrivelse. Inkluderer lyd.",
+    badge: "Google Veo 3",
+    durations: [4, 6, 8] as number[],
+    defaultDuration: 8,
+    needsImage: false,
+    aspects: ["16:9", "9:16"] as string[],
+  },
+  {
+    id: "kling" as const,
+    name: "Bilde til video",
+    description: "Animer et produktbilde eller foto til video. Inkluderer lyd.",
+    badge: "Kling v3 Pro",
+    durations: [5, 10] as number[],
+    defaultDuration: 5,
+    needsImage: true,
+    aspects: ["16:9", "9:16", "1:1"] as string[],
+  },
+] as const;
 
 const CREDIT_PACKS = [
   { mode: "video_credits_10", label: "10 videoer", price: "kr 99" },
@@ -17,13 +42,29 @@ const CREDIT_PACKS = [
   { mode: "video_credits_100", label: "100 videoer", price: "kr 699" },
 ] as const;
 
+const ASPECT_LABELS: Record<string, string> = {
+  "16:9": "Liggende (16:9)",
+  "9:16": "Stående (9:16)",
+  "1:1": "Kvadrat (1:1)",
+};
+
 export const VideoStudio = () => {
   const [balance, setBalance] = useState<VideoBalance | null>(null);
+  const [model, setModel] = useState<VideoModel>("veo3");
   const [prompt, setPrompt] = useState("");
+  const [duration, setDuration] = useState(8);
+  const [aspectRatio, setAspectRatio] = useState("9:16");
+  const [generateAudio, setGenerateAudio] = useState(true);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [state, setState] = useState<GenerationState>("idle");
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingPack, setLoadingPack] = useState<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const activeModel = MODELS.find((m) => m.id === model) ?? MODELS[0];
 
   const fetchBalance = useCallback(async () => {
     try {
@@ -41,8 +82,50 @@ export const VideoStudio = () => {
     void fetchBalance();
   }, [fetchBalance]);
 
+  useEffect(() => {
+    setDuration(activeModel.defaultDuration);
+    if (!activeModel.aspects.includes(aspectRatio)) {
+      setAspectRatio(activeModel.aspects[0] ?? "16:9");
+    }
+    if (!activeModel.needsImage) {
+      setImageUrl(null);
+      setImagePreview(null);
+    }
+  }, [model, activeModel, aspectRatio]);
+
+  const handleImageUpload = async (file: File) => {
+    setUploadingImage(true);
+    try {
+      const res = await fetch("/api/media/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName: file.name,
+          contentType: file.type,
+          mediaKind: "image",
+        }),
+      });
+      const data = await res.json();
+      if (!data.uploadUrl || !data.publicUrl) return;
+
+      await fetch(data.uploadUrl as string, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+
+      setImageUrl(data.publicUrl as string);
+      setImagePreview(URL.createObjectURL(file));
+    } catch {
+      setError("Bildeopplasting feilet.");
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
   const handleGenerate = async () => {
     if (!prompt.trim() || state === "generating") return;
+    if (activeModel.needsImage && !imageUrl) return;
 
     setState("generating");
     setError(null);
@@ -52,7 +135,14 @@ export const VideoStudio = () => {
       const res = await fetch("/api/video/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: prompt.trim() }),
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          model,
+          duration,
+          aspectRatio,
+          generateAudio,
+          ...(imageUrl ? { imageUrl } : {}),
+        }),
       });
 
       const data = await res.json();
@@ -92,7 +182,16 @@ export const VideoStudio = () => {
     }
   };
 
+  const resetForm = () => {
+    setState("idle");
+    setVideoUrl(null);
+    setPrompt("");
+    setImageUrl(null);
+    setImagePreview(null);
+  };
+
   const hasCredits = (balance?.balance ?? 0) > 0;
+  const canGenerate = prompt.trim().length >= 5 && hasCredits && state !== "generating" && (!activeModel.needsImage || Boolean(imageUrl));
 
   return (
     <div className="space-y-8">
@@ -111,41 +210,196 @@ export const VideoStudio = () => {
         </div>
       </div>
 
+      {/* Modellvelger */}
+      <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+        <h2 className="text-lg font-semibold">Velg videotype</h2>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {MODELS.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => setModel(m.id)}
+              disabled={state === "generating"}
+              className={cn(
+                "flex flex-col gap-2 rounded-xl border-2 p-5 text-left transition-all cursor-pointer",
+                model === m.id
+                  ? "border-primary bg-primary/5 shadow-sm"
+                  : "border-border bg-background hover:border-primary/40 hover:shadow-sm",
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-base font-semibold">{m.name}</span>
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
+                  {m.badge}
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground">{m.description}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Generator */}
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
         <h2 className="text-lg font-semibold">Generer video</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Beskriv videoen du ønsker. AI-en genererer en kort video basert på prompten din.
+          {activeModel.needsImage
+            ? "Last opp et bilde og beskriv hvordan det skal animeres."
+            : "Beskriv videoen du ønsker. AI-en genererer video med lyd."}
         </p>
 
-        <div className="mt-4 space-y-4">
-          <textarea
-            className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-            rows={4}
-            placeholder="F.eks.: En profesjonell introvideo for et rørleggerfirma med verktøy og arbeidsbil..."
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            maxLength={1000}
-            disabled={state === "generating"}
-          />
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-xs text-muted-foreground">{prompt.length}/1000 tegn</span>
+        <div className="mt-5 space-y-5">
+          {/* Bildeopplasting for Kling */}
+          {activeModel.needsImage && (
+            <div>
+              <label className="mb-2 block text-sm font-medium">Bilde</label>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void handleImageUpload(file);
+                  e.target.value = "";
+                }}
+              />
+              {imagePreview ? (
+                <div className="flex items-start gap-4">
+                  <img
+                    src={imagePreview}
+                    alt="Valgt bilde"
+                    className="h-32 w-32 rounded-lg border border-border object-cover"
+                  />
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => imageInputRef.current?.click()}
+                      disabled={uploadingImage || state === "generating"}
+                    >
+                      {uploadingImage ? "Laster opp..." : "Bytt bilde"}
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => { setImageUrl(null); setImagePreview(null); }}
+                      className="text-xs text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
+                    >
+                      Fjern bilde
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={uploadingImage || state === "generating"}
+                  className="flex h-32 w-full items-center justify-center rounded-xl border-2 border-dashed border-border bg-background text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 cursor-pointer disabled:opacity-50"
+                >
+                  {uploadingImage ? "Laster opp..." : "Klikk for å laste opp bilde (produktfoto, logo, osv.)"}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Prompt */}
+          <div>
+            <label className="mb-2 block text-sm font-medium">Beskrivelse</label>
+            <textarea
+              className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              rows={3}
+              placeholder={
+                activeModel.needsImage
+                  ? "F.eks.: Produktet roterer sakte med myk belysning, kameraet zoomer inn..."
+                  : "F.eks.: En profesjonell introvideo for et rørleggerfirma med verktøy og arbeidsbil..."
+              }
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              maxLength={1000}
+              disabled={state === "generating"}
+            />
+            <span className="mt-1 block text-xs text-muted-foreground">{prompt.length}/1000 tegn</span>
+          </div>
+
+          {/* Innstillinger */}
+          <div className="grid gap-4 sm:grid-cols-3">
+            {/* Varighet */}
+            <div>
+              <label className="mb-2 block text-sm font-medium">Varighet</label>
+              <div className="flex gap-1.5">
+                {activeModel.durations.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setDuration(d)}
+                    disabled={state === "generating"}
+                    className={cn(
+                      "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
+                      duration === d
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-background text-muted-foreground hover:bg-secondary",
+                    )}
+                  >
+                    {d}s
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Format */}
+            <div>
+              <label className="mb-2 block text-sm font-medium">Format</label>
+              <select
+                value={aspectRatio}
+                onChange={(e) => setAspectRatio(e.target.value)}
+                disabled={state === "generating"}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
+              >
+                {activeModel.aspects.map((a) => (
+                  <option key={a} value={a}>{ASPECT_LABELS[a] ?? a}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Lyd */}
+            <div>
+              <label className="mb-2 block text-sm font-medium">Lyd</label>
+              <button
+                type="button"
+                onClick={() => setGenerateAudio((v) => !v)}
+                disabled={state === "generating"}
+                className={cn(
+                  "w-full rounded-lg border px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
+                  generateAudio
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border bg-background text-muted-foreground",
+                )}
+              >
+                {generateAudio ? "Lyd på" : "Lyd av"}
+              </button>
+            </div>
+          </div>
+
+          {/* Generer-knapp */}
+          <div className="flex items-center justify-end">
             <Button
               onClick={() => void handleGenerate()}
-              disabled={!prompt.trim() || state === "generating" || !hasCredits}
+              disabled={!canGenerate}
+              size="lg"
             >
               {state === "generating" ? "Genererer video..." : "Generer video (1 kreditt)"}
             </Button>
           </div>
         </div>
 
+        {/* Status */}
         {state === "generating" && (
           <div className="mt-6 flex items-center gap-3 rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
-            <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+            <svg className="h-5 w-5 animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            <span>Videoen genereres — dette kan ta 1-3 minutter...</span>
+            <span>Videoen genereres med {activeModel.badge} — dette kan ta 1-4 minutter...</span>
           </div>
         )}
 
@@ -157,7 +411,9 @@ export const VideoStudio = () => {
 
         {videoUrl && (
           <div className="mt-6 space-y-3">
-            <p className="text-sm font-medium text-green-700 dark:text-green-300">Video generert!</p>
+            <p className="text-sm font-medium text-green-700 dark:text-green-300">
+              Video generert med {activeModel.badge}!
+            </p>
             <video
               src={videoUrl}
               controls
@@ -171,15 +427,7 @@ export const VideoStudio = () => {
               >
                 Last ned video
               </a>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setState("idle");
-                  setVideoUrl(null);
-                  setPrompt("");
-                }}
-              >
+              <Button variant="outline" size="sm" onClick={resetForm}>
                 Lag ny video
               </Button>
             </div>
@@ -191,7 +439,7 @@ export const VideoStudio = () => {
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
         <h2 className="text-lg font-semibold">Kjøp videokreditter</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Hver kreditt lar deg generere én AI-video. Velg en pakke som passer for deg.
+          Hver kreditt lar deg generere én AI-video med lyd, uansett modell eller varighet.
         </p>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
