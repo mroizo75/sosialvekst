@@ -522,16 +522,20 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   }
 
   let imageUrl: string | undefined;
-  try {
-    imageUrl = await createImageUrlWithRetry(input);
-  } catch (error) {
-    logger.warn("AI image generation failed, continuing without image", {
-      userId: input.userId,
-      channel: input.channel,
-      topic: input.topic,
-      error: error instanceof Error ? error.message : "unknown",
-    });
+  if (input.channel === "tiktok") {
     imageUrl = undefined;
+  } else {
+    try {
+      imageUrl = await createImageUrlWithRetry(input);
+    } catch (error) {
+      logger.warn("AI image generation failed, continuing without image", {
+        userId: input.userId,
+        channel: input.channel,
+        topic: input.topic,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      imageUrl = undefined;
+    }
   }
 
   let additionalImageUrls: string[] | undefined;
@@ -561,10 +565,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     }
   }
 
-  let videoUrl: string | undefined;
-  if (input.channel === "tiktok" && imageUrl && !input.skipVideo) {
-    videoUrl = await createVideoFromImage(input.userId, imageUrl, input);
-  }
+  const videoUrl: string | undefined = undefined;
 
   const companyName = input.brandContext?.companyName;
   const websiteUrl = input.channel === "tiktok" ? undefined : input.brandContext?.websiteUrl?.trim();

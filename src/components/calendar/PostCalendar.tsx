@@ -383,6 +383,30 @@ const DetailPanel = ({
   const [topicDraft, setTopicDraft] = useState("");
   const [showMediaPicker, setShowMediaPicker] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<"primary" | "additional">("primary");
+  const [uploadingVideo, setUploadingVideo] = useState(false);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+
+  const handleVideoUpload = async (file: File) => {
+    if (!file.type.startsWith("video/")) return;
+    setUploadingVideo(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("mediaKind", "video");
+      const response = await fetch("/api/media/upload", { method: "POST", body: formData });
+      if (!response.ok) throw new Error("Upload feilet");
+      const data = (await response.json()) as { url?: string };
+      if (data.url) {
+        setVideoUrlDraft(data.url);
+        setImageUrlDraft("");
+        setAdditionalImageUrlsDraft([]);
+      }
+    } catch {
+      /* upload failed silently */
+    } finally {
+      setUploadingVideo(false);
+    }
+  };
   const [publishJobs, setPublishJobs] = useState<PublishJobHistory[]>([]);
   const [publishHistoryStatus, setPublishHistoryStatus] = useState("");
   const [showPublishHistory, setShowPublishHistory] = useState(false);
@@ -549,12 +573,36 @@ const DetailPanel = ({
                   </div>
                 ) : (
                   <div className="flex aspect-[4/3] w-full items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/10">
-                    <div className="text-center">
-                      <p className="text-sm text-muted-foreground">Ingen bilde eller video</p>
+                    <div className="text-center space-y-2">
+                      <p className="text-sm text-muted-foreground">
+                        {post.channel === "tiktok" ? "Last opp video for TikTok" : "Ingen bilde eller video"}
+                      </p>
+                      {post.channel === "tiktok" && (
+                        <>
+                          <input
+                            ref={videoInputRef}
+                            type="file"
+                            accept="video/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) void handleVideoUpload(file);
+                              e.target.value = "";
+                            }}
+                          />
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => videoInputRef.current?.click()}
+                            disabled={isProcessing || uploadingVideo}
+                          >
+                            {uploadingVideo ? "Laster opp..." : "Last opp video"}
+                          </Button>
+                        </>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
-                        className="mt-2"
                         onClick={() => { setPickerTarget("primary"); setShowMediaPicker(true); }}
                         disabled={isProcessing}
                       >
@@ -593,13 +641,23 @@ const DetailPanel = ({
               {/* Media actions */}
               {hasMedia && (
                 <div className="flex flex-wrap gap-2">
+                  {post.channel === "tiktok" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => videoInputRef.current?.click()}
+                      disabled={isProcessing || uploadingVideo}
+                    >
+                      {uploadingVideo ? "Laster opp..." : "Bytt video"}
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => { setPickerTarget("primary"); setShowMediaPicker(true); }}
                     disabled={isProcessing}
                   >
-                    Bytt bilde/video
+                    Velg fra bibliotek
                   </Button>
                   {!videoUrlDraft && (
                     <Button

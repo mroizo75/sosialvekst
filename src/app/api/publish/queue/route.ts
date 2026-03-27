@@ -87,6 +87,7 @@ export async function POST(request: Request) {
 
     const publishablePosts = connectedPosts.filter((post) => {
       if (post.channel === "linkedin" && Boolean(post.video_url)) return false;
+      if (post.channel === "tiktok" && !post.video_url) return false;
       return true;
     });
 
@@ -94,6 +95,7 @@ export async function POST(request: Request) {
       ...disconnectedPosts,
       ...connectedPosts.filter((post) => {
         if (post.channel === "linkedin" && Boolean(post.video_url)) return true;
+        if (post.channel === "tiktok" && !post.video_url) return true;
         return false;
       }),
     ];
@@ -101,8 +103,10 @@ export async function POST(request: Request) {
     if (publishablePosts.length === 0) {
       const reasons: string[] = [];
       const linkedinSkipped = skippedPosts.filter((p) => p.channel === "linkedin" && Boolean(p.video_url));
+      const tiktokNoVideo = skippedPosts.filter((p) => p.channel === "tiktok" && !p.video_url);
       const disconnected = [...new Set(disconnectedPosts.map((p) => p.channel))];
       if (linkedinSkipped.length > 0) reasons.push(`${linkedinSkipped.length} LinkedIn-poster har video (ikke støttet)`);
+      if (tiktokNoVideo.length > 0) reasons.push(`${tiktokNoVideo.length} TikTok-poster mangler video — last opp video først`);
       if (disconnected.length > 0) reasons.push(`Kanaler ikke koblet til: ${disconnected.join(", ")}`);
       return NextResponse.json(
         toAppError("NO_PUBLISHABLE_POSTS", `Ingen poster kan legges i kø. ${reasons.join(". ")}.`),

@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { generateImageToVideo, isFalAvailable } from "@/lib/ai/falClient";
 import { generatePost } from "@/lib/ai/generatePost";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
-import { uploadUserFile } from "@/lib/cloudflare/r2";
-import { requireWorkspaceId } from "@/lib/workspace";
 import { deleteFilesByUrls } from "@/lib/cloudflare/r2";
+import { requireWorkspaceId } from "@/lib/workspace";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { checkAiEditAvailable, consumeAiEdit } from "@/lib/posts/aiEditLimits";
@@ -18,65 +16,6 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { BrandContext, TopicWindow } from "@/lib/types";
 
 const REGENERATE_TIMEOUT_MS = 120_000;
-
-async function generateVideoInBackground(
-  userId: string,
-  postId: string,
-  imageUrl: string,
-  brandContext?: BrandContext,
-): Promise<void> {
-  if (!isFalAvailable()) return;
-
-  try {
-    logger.info("[post/patch] Starter bakgrunnsvideogenerering", { postId, userId });
-
-    const companyName = brandContext?.companyName ?? "bedriften";
-    const productName = brandContext?.productImages?.[0]?.productName;
-    const motionPrompt = productName
-      ? `Smooth, cinematic product showcase of ${productName} by ${companyName}. Slow camera push-in revealing product details. Subtle ambient lighting shifts. Professional commercial quality, steady motion, no text overlays.`
-      : `Professional social media video for ${companyName}. Gentle camera movement with slow zoom or pan. Warm, inviting atmosphere with subtle light transitions. Smooth cinematic motion, high production quality, no text overlays.`;
-
-    const result = await generateImageToVideo({
-      prompt: motionPrompt,
-      imageUrl,
-      resolution: "480p",
-    });
-
-    if (!result?.url) {
-      logger.warn("[post/patch] Videogenerering returnerte tomt resultat", { postId });
-      return;
-    }
-
-    const videoResponse = await fetch(result.url);
-    if (!videoResponse.ok) {
-      logger.warn("[post/patch] Kunne ikke hente generert video", { postId, status: videoResponse.status });
-      return;
-    }
-
-    const videoBytes = new Uint8Array(await videoResponse.arrayBuffer());
-    const uploaded = await uploadUserFile({
-      userId,
-      fileName: `tiktok-video-${crypto.randomUUID()}.mp4`,
-      contentType: "video/mp4",
-      mediaKind: "video",
-      body: videoBytes,
-    });
-
-    const supabase = await createSupabaseServerClient();
-    await supabase
-      .from("posts")
-      .update({ video_url: uploaded.publicUrl, updated_at: new Date().toISOString() })
-      .eq("id", postId)
-      .eq("user_id", userId);
-
-    logger.info("[post/patch] Bakgrunnsvideo ferdig og lagret", { postId, userId });
-  } catch (error) {
-    logger.warn("[post/patch] Bakgrunnsvideogenerering feilet", {
-      postId,
-      error: error instanceof Error ? error.message : "ukjent",
-    });
-  }
-}
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -365,10 +304,6 @@ export async function PATCH(request: Request, context: RouteContext) {
     });
 
     await setPostAdditionalImages(userId, post.id, updatedAdditionalImageUrls);
-
-    if (post.channel === "tiktok" && updatedImageUrl && !updatedVideoUrl && action !== "save") {
-      void generateVideoInBackground(userId, post.id, updatedImageUrl, brandContext);
-    }
 
     const refreshedPost = await getPostById(userId, post.id);
     return NextResponse.json(refreshedPost);
