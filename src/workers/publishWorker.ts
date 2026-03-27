@@ -174,6 +174,80 @@ const publishInstagram = async (input: PublishInput): Promise<string> => {
   return publishPayload.id ?? `instagram_${input.idempotencyKey}`;
 };
 
+const uploadLinkedInImage = async (
+  imageUrl: string,
+  accessToken: string,
+  owner: string,
+): Promise<string> => {
+  const registerResponse = await fetch(
+    "https://api.linkedin.com/v2/assets?action=registerUpload",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        registerUploadRequest: {
+          recipes: ["urn:li:digitalmediaRecipe:feedshare-image"],
+          owner,
+          serviceRelationships: [
+            {
+              relationshipType: "OWNER",
+              identifier: "urn:li:userGeneratedContent",
+            },
+          ],
+        },
+      }),
+    },
+  );
+
+  const registerPayload = (await registerResponse.json().catch(() => ({}))) as {
+    value?: {
+      asset?: string;
+      uploadMechanism?: {
+        "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"?: {
+          uploadUrl?: string;
+        };
+      };
+    };
+  };
+
+  if (!registerResponse.ok || !registerPayload.value?.asset) {
+    throw new Error(`LinkedIn bilderegistrering feilet: HTTP ${registerResponse.status}`);
+  }
+
+  const uploadUrl =
+    registerPayload.value.uploadMechanism?.[
+      "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
+    ]?.uploadUrl;
+  if (!uploadUrl) {
+    throw new Error("LinkedIn returnerte ingen upload-URL for bilde.");
+  }
+
+  const imageResponse = await fetch(imageUrl);
+  if (!imageResponse.ok) {
+    throw new Error(`Kunne ikke laste ned bilde fra ${imageUrl}: HTTP ${imageResponse.status}`);
+  }
+  const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+
+  const uploadResponse = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/octet-stream",
+      "Content-Length": String(imageBuffer.byteLength),
+    },
+    body: imageBuffer,
+  });
+
+  if (!uploadResponse.ok && uploadResponse.status !== 201) {
+    throw new Error(`LinkedIn bildeopplasting feilet: HTTP ${uploadResponse.status}`);
+  }
+
+  return registerPayload.value.asset;
+};
+
 const publishLinkedIn = async (input: PublishInput): Promise<string> => {
   if (!input.accountId) {
     throw new Error("Mangler LinkedIn accountId.");
@@ -183,7 +257,45 @@ const publishLinkedIn = async (input: PublishInput): Promise<string> => {
   }
   const author = input.accountId.startsWith("urn:li:")
     ? input.accountId
-    : `urn:li:organization:${input.accountId}`;
+    : `urn:li:person:${input.accountId}`;
+
+  const imageUrls = [input.imageUrl, ...input.additionalImageUrls]
+    .filter((url): url is string => Boolean(url));
+
+  let shareContent: Record<string, unknown>;
+
+  if (imageUrls.length > 0) {
+    const assetUrns: string[] = [];
+    for (const url of imageUrls) {
+      const urn = await uploadLinkedInImage(url, input.accessToken ?? "", author);
+      assetUrns.push(urn);
+    }
+
+    const media = assetUrns.map((urn) => ({
+      status: "READY",
+      media: urn,
+      description: { text: "" },
+      title: { text: "" },
+    }));
+
+    shareContent = {
+      "com.linkedin.ugc.ShareContent": {
+        shareCommentary: { text: input.text },
+        shareMediaCategory: "IMAGE",
+        media,
+      },
+    };
+    logger.info("[publishLinkedIn] Med bilder", { author, imageCount: assetUrns.length });
+  } else {
+    shareContent = {
+      "com.linkedin.ugc.ShareContent": {
+        shareCommentary: { text: input.text },
+        shareMediaCategory: "NONE",
+      },
+    };
+    logger.info("[publishLinkedIn] Kun tekst", { author });
+  }
+
   const response = await fetch("https://api.linkedin.com/v2/ugcPosts", {
     method: "POST",
     headers: {
@@ -194,17 +306,13 @@ const publishLinkedIn = async (input: PublishInput): Promise<string> => {
     body: JSON.stringify({
       author,
       lifecycleState: "PUBLISHED",
-      specificContent: {
-        "com.linkedin.ugc.ShareContent": {
-          shareCommentary: { text: input.text },
-          shareMediaCategory: "NONE",
-        },
-      },
+      specificContent: shareContent,
       visibility: {
         "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
       },
     }),
   });
+
   const payload = await ensureJson<{ id?: string }>(response);
   const restliId = response.headers.get("x-restli-id");
   return payload.id ?? restliId ?? `linkedin_${input.idempotencyKey}`;
