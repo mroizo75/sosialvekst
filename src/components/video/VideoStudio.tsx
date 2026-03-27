@@ -96,7 +96,7 @@ export const VideoStudio = () => {
   const handleImageUpload = async (file: File) => {
     setUploadingImage(true);
     try {
-      const res = await fetch("/api/media/upload", {
+      const res = await fetch("/api/media/upload-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
