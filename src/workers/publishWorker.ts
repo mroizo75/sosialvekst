@@ -288,7 +288,60 @@ const ensureTikTokToken = async (input: PublishInput): Promise<string> => {
   return input.accessToken;
 };
 
-const publishTikTokVideo = async (input: PublishInput, accessToken: string): Promise<string> => {
+type TikTokCreatorInfo = {
+  privacyLevel: string;
+  commentDisabled: boolean;
+  duetDisabled: boolean;
+  stitchDisabled: boolean;
+  maxVideoDuration: number;
+};
+
+const queryTikTokCreatorInfo = async (accessToken: string): Promise<TikTokCreatorInfo> => {
+  const response = await fetch("https://open.tiktokapis.com/v2/post/publish/creator_info/query/", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json; charset=UTF-8",
+    },
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as {
+    data?: {
+      privacy_level_options?: string[];
+      comment_disabled?: boolean;
+      duet_disabled?: boolean;
+      stitch_disabled?: boolean;
+      max_video_post_duration_sec?: number;
+    };
+    error?: { code?: string; message?: string };
+  };
+
+  if (!response.ok || payload.error?.code !== "ok") {
+    const errMsg = payload.error?.message ?? `TikTok creator_info feilet: HTTP ${response.status}`;
+    throw new Error(errMsg);
+  }
+
+  const options = payload.data?.privacy_level_options ?? [];
+  const privacyLevel = options.includes("PUBLIC_TO_EVERYONE")
+    ? "PUBLIC_TO_EVERYONE"
+    : options.includes("FOLLOWER_OF_CREATOR")
+      ? "FOLLOWER_OF_CREATOR"
+      : options.includes("MUTUAL_FOLLOW_FRIENDS")
+        ? "MUTUAL_FOLLOW_FRIENDS"
+        : "SELF_ONLY";
+
+  logger.info("[queryTikTokCreatorInfo]", { privacyLevel, options });
+
+  return {
+    privacyLevel,
+    commentDisabled: payload.data?.comment_disabled ?? false,
+    duetDisabled: payload.data?.duet_disabled ?? false,
+    stitchDisabled: payload.data?.stitch_disabled ?? false,
+    maxVideoDuration: payload.data?.max_video_post_duration_sec ?? 300,
+  };
+};
+
+const publishTikTokVideo = async (input: PublishInput, accessToken: string, creator: TikTokCreatorInfo): Promise<string> => {
   if (!input.videoUrl) {
     throw new Error("Mangler video-URL for TikTok video-publisering.");
   }
@@ -300,7 +353,7 @@ const publishTikTokVideo = async (input: PublishInput, accessToken: string): Pro
   const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
   const videoSize = videoBuffer.byteLength;
 
-  logger.info("[publishTikTokVideo] FILE_UPLOAD init", { videoSize });
+  logger.info("[publishTikTokVideo] FILE_UPLOAD init", { videoSize, privacy: creator.privacyLevel });
 
   const initResponse = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
     method: "POST",
@@ -311,10 +364,10 @@ const publishTikTokVideo = async (input: PublishInput, accessToken: string): Pro
     body: JSON.stringify({
       post_info: {
         title: input.text.slice(0, 2200),
-        privacy_level: "PUBLIC_TO_EVERYONE",
-        disable_duet: false,
-        disable_stitch: false,
-        disable_comment: false,
+        privacy_level: creator.privacyLevel,
+        disable_duet: creator.duetDisabled,
+        disable_stitch: creator.stitchDisabled,
+        disable_comment: creator.commentDisabled,
       },
       source_info: {
         source: "FILE_UPLOAD",
@@ -365,7 +418,7 @@ const toProxyUrl = (originalUrl: string): string => {
   return `${appUrl.replace(/\/+$/, "")}/api/media/proxy?url=${encodeURIComponent(originalUrl)}`;
 };
 
-const publishTikTokPhoto = async (input: PublishInput, accessToken: string): Promise<string> => {
+const publishTikTokPhoto = async (input: PublishInput, accessToken: string, creator: TikTokCreatorInfo): Promise<string> => {
   const imageUrls = [input.imageUrl, ...input.additionalImageUrls]
     .filter((url): url is string => Boolean(url));
 
@@ -374,7 +427,7 @@ const publishTikTokPhoto = async (input: PublishInput, accessToken: string): Pro
   }
 
   const proxiedUrls = imageUrls.map(toProxyUrl).slice(0, 35);
-  logger.info("[publishTikTokPhoto] PULL_FROM_URL via proxy", { count: proxiedUrls.length });
+  logger.info("[publishTikTokPhoto] PULL_FROM_URL via proxy", { count: proxiedUrls.length, privacy: creator.privacyLevel });
 
   const initResponse = await fetch("https://open.tiktokapis.com/v2/post/publish/content/init/", {
     method: "POST",
@@ -385,8 +438,8 @@ const publishTikTokPhoto = async (input: PublishInput, accessToken: string): Pro
     body: JSON.stringify({
       post_info: {
         title: input.text.slice(0, 2200),
-        privacy_level: "PUBLIC_TO_EVERYONE",
-        disable_comment: false,
+        privacy_level: creator.privacyLevel,
+        disable_comment: creator.commentDisabled,
       },
       source_info: {
         source: "PULL_FROM_URL",
@@ -418,12 +471,13 @@ const publishTikTokPhoto = async (input: PublishInput, accessToken: string): Pro
 
 const publishTikTok = async (input: PublishInput): Promise<string> => {
   const accessToken = await ensureTikTokToken(input);
+  const creator = await queryTikTokCreatorInfo(accessToken);
 
   if (input.videoUrl) {
-    return publishTikTokVideo(input, accessToken);
+    return publishTikTokVideo(input, accessToken, creator);
   }
 
-  return publishTikTokPhoto(input, accessToken);
+  return publishTikTokPhoto(input, accessToken, creator);
 };
 
 const publishToChannel = async (input: PublishInput): Promise<string> => {
