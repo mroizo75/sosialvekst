@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireUserId } from "@/lib/auth";
 import { getAppUrl, getRequiredEnv } from "@/lib/env";
+import { logger } from "@/lib/logger";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireWorkspaceId } from "@/lib/workspace";
 
@@ -13,6 +14,11 @@ type MetaPage = {
   name?: string;
   access_token?: string;
   instagram_business_account?: { id?: string };
+};
+
+type InstagramBusinessAccount = {
+  id: string;
+  username?: string;
 };
 
 const getReturnPath = (request: Request): string => {
@@ -32,6 +38,86 @@ const redirectToReturnPath = (returnPath: string, status: string): NextResponse 
   const response = NextResponse.redirect(url.toString());
   response.cookies.delete(RETURN_PATH_COOKIE);
   return response;
+};
+
+const fetchInstagramViaPages = (pages: MetaPage[]): {
+  igId: string;
+  accessToken: string;
+} | null => {
+  for (const page of pages) {
+    if (page.access_token && page.instagram_business_account?.id) {
+      return {
+        igId: page.instagram_business_account.id,
+        accessToken: page.access_token,
+      };
+    }
+  }
+  return null;
+};
+
+const fetchInstagramViaBusinessLogin = async (
+  userAccessToken: string,
+): Promise<{ igId: string; accessToken: string } | null> => {
+  try {
+    const igUrl = new URL("https://graph.facebook.com/v23.0/me/accounts");
+    igUrl.searchParams.set("access_token", userAccessToken);
+    igUrl.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username}");
+
+    const igResponse = await fetch(igUrl.toString(), { cache: "no-store" });
+    if (!igResponse.ok) {
+      logger.warn("[meta/callback] Instagram Business pages fetch feilet", {
+        status: igResponse.status,
+      });
+      return null;
+    }
+
+    const igPayload = (await igResponse.json()) as { data?: MetaPage[] };
+    const pages = igPayload.data ?? [];
+
+    for (const page of pages) {
+      if (page.access_token && page.instagram_business_account?.id) {
+        return {
+          igId: page.instagram_business_account.id,
+          accessToken: page.access_token,
+        };
+      }
+    }
+
+    const igDirectUrl = new URL("https://graph.facebook.com/v23.0/me/instagram_accounts");
+    igDirectUrl.searchParams.set("access_token", userAccessToken);
+    igDirectUrl.searchParams.set("fields", "id,username");
+
+    const igDirectResponse = await fetch(igDirectUrl.toString(), { cache: "no-store" });
+    if (!igDirectResponse.ok) {
+      logger.warn("[meta/callback] Instagram direct accounts fetch feilet", {
+        status: igDirectResponse.status,
+      });
+      return null;
+    }
+
+    const igDirectPayload = (await igDirectResponse.json()) as {
+      data?: InstagramBusinessAccount[];
+    };
+    const igAccounts = igDirectPayload.data ?? [];
+
+    if (igAccounts.length > 0 && igAccounts[0]?.id) {
+      logger.info("[meta/callback] Fant Instagram via direct API", {
+        igId: igAccounts[0].id,
+        username: igAccounts[0].username,
+      });
+      return {
+        igId: igAccounts[0].id,
+        accessToken: userAccessToken,
+      };
+    }
+
+    return null;
+  } catch (error) {
+    logger.warn("[meta/callback] Instagram Business Login fallback feilet", {
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    return null;
+  }
 };
 
 export async function GET(request: Request) {
@@ -77,23 +163,38 @@ export async function GET(request: Request) {
 
     const pagesUrl = new URL("https://graph.facebook.com/v23.0/me/accounts");
     pagesUrl.searchParams.set("access_token", userAccessToken);
-    pagesUrl.searchParams.set("fields", "id,name,access_token,instagram_business_account{id}");
+    pagesUrl.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username}");
 
     const pagesResponse = await fetch(pagesUrl.toString(), { cache: "no-store" });
     const pagesPayload = (await pagesResponse.json().catch(() => ({}))) as {
       data?: MetaPage[];
     };
     const pages = pagesPayload.data ?? [];
+
+    logger.info("[meta/callback] Sider hentet", {
+      pageCount: pages.length,
+      pagesWithIg: pages.filter((p) => p.instagram_business_account?.id).length,
+    });
+
     const facebookPage = pages.find((page) => Boolean(page.id && page.access_token));
-    const instagramPage = pages.find(
-      (page) => Boolean(page.access_token && page.instagram_business_account?.id),
-    );
 
     if (!facebookPage) {
       const none = redirectToReturnPath(returnPath, "meta_no_pages");
       none.cookies.delete(OAUTH_STATE_COOKIE);
       return none;
     }
+
+    let igResult = fetchInstagramViaPages(pages);
+
+    if (!igResult) {
+      logger.info("[meta/callback] Ingen Instagram via sider, prøver Business Login fallback");
+      igResult = await fetchInstagramViaBusinessLogin(userAccessToken);
+    }
+
+    logger.info("[meta/callback] Instagram-resultat", {
+      found: Boolean(igResult),
+      igId: igResult?.igId ?? null,
+    });
 
     const supabase = await createSupabaseServerClient();
 
@@ -124,13 +225,13 @@ export async function GET(request: Request) {
       },
     ];
 
-    if (instagramPage?.instagram_business_account?.id) {
+    if (igResult) {
       upserts.push({
         user_id: userId,
         workspace_id: workspaceId,
         channel: "instagram",
-        account_id: instagramPage.instagram_business_account.id,
-        access_token: instagramPage.access_token ?? "",
+        account_id: igResult.igId,
+        access_token: igResult.accessToken,
         refresh_token: null,
         updated_at: new Date().toISOString(),
       });
@@ -140,10 +241,19 @@ export async function GET(request: Request) {
       onConflict: "user_id,channel,account_id",
     });
 
-    const done = redirectToReturnPath(returnPath, error ? "meta_save_failed" : "meta_connected");
+    const statusMsg = error
+      ? "meta_save_failed"
+      : igResult
+        ? "meta_connected"
+        : "meta_connected_no_instagram";
+
+    const done = redirectToReturnPath(returnPath, statusMsg);
     done.cookies.delete(OAUTH_STATE_COOKIE);
     return done;
-  } catch {
+  } catch (error) {
+    logger.error("[meta/callback] Callback feilet", {
+      error: error instanceof Error ? error.message : "ukjent",
+    });
     const failed = redirectToReturnPath(returnPath, "meta_callback_failed");
     failed.cookies.delete(OAUTH_STATE_COOKIE);
     return failed;
