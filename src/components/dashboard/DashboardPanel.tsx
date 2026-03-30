@@ -141,7 +141,18 @@ const SOCIAL_PLATFORMS = [
       </svg>
     ),
   },
-] as const;
+] satisfies ReadonlyArray<{
+  channel: "facebook" | "instagram" | "linkedin" | "tiktok";
+  label: string;
+  connectLabel: string;
+  href: string | null;
+  gradient: string;
+  bgLight: string;
+  borderLight: string;
+  textColor: string;
+  icon: React.ReactNode;
+  extraLinks?: ReadonlyArray<{ label: string; href: string }>;
+}>;
 
 export const DashboardPanel = () => {
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
