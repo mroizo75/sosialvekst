@@ -6,7 +6,8 @@ import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const getGreeting = (): string => {
-  const hour = new Date().getHours();
+  const nowInNorway = new Date().toLocaleString("en-US", { timeZone: "Europe/Oslo" });
+  const hour = new Date(nowInNorway).getHours();
   if (hour < 6) return "God natt";
   if (hour < 12) return "God morgen";
   if (hour < 17) return "God ettermiddag";
