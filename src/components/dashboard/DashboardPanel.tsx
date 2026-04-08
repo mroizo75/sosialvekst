@@ -60,6 +60,8 @@ const SOCIAL_CONNECT_MESSAGE_NO: Record<string, string> = {
   meta_invalid_state: "Noe gikk galt med Meta-innloggingen. Prøv igjen.",
   meta_token_failed: "Kunne ikke koble til Meta. Prøv igjen.",
   meta_no_pages: "Vi fant ingen Facebook-sider på kontoen din.",
+  meta_pages_fetch_failed: "Kunne ikke hente Facebook-sider fra Meta. Sjekk app-tillatelser og prøv på nytt.",
+  meta_page_token_missing: "Fant Facebook-side, men mangler sidetoken. Gi appen admin-tilgang til siden og koble til på nytt.",
   meta_save_failed: "Fant kontoen, men kunne ikke lagre den. Prøv igjen.",
   meta_callback_failed: "Noe gikk galt. Prøv igjen.",
   linkedin_connected: "LinkedIn er nå koblet til!",

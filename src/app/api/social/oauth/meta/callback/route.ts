@@ -55,6 +55,25 @@ const fetchInstagramViaPages = (pages: MetaPage[]): {
   return null;
 };
 
+const fetchPageAccessToken = async (
+  pageId: string,
+  userAccessToken: string,
+): Promise<string | null> => {
+  try {
+    const pageUrl = new URL(`https://graph.facebook.com/v23.0/${pageId}`);
+    pageUrl.searchParams.set("access_token", userAccessToken);
+    pageUrl.searchParams.set("fields", "access_token");
+    const response = await fetch(pageUrl.toString(), { cache: "no-store" });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = (await response.json().catch(() => ({}))) as { access_token?: string };
+    return payload.access_token ?? null;
+  } catch {
+    return null;
+  }
+};
+
 const fetchInstagramViaBusinessLogin = async (
   userAccessToken: string,
 ): Promise<{ igId: string; accessToken: string } | null> => {
@@ -170,7 +189,17 @@ export async function GET(request: Request) {
     const pagesResponse = await fetch(pagesUrl.toString(), { cache: "no-store" });
     const pagesPayload = (await pagesResponse.json().catch(() => ({}))) as {
       data?: MetaPage[];
+      error?: { message?: string };
     };
+    if (!pagesResponse.ok) {
+      logger.warn("[meta/callback] Kunne ikke hente sider fra /me/accounts", {
+        status: pagesResponse.status,
+        error: pagesPayload.error?.message ?? null,
+      });
+      const failed = redirectToReturnPath(returnPath, "meta_pages_fetch_failed");
+      failed.cookies.delete(OAUTH_STATE_COOKIE);
+      return failed;
+    }
     const pages = pagesPayload.data ?? [];
 
     logger.info("[meta/callback] Sider hentet", {
@@ -178,12 +207,23 @@ export async function GET(request: Request) {
       pagesWithIg: pages.filter((p) => p.instagram_business_account?.id).length,
     });
 
-    const facebookPage = pages.find((page) => Boolean(page.id && page.access_token));
-
-    if (!facebookPage) {
+    const facebookPage = pages.find((page) => Boolean(page.id));
+    if (!facebookPage?.id) {
       const none = redirectToReturnPath(returnPath, "meta_no_pages");
       none.cookies.delete(OAUTH_STATE_COOKIE);
       return none;
+    }
+
+    const pageAccessToken = facebookPage.access_token
+      ?? await fetchPageAccessToken(facebookPage.id, userAccessToken);
+
+    if (!pageAccessToken) {
+      logger.warn("[meta/callback] Fant side, men fikk ikke side-access-token", {
+        pageId: facebookPage.id,
+      });
+      const missingToken = redirectToReturnPath(returnPath, "meta_page_token_missing");
+      missingToken.cookies.delete(OAUTH_STATE_COOKIE);
+      return missingToken;
     }
 
     let igResult = fetchInstagramViaPages(pages);
@@ -226,7 +266,7 @@ export async function GET(request: Request) {
         workspace_id: workspaceId,
         channel: "facebook",
         account_id: facebookPage.id,
-        access_token: facebookPage.access_token ?? "",
+        access_token: pageAccessToken,
         refresh_token: null,
         token_expires_at: tokenExpiresAt,
         updated_at: new Date().toISOString(),

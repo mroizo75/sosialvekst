@@ -18,10 +18,10 @@ export async function GET(request: Request) {
   const state = crypto.randomUUID();
   const scopes = [
     "pages_show_list",
-    "pages_read_engagement",
     "pages_manage_posts",
     "instagram_basic",
     "instagram_content_publish",
+    "business_management",
   ].join(",");
 
   const authUrl = new URL("https://www.facebook.com/v23.0/dialog/oauth");
