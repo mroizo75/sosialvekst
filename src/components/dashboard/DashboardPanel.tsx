@@ -213,6 +213,9 @@ export const DashboardPanel = () => {
   }, [checkRecoveryStatus]);
 
   useEffect(() => {
+    if (window.location.hash === "#_=_") {
+      window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}`);
+    }
     const url = new URL(window.location.href);
     const payment = url.searchParams.get("payment");
     const sessionId = url.searchParams.get("session_id");
