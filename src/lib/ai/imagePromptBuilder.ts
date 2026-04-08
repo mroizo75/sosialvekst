@@ -171,13 +171,31 @@ export const buildImagePrompt = (input: ImagePromptInput): string => {
     );
   }
 
-  sections.push(
-    [
-      "VISUELL BRANDING:",
-      "- Formidle brand gjennom farger, miljo, klaer, rekvisitter og lyssetting.",
-      "- Ren komposisjon med tydelig hovedmotiv.",
-    ].join("\n"),
-  );
+  const brandingLines = [
+    "VISUELL BRANDING:",
+    "- Formidle brand gjennom farger, miljo, klaer, rekvisitter og lyssetting.",
+    "- Ren komposisjon med tydelig hovedmotiv.",
+  ];
+
+  if (ctx.brandColors) {
+    const colorParts: string[] = [];
+    if (ctx.brandColors.primary) colorParts.push(`primaer ${ctx.brandColors.primary}`);
+    if (ctx.brandColors.secondary) colorParts.push(`sekundaer ${ctx.brandColors.secondary}`);
+    if (ctx.brandColors.accent) colorParts.push(`aksent ${ctx.brandColors.accent}`);
+    if (colorParts.length > 0) {
+      brandingLines.push(`- Bedriftens merkevarefarger: ${colorParts.join(", ")}. Bruk disse som referanse for fargepalett i bildet — integrer subtilt i miljo, klaer, rekvisitter eller bakgrunn.`);
+    }
+  }
+
+  if (ctx.tagline && brandMode !== "clean") {
+    brandingLines.push(`- Bedriftens tagline er "${ctx.tagline}" — la bildet visuelt reflektere dette budskapet.`);
+  }
+
+  if (ctx.fontStyle && brandMode === "text") {
+    brandingLines.push(`- Foretrukket font-stil: ${ctx.fontStyle}.`);
+  }
+
+  sections.push(brandingLines.join("\n"));
 
   return sections.join("\n\n");
 };

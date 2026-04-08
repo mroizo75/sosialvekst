@@ -1,4 +1,5 @@
 import type { BrandRules } from "@/lib/ai/brandRules";
+import { buildBrandSkill } from "@/lib/ai/brandSkillBuilder";
 import { norwegianStyleGuide } from "@/lib/ai/norwegianStyleGuide";
 import { buildSystemContext } from "@/lib/ai/systemPrompt";
 import type { BrandContext, PostFormat, PostIntent, SocialChannel } from "@/lib/types";
@@ -163,6 +164,8 @@ export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredProm
     `VIKTIG: Denne posten er KUN for ${input.channel}. Den skal IKKE fungere på andre plattformer.`,
     `Tilpass lengde, tone, struktur og CTA-stil til ${input.channel}-brukere spesifikt.`,
     ...(brandDosAndDonts ? ["", "BEDRIFTENS EGNE RETNINGSLINJER:", brandDosAndDonts] : []),
+    "",
+    buildBrandSkill(brandContext),
     "",
     "BEDRIFTSKONTEKST (bruk dette AKTIVT — dette er kjernekunnskapen om bedriften):",
     buildSystemContext(brandContext),

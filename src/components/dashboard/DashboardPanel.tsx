@@ -42,6 +42,7 @@ type SocialAccountsResponse = {
     channel: "facebook" | "instagram" | "linkedin" | "tiktok";
     account_id: string;
     updated_at: string;
+    tokenStatus: "valid" | "expired" | "missing";
   }>;
 };
 
@@ -291,8 +292,12 @@ export const DashboardPanel = () => {
   }, [recovery, refresh, recovering]);
 
   const canPublish = overview?.subscription.active ?? false;
+  const accountStatusMap = useMemo(
+    () => new Map(socialAccounts.map((a) => [a.channel, a.tokenStatus])),
+    [socialAccounts],
+  );
   const connectedChannels = useMemo(
-    () => new Set(socialAccounts.map((a) => a.channel)),
+    () => new Set(socialAccounts.filter((a) => a.tokenStatus === "valid").map((a) => a.channel)),
     [socialAccounts],
   );
   const subscriptionLabel = useMemo(() => {
@@ -810,7 +815,11 @@ export const DashboardPanel = () => {
 
         <div className="grid gap-3 sm:grid-cols-2">
           {SOCIAL_PLATFORMS.map((platform) => {
-            const isConnected = connectedChannels.has(platform.channel);
+            const tokenStatus = accountStatusMap.get(platform.channel);
+            const isConnected = tokenStatus === "valid";
+            const isExpired = tokenStatus === "expired";
+            const isMissing = tokenStatus === "missing";
+            const hasIssue = isExpired || isMissing;
             return (
               <div
                 key={platform.channel}
@@ -818,7 +827,9 @@ export const DashboardPanel = () => {
                   "relative flex items-center gap-3 rounded-xl border p-3.5 transition-all",
                   isConnected
                     ? `${platform.borderLight} ${platform.bgLight}`
-                    : "border-border bg-card hover:border-border/80",
+                    : hasIssue
+                      ? "border-warning/40 bg-warning/5"
+                      : "border-border bg-card hover:border-border/80",
                 )}
               >
                 <div className={cn(
@@ -838,6 +849,18 @@ export const DashboardPanel = () => {
                         Koblet
                       </span>
                     )}
+                    {isExpired && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning-foreground">
+                        <span className="size-1 rounded-full bg-warning" />
+                        Utløpt
+                      </span>
+                    )}
+                    {isMissing && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
+                        <span className="size-1 rounded-full bg-destructive" />
+                        Ugyldig
+                      </span>
+                    )}
                   </div>
                   <div className="mt-1 flex flex-wrap gap-1.5">
                     {platform.href && (
@@ -847,10 +870,12 @@ export const DashboardPanel = () => {
                           "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors",
                           isConnected
                             ? "bg-secondary/80 text-muted-foreground hover:bg-secondary"
-                            : `${platform.bgLight} ${platform.textColor} hover:opacity-80`,
+                            : hasIssue
+                              ? "bg-warning/10 text-warning-foreground hover:bg-warning/20"
+                              : `${platform.bgLight} ${platform.textColor} hover:opacity-80`,
                         )}
                       >
-                        {isConnected ? "Koble på nytt" : platform.connectLabel}
+                        {hasIssue ? "Koble til på nytt" : isConnected ? "Koble på nytt" : platform.connectLabel}
                       </a>
                     )}
                     {platform.extraLinks?.map((link) => (
@@ -862,7 +887,7 @@ export const DashboardPanel = () => {
                         {link.label}
                       </a>
                     ))}
-                    {!platform.href && !isConnected && (
+                    {!platform.href && !tokenStatus && (
                       <span className="text-[11px] text-muted-foreground">{platform.connectLabel}</span>
                     )}
                   </div>

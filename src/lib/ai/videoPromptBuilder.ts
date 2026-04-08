@@ -18,6 +18,16 @@ const buildBrandBlock = (ctx: BrandContext): string => {
   if (ctx.services?.length) parts.push(`Services: ${ctx.services.join(", ")}`);
   if (ctx.uniqueSellingPoints?.length) parts.push(`Key strengths: ${ctx.uniqueSellingPoints.join(". ")}`);
   if (ctx.targetAudience) parts.push(`Target audience: ${ctx.targetAudience}`);
+  if (ctx.tagline) parts.push(`Tagline: "${ctx.tagline}"`);
+  if (ctx.brandColors) {
+    const colorParts: string[] = [];
+    if (ctx.brandColors.primary) colorParts.push(`primary ${ctx.brandColors.primary}`);
+    if (ctx.brandColors.secondary) colorParts.push(`secondary ${ctx.brandColors.secondary}`);
+    if (ctx.brandColors.accent) colorParts.push(`accent ${ctx.brandColors.accent}`);
+    if (colorParts.length > 0) {
+      parts.push(`Brand colors: ${colorParts.join(", ")}. Use these as color reference in the scene — integrate subtly through environment, clothing, props, or lighting`);
+    }
+  }
   return parts.join(". ");
 };
 

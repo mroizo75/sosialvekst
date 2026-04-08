@@ -61,6 +61,23 @@ export const buildSystemContext = (ctx: BrandContext): string => {
     sections.push(section("KUNDEHISTORIER OG REFERANSER", storyList));
   }
 
+  if (ctx.tagline || ctx.slogan) {
+    const identityParts: string[] = [];
+    if (ctx.tagline) identityParts.push(`Tagline: "${ctx.tagline}"`);
+    if (ctx.slogan) identityParts.push(`Slagord: "${ctx.slogan}"`);
+    sections.push(section("TAGLINE OG SLAGORD", identityParts.join("\n")));
+  }
+
+  if (ctx.brandColors) {
+    const colorParts: string[] = [];
+    if (ctx.brandColors.primary) colorParts.push(`Primærfarge: ${ctx.brandColors.primary}`);
+    if (ctx.brandColors.secondary) colorParts.push(`Sekundærfarge: ${ctx.brandColors.secondary}`);
+    if (ctx.brandColors.accent) colorParts.push(`Aksentfarge: ${ctx.brandColors.accent}`);
+    if (colorParts.length > 0) {
+      sections.push(section("MERKEVAREFARGER", colorParts.join(", ")));
+    }
+  }
+
   if (ctx.brandVoice || ctx.brandPersonality || ctx.brandDosAndDonts) {
     const voiceParts: string[] = [];
     if (ctx.brandVoice) voiceParts.push(`Skrivestil: ${ctx.brandVoice}`);

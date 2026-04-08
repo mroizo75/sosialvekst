@@ -48,6 +48,12 @@ export type ProductImage = {
   sortOrder: number;
 };
 
+export type BrandColors = {
+  primary?: string;
+  secondary?: string;
+  accent?: string;
+};
+
 export type BrandContext = {
   companyName?: string;
   companyDescription?: string;
@@ -66,9 +72,14 @@ export type BrandContext = {
   brandPersonality?: string;
   brandDosAndDonts?: string;
   keyMessages?: string[];
+  prohibitedTerms?: string[];
   competitorDifferentiators?: string;
   commonQuestions?: string[];
   seasonalFocus?: string;
+  tagline?: string;
+  slogan?: string;
+  brandColors?: BrandColors;
+  fontStyle?: string;
   logoUrl?: string;
   websiteUrl?: string;
   websiteContent?: string;

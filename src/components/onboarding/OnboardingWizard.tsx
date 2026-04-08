@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Checkbox, Input, Textarea } from "@/components/ui/Input";
 import { cn } from "@/lib/utils";
-import type { MediaMode, ProductImage, SocialChannel, TopicWindow } from "@/lib/types";
+import type { BrandColors, MediaMode, ProductImage, SocialChannel, TopicWindow } from "@/lib/types";
 
 type WizardPayload = {
   companyName: string;
@@ -32,6 +32,10 @@ type WizardPayload = {
   competitorDifferentiators: string;
   commonQuestions: string[];
   seasonalFocus: string;
+  tagline: string;
+  slogan: string;
+  brandColors: BrandColors;
+  fontStyle: string;
 };
 
 type ScrapeResult = {
@@ -103,6 +107,7 @@ const Stepper = ({ currentStep, totalSteps }: { currentStep: number; totalSteps:
 type ConnectedAccount = {
   channel: SocialChannel;
   account_id: string;
+  tokenStatus?: "valid" | "expired" | "missing";
 };
 
 export const OnboardingWizard = () => {
@@ -120,7 +125,18 @@ export const OnboardingWizard = () => {
   const [savedMessage, setSavedMessage] = useState("");
   const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([]);
 
-  const connectedChannels = new Set(connectedAccounts.map((a) => a.channel));
+  const accountStatusMap = new Map(connectedAccounts.map((a) => [a.channel, a.tokenStatus ?? "valid"]));
+  const connectedChannels = new Set(
+    connectedAccounts.filter((a) => !a.tokenStatus || a.tokenStatus === "valid").map((a) => a.channel),
+  );
+
+  const getChannelStatusLabel = (channel: SocialChannel): { text: string; className: string } => {
+    const status = accountStatusMap.get(channel);
+    if (!status) return { text: "Ikke koblet", className: "text-muted-foreground" };
+    if (status === "valid") return { text: "Koblet", className: "text-success" };
+    if (status === "expired") return { text: "Utløpt", className: "text-warning-foreground" };
+    return { text: "Ugyldig", className: "text-destructive" };
+  };
 
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [scrapeConsent, setScrapeConsent] = useState(false);
@@ -157,6 +173,10 @@ export const OnboardingWizard = () => {
     competitorDifferentiators: "",
     commonQuestions: [],
     seasonalFocus: "",
+    tagline: "",
+    slogan: "",
+    brandColors: {},
+    fontStyle: "",
   });
 
   const update = <K extends keyof WizardPayload>(key: K, value: WizardPayload[K]) => {
@@ -203,6 +223,10 @@ export const OnboardingWizard = () => {
     competitorDifferentiators: string;
     commonQuestions: string[];
     seasonalFocus: string;
+    tagline: string;
+    slogan: string;
+    brandColors: BrandColors;
+    fontStyle: string;
     mediaMode: MediaMode;
     channels: SocialChannel[];
   };
@@ -348,6 +372,10 @@ export const OnboardingWizard = () => {
       competitorDifferentiators: data.competitorDifferentiators ?? "",
       commonQuestions: data.commonQuestions ?? [],
       seasonalFocus: data.seasonalFocus ?? "",
+      tagline: data.tagline ?? "",
+      slogan: data.slogan ?? "",
+      brandColors: data.brandColors ?? {},
+      fontStyle: data.fontStyle ?? "",
     });
     setKeyMessagesText(data.keyMessages.join(", "));
     setCoreValuesText((data.coreValues ?? []).join(", "));
@@ -571,6 +599,10 @@ export const OnboardingWizard = () => {
         customerSuccessStories: parseLines(customerSuccessStoriesText),
         services: parseKeyMessages(servicesText),
         commonQuestions: parseLines(commonQuestionsText),
+        tagline: form.tagline,
+        slogan: form.slogan,
+        brandColors: form.brandColors,
+        fontStyle: form.fontStyle,
       }),
     });
 
@@ -990,6 +1022,20 @@ export const OnboardingWizard = () => {
                 placeholder="F.eks. Som en hjelpsom nabo som tilfeldigvis er ekspert. Aldri arrogant."
                 hint="Valgfritt. Gir innholdet en tydelig karakter."
               />
+              <Input
+                label="Tagline"
+                value={form.tagline}
+                onChange={(e) => update("tagline", e.target.value)}
+                placeholder="F.eks. Vi bygger fremtiden, stein for stein"
+                hint="Kort setning som oppsummerer merkevaren. Brukes i alt innhold."
+              />
+              <Input
+                label="Slagord"
+                value={form.slogan}
+                onChange={(e) => update("slogan", e.target.value)}
+                placeholder="F.eks. Kvalitet du kan stole på"
+                hint="Valgfritt. Kan brukes i tillegg til tagline."
+              />
               <Textarea
                 label="Gjør og ikke gjør"
                 value={form.brandDosAndDonts}
@@ -1018,6 +1064,71 @@ export const OnboardingWizard = () => {
                 onChange={(e) => update("seasonalFocus", e.target.value)}
                 placeholder="F.eks. jul-kampanje i desember, sommertilbud i juni..."
                 hint="Valgfritt. Brukes til å tilpasse innhold til sesongen."
+              />
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Merkevarefarger</label>
+                <p className="text-xs text-muted-foreground">
+                  AI bruker disse fargene som referanse i bilder og visuelt innhold.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={form.brandColors.primary || "#000000"}
+                      onChange={(e) => update("brandColors", { ...form.brandColors, primary: e.target.value })}
+                      className="size-10 cursor-pointer rounded-lg border border-border bg-background p-0.5"
+                    />
+                    <div className="flex-1">
+                      <Input
+                        label="Primær"
+                        value={form.brandColors.primary ?? ""}
+                        onChange={(e) => update("brandColors", { ...form.brandColors, primary: e.target.value })}
+                        placeholder="#1a2b3c"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={form.brandColors.secondary || "#000000"}
+                      onChange={(e) => update("brandColors", { ...form.brandColors, secondary: e.target.value })}
+                      className="size-10 cursor-pointer rounded-lg border border-border bg-background p-0.5"
+                    />
+                    <div className="flex-1">
+                      <Input
+                        label="Sekundær"
+                        value={form.brandColors.secondary ?? ""}
+                        onChange={(e) => update("brandColors", { ...form.brandColors, secondary: e.target.value })}
+                        placeholder="#4a5b6c"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={form.brandColors.accent || "#000000"}
+                      onChange={(e) => update("brandColors", { ...form.brandColors, accent: e.target.value })}
+                      className="size-10 cursor-pointer rounded-lg border border-border bg-background p-0.5"
+                    />
+                    <div className="flex-1">
+                      <Input
+                        label="Aksent"
+                        value={form.brandColors.accent ?? ""}
+                        onChange={(e) => update("brandColors", { ...form.brandColors, accent: e.target.value })}
+                        placeholder="#ff6b2d"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <Input
+                label="Font-stil"
+                value={form.fontStyle}
+                onChange={(e) => update("fontStyle", e.target.value)}
+                placeholder="F.eks. moderne og ren, klassisk serif, avrundet og vennlig"
+                hint="Valgfritt. Beskriv den visuelle stilen for tekst i bilder."
               />
 
               <div className="space-y-2">
@@ -1072,6 +1183,7 @@ export const OnboardingWizard = () => {
                 <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-4">
                   {CHANNEL_OPTIONS.map((option) => {
                     const isConnected = connectedChannels.has(option.value);
+                    const statusLabel = getChannelStatusLabel(option.value);
                     return (
                       <div key={option.value} className="flex items-center justify-between">
                         <Checkbox
@@ -1080,11 +1192,8 @@ export const OnboardingWizard = () => {
                           label={option.label}
                           disabled={!isConnected}
                         />
-                        <span className={cn(
-                          "text-xs font-medium",
-                          isConnected ? "text-success" : "text-muted-foreground",
-                        )}>
-                          {isConnected ? "Koblet" : "Ikke koblet"}
+                        <span className={cn("text-xs font-medium", statusLabel.className)}>
+                          {statusLabel.text}
                         </span>
                       </div>
                     );
@@ -1362,6 +1471,7 @@ export const OnboardingWizard = () => {
                 <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-4">
                   {CHANNEL_OPTIONS.map((option) => {
                     const isConnected = connectedChannels.has(option.value);
+                    const statusLabel = getChannelStatusLabel(option.value);
                     return (
                       <div key={option.value} className="flex items-center justify-between">
                         <Checkbox
@@ -1370,11 +1480,8 @@ export const OnboardingWizard = () => {
                           label={option.label}
                           disabled={!isConnected}
                         />
-                        <span className={cn(
-                          "text-xs font-medium",
-                          isConnected ? "text-success" : "text-muted-foreground",
-                        )}>
-                          {isConnected ? "Koblet" : "Ikke koblet"}
+                        <span className={cn("text-xs font-medium", statusLabel.className)}>
+                          {statusLabel.text}
                         </span>
                       </div>
                     );

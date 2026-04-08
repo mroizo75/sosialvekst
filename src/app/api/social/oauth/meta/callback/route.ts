@@ -153,8 +153,10 @@ export async function GET(request: Request) {
 
     const tokenPayload = (await tokenResponse.json().catch(() => ({}))) as {
       access_token?: string;
+      expires_in?: number;
     };
     const userAccessToken = tokenPayload.access_token;
+    const tokenExpiresIn = tokenPayload.expires_in;
     if (!tokenResponse.ok || !userAccessToken) {
       const failed = redirectToReturnPath(returnPath, "meta_token_failed");
       failed.cookies.delete(OAUTH_STATE_COOKIE);
@@ -205,6 +207,10 @@ export async function GET(request: Request) {
       .eq("workspace_id", workspaceId)
       .in("channel", ["facebook", "instagram"]);
 
+    const tokenExpiresAt = tokenExpiresIn
+      ? new Date(Date.now() + tokenExpiresIn * 1000).toISOString()
+      : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
+
     const upserts: Array<{
       user_id: string;
       workspace_id: string;
@@ -212,6 +218,7 @@ export async function GET(request: Request) {
       account_id: string;
       access_token: string;
       refresh_token: null;
+      token_expires_at: string;
       updated_at: string;
     }> = [
       {
@@ -221,6 +228,7 @@ export async function GET(request: Request) {
         account_id: facebookPage.id,
         access_token: facebookPage.access_token ?? "",
         refresh_token: null,
+        token_expires_at: tokenExpiresAt,
         updated_at: new Date().toISOString(),
       },
     ];
@@ -233,6 +241,7 @@ export async function GET(request: Request) {
         account_id: igResult.igId,
         access_token: igResult.accessToken,
         refresh_token: null,
+        token_expires_at: tokenExpiresAt,
         updated_at: new Date().toISOString(),
       });
     }

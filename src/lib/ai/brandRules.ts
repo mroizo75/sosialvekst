@@ -30,6 +30,7 @@ export const mergeBrandRules = (input: {
   brandVoice?: string;
   keyMessages?: string[];
   coreValues?: string[];
+  prohibitedTerms?: string[];
 }): BrandRules => {
   const combined = [
     ...(input.keyMessages && input.keyMessages.length > 0
@@ -39,10 +40,16 @@ export const mergeBrandRules = (input: {
   ];
   const uniqueMessages = [...new Set(combined)];
 
+  const resolvedProhibited =
+    input.prohibitedTerms && input.prohibitedTerms.length > 0
+      ? [...new Set([...input.prohibitedTerms, ...defaultBrandRules.prohibitedTerms])]
+      : defaultBrandRules.prohibitedTerms;
+
   return {
     ...defaultBrandRules,
     targetAudience: input.targetAudience?.trim() || defaultBrandRules.targetAudience,
     toneOfVoice: input.brandVoice?.trim() || defaultBrandRules.toneOfVoice,
     keyMessages: uniqueMessages,
+    prohibitedTerms: resolvedProhibited,
   };
 };

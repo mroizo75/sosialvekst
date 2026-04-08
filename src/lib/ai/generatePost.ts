@@ -204,6 +204,7 @@ const createText = async (input: GeneratePostInput): Promise<string> => {
     brandVoice: input.brandContext?.brandVoice,
     keyMessages: input.brandContext?.keyMessages,
     coreValues: input.brandContext?.coreValues,
+    prohibitedTerms: input.brandContext?.prohibitedTerms,
   });
 
   const prompt = buildNorwegianCopyPrompt({
@@ -273,6 +274,7 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     brandVoice: input.brandContext?.brandVoice,
     keyMessages: input.brandContext?.keyMessages,
     coreValues: input.brandContext?.coreValues,
+    prohibitedTerms: input.brandContext?.prohibitedTerms,
   });
 
   const imagePrompt = buildImagePrompt({
@@ -380,6 +382,9 @@ const CAROUSEL_FORMATS: PostFormat[] = [
   "case_study",
   "behind_the_scenes",
   "tip",
+  "insight",
+  "fact",
+  "myth_busting",
 ];
 
 const shouldGenerateCarousel = (
@@ -390,7 +395,7 @@ const shouldGenerateCarousel = (
   if (channel !== "instagram") return false;
   if (!format || !CAROUSEL_FORMATS.includes(format)) return false;
   const hash = hashStringToIndex(scheduledAt ?? crypto.randomUUID());
-  return (hash % 100) < 40;
+  return (hash % 100) < 60;
 };
 
 const CAROUSEL_ANGLE_VARIANTS = [
@@ -405,17 +410,31 @@ const generateCarouselImages = async (
 ): Promise<string[]> => {
   const extraCount = 1 + Math.floor(Math.random() * 2);
   const urls: string[] = [];
+  const logoUrl = input.brandContext?.logoUrl;
 
   for (let i = 0; i < extraCount; i += 1) {
     const variant = CAROUSEL_ANGLE_VARIANTS[i % CAROUSEL_ANGLE_VARIANTS.length];
-    const variantPrompt = `${primaryImagePrompt}\n\nVARIASJON: Vis dette ${variant}. Behold samme stil og kvalitet.`;
+    const variantPrompt = `${primaryImagePrompt}\n\nVARIASJON: Vis dette ${variant}. Behold samme stil, fargepalett og kvalitet.`;
 
     try {
-      const url = await generateProfessionalImage({
-        userId: input.userId,
-        prompt: variantPrompt,
-        profile: input.imageProfile,
-      });
+      let url: string | undefined;
+
+      if (logoUrl && i === 0) {
+        url = await generateBrandedImage({
+          userId: input.userId,
+          prompt: variantPrompt,
+          logoUrl,
+          profile: input.imageProfile,
+        });
+      }
+
+      if (!url) {
+        url = await generateProfessionalImage({
+          userId: input.userId,
+          prompt: variantPrompt,
+          profile: input.imageProfile,
+        });
+      }
 
       if (url) {
         urls.push(url);
@@ -545,6 +564,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       brandVoice: input.brandContext?.brandVoice,
       keyMessages: input.brandContext?.keyMessages,
       coreValues: input.brandContext?.coreValues,
+      prohibitedTerms: input.brandContext?.prohibitedTerms,
     });
     const carouselPrompt = buildImagePrompt({
       topic: input.topic,

@@ -52,6 +52,14 @@ export const onboardingWizardSchema = z.object({
   competitorDifferentiators: optionalText,
   commonQuestions: optionalTextArray,
   seasonalFocus: optionalText,
+  tagline: optionalText,
+  slogan: optionalText,
+  brandColors: z.object({
+    primary: optionalText,
+    secondary: optionalText,
+    accent: optionalText,
+  }).optional().default({}),
+  fontStyle: optionalText,
 });
 
 export type OnboardingWizardSchema = z.infer<typeof onboardingWizardSchema>;

@@ -40,6 +40,10 @@ export async function POST(request: Request) {
       competitorDifferentiators: body.competitorDifferentiators,
       commonQuestions: body.commonQuestions,
       seasonalFocus: body.seasonalFocus,
+      tagline: body.tagline,
+      slogan: body.slogan,
+      brandColors: body.brandColors,
+      fontStyle: body.fontStyle,
     });
 
     const record = saveOnboardingState(userId, step, payload);

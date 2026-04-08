@@ -31,7 +31,7 @@ export async function GET() {
         .maybeSingle(),
       supabase
         .from("brand_profiles")
-        .select("target_audience, brand_voice, key_messages, logo_url, website_url, website_content, company_description, products, unique_selling_points, industry, founded_year, team_description, core_values, customer_pain_points, customer_success_stories, services, price_range, brand_personality, brand_dos_and_donts, competitor_differentiators, common_questions, seasonal_focus")
+        .select("target_audience, brand_voice, key_messages, logo_url, website_url, website_content, company_description, products, unique_selling_points, industry, founded_year, team_description, core_values, customer_pain_points, customer_success_stories, services, price_range, brand_personality, brand_dos_and_donts, competitor_differentiators, common_questions, seasonal_focus, tagline, slogan, brand_colors, font_style")
         .eq("user_id", userId)
         .eq("workspace_id", workspaceId)
         .maybeSingle(),
@@ -114,6 +114,10 @@ export async function GET() {
       competitorDifferentiators: (brand as Record<string, unknown>)?.competitor_differentiators ?? "",
       commonQuestions: ((brand as Record<string, unknown>)?.common_questions as string[] | null) ?? [],
       seasonalFocus: (brand as Record<string, unknown>)?.seasonal_focus ?? "",
+      tagline: (brand as Record<string, unknown>)?.tagline ?? "",
+      slogan: (brand as Record<string, unknown>)?.slogan ?? "",
+      brandColors: (brand as Record<string, unknown>)?.brand_colors ?? {},
+      fontStyle: (brand as Record<string, unknown>)?.font_style ?? "",
       mediaMode,
       channels: channels.length > 0 ? channels : ["facebook", "instagram", "linkedin", "tiktok"],
     });

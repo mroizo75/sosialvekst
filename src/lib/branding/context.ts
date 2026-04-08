@@ -1,5 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { BrandContext, ProductImage } from "@/lib/types";
+import type { BrandColors, BrandContext, ProductImage } from "@/lib/types";
 
 type ProfileRow = {
   company_name: string | null;
@@ -9,6 +9,7 @@ type BrandProfileRow = {
   target_audience: string | null;
   brand_voice: string | null;
   key_messages: string[] | null;
+  prohibited_terms: string[] | null;
   logo_url: string | null;
   website_url: string | null;
   website_content: string | null;
@@ -28,6 +29,10 @@ type BrandProfileRow = {
   competitor_differentiators: string | null;
   common_questions: string[] | null;
   seasonal_focus: string | null;
+  tagline: string | null;
+  slogan: string | null;
+  brand_colors: Record<string, string> | null;
+  font_style: string | null;
 };
 
 type ProductImageRow = {
@@ -38,14 +43,25 @@ type ProductImageRow = {
 };
 
 const BRAND_FIELDS = [
-  "target_audience", "brand_voice", "key_messages", "logo_url",
-  "website_url", "website_content", "company_description",
+  "target_audience", "brand_voice", "key_messages", "prohibited_terms",
+  "logo_url", "website_url", "website_content", "company_description",
   "industry", "founded_year", "team_description", "core_values",
   "customer_pain_points", "customer_success_stories",
   "products", "services", "unique_selling_points", "price_range",
   "brand_personality", "brand_dos_and_donts",
   "competitor_differentiators", "common_questions", "seasonal_focus",
+  "tagline", "slogan", "brand_colors", "font_style",
 ].join(", ");
+
+const parseBrandColors = (raw: Record<string, string> | null): BrandColors | undefined => {
+  if (!raw || typeof raw !== "object") return undefined;
+  const colors: BrandColors = {};
+  if (typeof raw.primary === "string" && raw.primary) colors.primary = raw.primary;
+  if (typeof raw.secondary === "string" && raw.secondary) colors.secondary = raw.secondary;
+  if (typeof raw.accent === "string" && raw.accent) colors.accent = raw.accent;
+  if (!colors.primary && !colors.secondary && !colors.accent) return undefined;
+  return colors;
+};
 
 const toStringArray = (value: unknown): string[] | undefined => {
   return Array.isArray(value) && value.length > 0 ? value : undefined;
@@ -111,9 +127,14 @@ export const getBrandContext = async (userId: string, workspaceId?: string): Pro
     brandPersonality: brand?.brand_personality ?? undefined,
     brandDosAndDonts: brand?.brand_dos_and_donts ?? undefined,
     keyMessages: toStringArray(brand?.key_messages),
+    prohibitedTerms: toStringArray(brand?.prohibited_terms),
     competitorDifferentiators: brand?.competitor_differentiators ?? undefined,
     commonQuestions: toStringArray(brand?.common_questions),
     seasonalFocus: brand?.seasonal_focus ?? undefined,
+    tagline: brand?.tagline ?? undefined,
+    slogan: brand?.slogan ?? undefined,
+    brandColors: parseBrandColors(brand?.brand_colors ?? null),
+    fontStyle: brand?.font_style ?? undefined,
     logoUrl: brand?.logo_url ?? undefined,
     websiteUrl: brand?.website_url ?? undefined,
     websiteContent: brand?.website_content ?? undefined,

@@ -57,6 +57,10 @@ export const persistOnboarding = async (
     competitor_differentiators: payload.competitorDifferentiators || null,
     common_questions: payload.commonQuestions ?? [],
     seasonal_focus: payload.seasonalFocus || null,
+    tagline: payload.tagline || null,
+    slogan: payload.slogan || null,
+    brand_colors: payload.brandColors ?? {},
+    font_style: payload.fontStyle || null,
     updated_at: new Date().toISOString(),
   };
 
