@@ -35,6 +35,31 @@ type GeneratePostInput = {
   skipVideo?: boolean;
 };
 
+type ImageQualityPolicy = {
+  imageProfile: ImageProfile;
+  imageRetryAttempts: number;
+  minCarouselExtras: number;
+  maxCarouselExtras: number;
+};
+
+const getImageQualityPolicy = (channel: SocialChannel, requested?: ImageProfile): ImageQualityPolicy => {
+  if (channel === "instagram") {
+    // instagram_high_quality: prioritize visual quality over cost/time
+    return {
+      imageProfile: "final",
+      imageRetryAttempts: 5,
+      minCarouselExtras: 2,
+      maxCarouselExtras: 3,
+    };
+  }
+  return {
+    imageProfile: requested ?? "preview",
+    imageRetryAttempts: 3,
+    minCarouselExtras: 1,
+    maxCarouselExtras: 2,
+  };
+};
+
 type CachedOwnedImages = {
   expiresAt: number;
   urls: string[];
@@ -293,7 +318,7 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
       userId: input.userId,
       prompt: imagePrompt,
       logoUrl,
-      profile: input.imageProfile,
+      profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
     });
     if (branded) return branded;
   }
@@ -301,7 +326,7 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
   return generateProfessionalImage({
     userId: input.userId,
     prompt: imagePrompt,
-    profile: input.imageProfile,
+    profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
   });
 };
 
@@ -343,7 +368,7 @@ const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<string
     return pickOwnedImageUrl(input);
   }
 
-  const maxAttempts = 3;
+  const maxAttempts = getImageQualityPolicy(input.channel, input.imageProfile).imageRetryAttempts;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const imageUrl = await createImageUrl(input);
@@ -377,25 +402,14 @@ const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<string
   return undefined;
 };
 
-const CAROUSEL_FORMATS: PostFormat[] = [
-  "how_to",
-  "case_study",
-  "behind_the_scenes",
-  "tip",
-  "insight",
-  "fact",
-  "myth_busting",
-];
-
 const shouldGenerateCarousel = (
   channel: SocialChannel,
   format?: PostFormat,
-  scheduledAt?: string,
 ): boolean => {
   if (channel !== "instagram") return false;
-  if (!format || !CAROUSEL_FORMATS.includes(format)) return false;
-  const hash = hashStringToIndex(scheduledAt ?? crypto.randomUUID());
-  return (hash % 100) < 60;
+  if (!format) return true;
+  if (format === "question" || format === "opinion") return false;
+  return true;
 };
 
 const CAROUSEL_ANGLE_VARIANTS = [
@@ -407,10 +421,29 @@ const CAROUSEL_ANGLE_VARIANTS = [
 const generateCarouselImages = async (
   input: GeneratePostInput,
   primaryImagePrompt: string,
+  primaryImageUrl?: string,
 ): Promise<string[]> => {
-  const extraCount = 1 + Math.floor(Math.random() * 2);
+  const usedUrls = new Set<string>(primaryImageUrl ? [primaryImageUrl] : []);
+  const policy = getImageQualityPolicy(input.channel, input.imageProfile);
+  const range = Math.max(1, policy.maxCarouselExtras - policy.minCarouselExtras + 1);
+  const extraCount = policy.minCarouselExtras + Math.floor(Math.random() * range);
   const urls: string[] = [];
   const logoUrl = input.brandContext?.logoUrl;
+
+  if (input.mediaMode === "owned_only") {
+    for (let i = 0; i < extraCount + 1; i += 1) {
+      const owned = await pickOwnedImageUrl(input);
+      if (!owned || usedUrls.has(owned)) {
+        continue;
+      }
+      usedUrls.add(owned);
+      urls.push(owned);
+      if (urls.length >= extraCount) {
+        break;
+      }
+    }
+    return urls;
+  }
 
   for (let i = 0; i < extraCount; i += 1) {
     const variant = CAROUSEL_ANGLE_VARIANTS[i % CAROUSEL_ANGLE_VARIANTS.length];
@@ -424,7 +457,7 @@ const generateCarouselImages = async (
           userId: input.userId,
           prompt: variantPrompt,
           logoUrl,
-          profile: input.imageProfile,
+          profile: policy.imageProfile,
         });
       }
 
@@ -432,11 +465,15 @@ const generateCarouselImages = async (
         url = await generateProfessionalImage({
           userId: input.userId,
           prompt: variantPrompt,
-          profile: input.imageProfile,
+          profile: policy.imageProfile,
         });
       }
 
       if (url) {
+        if (usedUrls.has(url)) {
+          continue;
+        }
+        usedUrls.add(url);
         urls.push(url);
       }
     } catch (error) {
@@ -445,6 +482,20 @@ const generateCarouselImages = async (
         variant: i,
         error: error instanceof Error ? error.message : "ukjent",
       });
+    }
+  }
+
+  if (urls.length === 0 && input.mediaMode === "hybrid") {
+    for (let i = 0; i < extraCount + 1; i += 1) {
+      const owned = await pickOwnedImageUrl(input);
+      if (!owned || usedUrls.has(owned)) {
+        continue;
+      }
+      usedUrls.add(owned);
+      urls.push(owned);
+      if (urls.length >= extraCount) {
+        break;
+      }
     }
   }
 
@@ -558,7 +609,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   }
 
   let additionalImageUrls: string[] | undefined;
-  if (imageUrl && shouldGenerateCarousel(input.channel, input.format, input.scheduledAt)) {
+  if (imageUrl && shouldGenerateCarousel(input.channel, input.format)) {
     const brandRules = mergeBrandRules({
       targetAudience: input.brandContext?.targetAudience,
       brandVoice: input.brandContext?.brandVoice,
@@ -575,7 +626,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       imageDirection: input.imageDirection,
       format: input.format,
     });
-    additionalImageUrls = await generateCarouselImages(input, carouselPrompt);
+    additionalImageUrls = await generateCarouselImages(input, carouselPrompt, imageUrl);
     if (additionalImageUrls.length > 0) {
       logger.info("Instagram karusell generert", {
         userId: input.userId,
