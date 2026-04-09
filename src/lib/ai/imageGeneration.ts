@@ -13,6 +13,8 @@ type GenerateImageInput = {
 };
 
 const execFileAsync = promisify(execFile);
+const BANANA_COOLDOWN_MS = 15 * 60 * 1000;
+let bananaDisabledUntil = 0;
 
 const toBytes = (base64Image: string): Uint8Array => {
   const buffer = Buffer.from(base64Image, "base64");
@@ -72,7 +74,10 @@ const getBananaAspectRatio = (prompt: string): string => {
 };
 
 const shouldUseBananaPrimary = (): boolean => {
-  return process.env.IMAGE_PROVIDER?.toLowerCase() === "banana";
+  if (process.env.IMAGE_PROVIDER?.toLowerCase() !== "banana") {
+    return false;
+  }
+  return Date.now() >= bananaDisabledUntil;
 };
 
 const escapeForSingleQuotes = (value: string): string => {
@@ -87,7 +92,7 @@ const runBananaCli = async (
     return await execFileAsync(
       "infsh",
       ["app", "run", appRef, "--input", payloadJson],
-      { timeout: 90_000, maxBuffer: 10 * 1024 * 1024 },
+      { timeout: 25_000, maxBuffer: 10 * 1024 * 1024 },
     );
   } catch (error) {
     const looksLikeMissingInfsh =
@@ -108,7 +113,7 @@ const runBananaCli = async (
         "-lc",
         `infsh app run '${escapedAppRef}' --input '${escapedJson}'`,
       ],
-      { timeout: 90_000, maxBuffer: 10 * 1024 * 1024 },
+      { timeout: 25_000, maxBuffer: 10 * 1024 * 1024 },
     );
   }
 };
@@ -135,8 +140,11 @@ const tryGenerateWithBanana = async (input: GenerateImageInput): Promise<Uint8Ar
     const imagesRaw = parsed?.images;
     const images = Array.isArray(imagesRaw) ? imagesRaw : [];
     if (images.length === 0) {
+      bananaDisabledUntil = Date.now() + BANANA_COOLDOWN_MS;
       logger.warn("Nano Banana returnerte ingen bilder", {
         userId: input.userId,
+        cooldownMinutes: Math.floor(BANANA_COOLDOWN_MS / 60000),
+        stdoutPreview: stdout.slice(0, 200),
         stderr: stderr?.slice(0, 300) ?? "",
       });
       return null;
@@ -151,8 +159,10 @@ const tryGenerateWithBanana = async (input: GenerateImageInput): Promise<Uint8Ar
         ?? (first as Record<string, unknown>)?.b64_json;
 
     if (typeof imageValue !== "string" || imageValue.length === 0) {
+      bananaDisabledUntil = Date.now() + BANANA_COOLDOWN_MS;
       logger.warn("Nano Banana svarte uten gyldig bildeverdi", {
         userId: input.userId,
+        cooldownMinutes: Math.floor(BANANA_COOLDOWN_MS / 60000),
       });
       return null;
     }
@@ -167,8 +177,10 @@ const tryGenerateWithBanana = async (input: GenerateImageInput): Promise<Uint8Ar
 
     return await fetchImageBytes(imageValue);
   } catch (error) {
+    bananaDisabledUntil = Date.now() + BANANA_COOLDOWN_MS;
     logger.warn("Nano Banana feilet, faller tilbake til OpenAI", {
       userId: input.userId,
+      cooldownMinutes: Math.floor(BANANA_COOLDOWN_MS / 60000),
       error: error instanceof Error ? error.message : "unknown",
     });
     return null;

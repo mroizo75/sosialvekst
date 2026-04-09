@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import { CreatePostDialog } from "@/components/calendar/CreatePostDialog";
@@ -236,6 +235,7 @@ type DetailPanelProps = {
   onRegenerateImage: (id: string) => void;
   onRewriteTopic: (id: string, topic: string) => void;
   onApprove: (id: string) => void;
+  onUnlock: (id: string) => void;
   processingAction: string | null;
   approving: boolean;
   aiEditsRemaining: number;
@@ -431,12 +431,6 @@ const MediaPickerDialog = ({ onClose, onSelect }: MediaPickerDialogProps) => {
   );
 };
 
-const qualityLabel = (score: number): { text: string; color: string } => {
-  if (score >= 75) return { text: "Bra", color: "text-success" };
-  if (score >= 55) return { text: "OK", color: "text-warning-foreground" };
-  return { text: "Kan forbedres", color: "text-destructive" };
-};
-
 const DetailPanel = ({
   post,
   onClose,
@@ -446,6 +440,7 @@ const DetailPanel = ({
   onRegenerateImage,
   onRewriteTopic,
   onApprove,
+  onUnlock,
   processingAction,
   approving,
   aiEditsRemaining,
@@ -460,6 +455,7 @@ const DetailPanel = ({
   const [topicDraft, setTopicDraft] = useState("");
   const [showMediaPicker, setShowMediaPicker] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<"primary" | "additional">("primary");
+  const [carouselPreviewIndex, setCarouselPreviewIndex] = useState(0);
   const [uploadingVideo, setUploadingVideo] = useState(false);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
@@ -496,16 +492,32 @@ const DetailPanel = ({
       setImageUrlDraft(post.imageUrl ?? "");
       setVideoUrlDraft(post.videoUrl ?? "");
       setAdditionalImageUrlsDraft(post.additionalImageUrls ?? []);
+      setCarouselPreviewIndex(0);
       prevPostRef.current = post;
     }
   }, [post]);
 
+  const carouselPreviewUrls = useMemo(
+    () => (imageUrlDraft ? [imageUrlDraft, ...additionalImageUrlsDraft] : []),
+    [imageUrlDraft, additionalImageUrlsDraft],
+  );
+
+  useEffect(() => {
+    if (carouselPreviewUrls.length === 0) {
+      setCarouselPreviewIndex(0);
+      return;
+    }
+    if (carouselPreviewIndex > carouselPreviewUrls.length - 1) {
+      setCarouselPreviewIndex(carouselPreviewUrls.length - 1);
+    }
+  }, [carouselPreviewUrls, carouselPreviewIndex]);
+
   const isProcessing = Boolean(processingAction);
   // TODO: Aktiver igjen etter test
   const aiBlocked = false; // aiEditsRemaining <= 0;
-  const quality = qualityLabel(post.quality.total);
   const hasMedia = Boolean(imageUrlDraft) || Boolean(videoUrlDraft);
   const canApprove = post.status === "draft" || post.status === "needs_review";
+  const canUnlock = post.status === "approved" || post.status === "scheduled";
 
   useEffect(() => {
     let cancelled = false;
@@ -661,9 +673,39 @@ const DetailPanel = ({
           </div>
         )}
         {post.status === "approved" && (
-          <div className="flex items-center gap-2 border-b border-success/20 bg-gradient-to-r from-success/5 to-transparent px-5 py-2.5">
-            <IconCheckCircle className="size-4 text-success" />
-            <p className="text-sm font-medium text-success">Godkjent — klar for publisering</p>
+          <div className="flex items-center justify-between gap-3 border-b border-success/20 bg-gradient-to-r from-success/5 to-transparent px-5 py-2.5">
+            <div className="flex items-center gap-2">
+              <IconCheckCircle className="size-4 text-success" />
+              <p className="text-sm font-medium text-success">Godkjent — klar for publisering</p>
+            </div>
+            {canUnlock ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onUnlock(post.id)}
+                disabled={isProcessing}
+              >
+                {processingAction === "unlock" ? "Avbryter..." : "Avbryt godkjenning"}
+              </Button>
+            ) : null}
+          </div>
+        )}
+        {post.status === "scheduled" && (
+          <div className="flex items-center justify-between gap-3 border-b border-success/20 bg-gradient-to-r from-success/10 to-transparent px-5 py-2.5">
+            <div className="flex items-center gap-2">
+              <IconClock className="size-4 text-success" />
+              <p className="text-sm font-medium text-success">Planlagt for automatisk publisering</p>
+            </div>
+            {canUnlock ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onUnlock(post.id)}
+                disabled={isProcessing}
+              >
+                {processingAction === "unlock" ? "Avbryter..." : "Avbryt publisering"}
+              </Button>
+            ) : null}
           </div>
         )}
 
@@ -683,6 +725,67 @@ const DetailPanel = ({
                 {videoUrlDraft ? (
                   <div className="flex aspect-[4/3] w-full items-center justify-center rounded-xl border border-border bg-muted/20 overflow-hidden">
                     <video src={videoUrlDraft} controls className="h-full w-full object-contain" />
+                  </div>
+                ) : carouselPreviewUrls.length > 0 ? (
+                  <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+                    <div className="flex items-center justify-between border-b border-border px-3 py-2">
+                      <span className="text-[11px] font-semibold text-foreground">Forhåndsvisning</span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {carouselPreviewUrls.length > 1
+                          ? `${carouselPreviewIndex + 1} / ${carouselPreviewUrls.length}`
+                          : "1 / 1"}
+                      </span>
+                    </div>
+                    <div className="relative aspect-square w-full bg-black/5">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={carouselPreviewUrls[carouselPreviewIndex]}
+                        alt="Forhåndsvisning"
+                        className="h-full w-full object-cover"
+                        onError={(event) => { event.currentTarget.style.display = "none"; }}
+                      />
+                      {carouselPreviewUrls.length > 1 ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setCarouselPreviewIndex((current) => Math.max(0, current - 1))}
+                            disabled={carouselPreviewIndex === 0}
+                            className="absolute left-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white disabled:opacity-40"
+                          >
+                            ←
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCarouselPreviewIndex((current) => Math.min(carouselPreviewUrls.length - 1, current + 1))}
+                            disabled={carouselPreviewIndex === carouselPreviewUrls.length - 1}
+                            className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 text-white disabled:opacity-40"
+                          >
+                            →
+                          </button>
+                        </>
+                      ) : null}
+                    </div>
+                    {carouselPreviewUrls.length > 1 ? (
+                      <div className="flex items-center justify-center gap-1 py-2">
+                        {carouselPreviewUrls.map((_, index) => (
+                          <button
+                            key={`preview-dot-${index}`}
+                            type="button"
+                            onClick={() => setCarouselPreviewIndex(index)}
+                            className={cn(
+                              "size-1.5 rounded-full transition-all",
+                              index === carouselPreviewIndex ? "bg-primary scale-125" : "bg-muted-foreground/40",
+                            )}
+                            aria-label={`Gå til slide ${index + 1}`}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="border-t border-border px-3 py-2">
+                      <p className="line-clamp-3 text-xs text-muted-foreground">
+                        {textDraft.trim().length > 0 ? textDraft : "Posttekst vises her..."}
+                      </p>
+                    </div>
                   </div>
                 ) : imageUrlDraft ? (
                   <div className="flex aspect-[4/3] w-full items-center justify-center rounded-xl border border-border bg-muted/20 overflow-hidden">
@@ -970,6 +1073,16 @@ const DetailPanel = ({
                       </p>
                     </div>
                   </div>
+                ) : canUnlock ? (
+                  <div className="flex items-start gap-3 rounded-lg border border-warning/20 bg-warning/5 p-3">
+                    <IconAlertCircle className="size-5 shrink-0 text-warning-foreground/70" />
+                    <div>
+                      <p className="text-xs font-medium text-foreground">Posten er låst for publisering</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        Avbryt godkjenning/publisering først, så kan du generere nytt innhold.
+                      </p>
+                    </div>
+                  </div>
                 ) : (
                   <>
                     <div className="grid grid-cols-2 gap-2">
@@ -1101,7 +1214,7 @@ export const PostCalendar = () => {
   const [selectedPost, setSelectedPost] = useState<PostDraft | null>(null);
   const [processingPost, setProcessingPost] = useState<{
     id: string;
-    action: "save" | "regenerate_all" | "regenerate_text" | "regenerate_image" | "rewrite_topic";
+    action: "save" | "regenerate_all" | "regenerate_text" | "regenerate_image" | "rewrite_topic" | "unlock";
   } | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
@@ -1147,11 +1260,9 @@ export const PostCalendar = () => {
 
   const updatePost = async (
     postId: string,
-    action: "save" | "regenerate_all" | "regenerate_text" | "regenerate_image" | "rewrite_topic",
+    action: "save" | "regenerate_all" | "regenerate_text" | "regenerate_image" | "rewrite_topic" | "unlock",
     payload: Record<string, string | string[] | undefined> = {},
   ) => {
-    const isAiAction = action !== "save";
-
     // TODO: Aktiver igjen etter test
     // if (isAiAction && aiEditsRemaining <= 0) {
     //   setStatus("Du har brukt opp dine AI-redigeringer for denne perioden. Du kan fortsatt redigere tekst og bilder manuelt.");
@@ -1159,7 +1270,13 @@ export const PostCalendar = () => {
     // }
 
     setProcessingPost({ id: postId, action });
-    setStatus(action === "save" ? "Lagrer endringer..." : "AI oppdaterer posten...");
+    setStatus(
+      action === "save"
+        ? "Lagrer endringer..."
+        : action === "unlock"
+          ? "Avbryter godkjenning/publisering..."
+          : "AI oppdaterer posten...",
+    );
 
     const response = await fetch(`/api/posts/${postId}`, {
       method: "PATCH",
@@ -1177,7 +1294,12 @@ export const PostCalendar = () => {
     const updatedPost = (await response.json()) as PostDraft;
     setPosts((prev) => prev.map((p) => (p.id === updatedPost.id ? updatedPost : p)));
     setSelectedPost(updatedPost);
-    setStatus("");
+    if (action === "unlock") {
+      setStatus("Posten er låst opp. Du kan nå redigere og generere nytt innhold.");
+      setTimeout(() => setStatus(""), 3000);
+    } else {
+      setStatus("");
+    }
     setProcessingPost(null);
 
     // TODO: Aktiver igjen etter test
@@ -1815,6 +1937,7 @@ export const PostCalendar = () => {
             onRegenerateImage={(id) => void updatePost(id, "regenerate_image")}
             onRewriteTopic={(id, topic) => void updatePost(id, "rewrite_topic", { topic })}
             onApprove={(id) => void approvePost(id)}
+            onUnlock={(id) => void updatePost(id, "unlock")}
             processingAction={processingPost?.id === selectedPost.id ? processingPost.action : null}
             approving={approvingId === selectedPost.id}
             aiEditsRemaining={aiEditsRemaining}

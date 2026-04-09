@@ -9,11 +9,10 @@ import { deleteFilesByUrls } from "@/lib/cloudflare/r2";
 import { requireWorkspaceId } from "@/lib/workspace";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
-import { checkAiEditAvailable, consumeAiEdit } from "@/lib/posts/aiEditLimits";
 import { getPostById, savePost, setPostAdditionalImages } from "@/lib/posts/repository";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { BrandContext, TopicWindow } from "@/lib/types";
+import type { TopicWindow } from "@/lib/types";
 
 const REGENERATE_TIMEOUT_MS = 120_000;
 
@@ -37,7 +36,7 @@ const updateSchema = z.object({
   topic: z.string().trim().min(2).max(180).optional(),
   scheduledAt: z.string().datetime().optional(),
   action: z
-    .enum(["save", "regenerate_all", "regenerate_text", "regenerate_image", "rewrite_topic", "reschedule"])
+    .enum(["save", "regenerate_all", "regenerate_text", "regenerate_image", "rewrite_topic", "reschedule", "unlock"])
     .optional(),
   regenerate: z.boolean().optional(),
 });
@@ -146,7 +145,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   try {
     const userId = await requireUserId();
     const workspaceId = await requireWorkspaceId(userId);
-    const brandContext = await getBrandContext(userId);
+    const brandContext = await getBrandContext(userId, workspaceId);
     const { postId } = await context.params;
     const post = await getPostById(userId, postId);
     if (!post) {
@@ -163,6 +162,53 @@ export async function PATCH(request: Request, context: RouteContext) {
       ?? brandContext?.products?.join(", ")?.slice(0, 180)
       ?? "Generell merkevarebygging";
     const action = payload.action ?? (payload.regenerate ? "regenerate_all" : "save");
+
+    if (action === "unlock") {
+      if (post.status === "published") {
+        return NextResponse.json(
+          toAppError("POST_LOCKED", "Publiserte poster kan ikke låses opp."),
+          { status: 400 },
+        );
+      }
+
+      const supabase = await createSupabaseServerClient();
+      const { error: queueDeleteError } = await supabase
+        .from("publish_jobs")
+        .delete()
+        .eq("user_id", userId)
+        .eq("workspace_id", workspaceId)
+        .eq("post_id", postId)
+        .in("status", ["queued", "retrying", "processing"]);
+
+      if (queueDeleteError) {
+        return NextResponse.json(
+          toAppError(
+            "PUBLISH_QUEUE_CANCEL_FAILED",
+            "Kunne ikke avbryte publiseringskø for posten.",
+            queueDeleteError.message,
+          ),
+          { status: 500 },
+        );
+      }
+
+      await savePost(userId, {
+        ...post,
+        status: "draft",
+      });
+      const refreshedPost = await getPostById(userId, post.id);
+      return NextResponse.json(refreshedPost);
+    }
+
+    const isApprovalLocked = post.status === "approved" || post.status === "scheduled";
+    if (isApprovalLocked && action !== "reschedule") {
+      return NextResponse.json(
+        toAppError(
+          "POST_APPROVAL_LOCKED",
+          "Posten er godkjent/planlagt. Avbryt publisering først for å redigere eller generere nytt innhold.",
+        ),
+        { status: 409 },
+      );
+    }
 
     if (action === "reschedule") {
       if (!payload.scheduledAt) {

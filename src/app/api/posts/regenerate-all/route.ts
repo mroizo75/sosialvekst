@@ -9,6 +9,7 @@ import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireWorkspaceId } from "@/lib/workspace";
 import type { BrandContext, SocialChannel, TopicWindow } from "@/lib/types";
 
 const DEFAULT_POSTS_PER_WEEK = 3;
@@ -41,6 +42,7 @@ const normalizeChannels = (value: unknown): SocialChannel[] => {
 export async function POST() {
   try {
     const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
     await requireActiveSubscription(userId);
     const supabase = await createSupabaseServerClient();
     const admin = createSupabaseAdminClient();
@@ -240,11 +242,12 @@ export async function POST() {
 
     await admin.from("generation_log").insert({
       user_id: userId,
+      workspace_id: workspaceId,
       action: "regenerate_all",
       post_count: newSlots.length,
     });
 
-    const brandContext = await getBrandContext(userId);
+    const brandContext = await getBrandContext(userId, workspaceId);
 
     console.log(`[regenerate-all] Starter generering av ${newSlots.length} poster for bruker ${userId}`);
 

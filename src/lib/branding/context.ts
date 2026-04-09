@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { listUserFiles } from "@/lib/cloudflare/r2";
 import type { BrandColors, BrandContext, ProductImage } from "@/lib/types";
 
 type ProfileRow = {
@@ -67,6 +68,18 @@ const toStringArray = (value: unknown): string[] | undefined => {
   return Array.isArray(value) && value.length > 0 ? value : undefined;
 };
 
+const pickLatestLogoUrl = async (userId: string): Promise<string | undefined> => {
+  try {
+    const files = await listUserFiles(userId);
+    const logoFiles = files
+      .filter((file) => file.key.toLowerCase().includes("/logos/"))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return logoFiles[0]?.url;
+  } catch {
+    return undefined;
+  }
+};
+
 const fetchProductImages = async (
   userId: string,
   workspaceId: string | undefined,
@@ -109,6 +122,8 @@ export const getBrandContext = async (userId: string, workspaceId?: string): Pro
   const profile = profileResult.data as ProfileRow | null;
   const brand = brandResult.data as BrandProfileRow | null;
 
+  const logoUrl = brand?.logo_url ?? await pickLatestLogoUrl(userId);
+
   return {
     companyName: profile?.company_name ?? undefined,
     companyDescription: brand?.company_description ?? undefined,
@@ -135,7 +150,7 @@ export const getBrandContext = async (userId: string, workspaceId?: string): Pro
     slogan: brand?.slogan ?? undefined,
     brandColors: parseBrandColors(brand?.brand_colors ?? null),
     fontStyle: brand?.font_style ?? undefined,
-    logoUrl: brand?.logo_url ?? undefined,
+    logoUrl: logoUrl ?? undefined,
     websiteUrl: brand?.website_url ?? undefined,
     websiteContent: brand?.website_content ?? undefined,
     productImages: productImages.length > 0 ? productImages : undefined,
