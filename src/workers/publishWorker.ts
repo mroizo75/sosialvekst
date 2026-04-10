@@ -404,6 +404,17 @@ type TikTokCreatorInfo = {
   maxVideoDuration: number;
 };
 
+const buildTikTokTitle = (text: string): string => {
+  const normalized = text
+    .replace(/\s+/g, " ")
+    .replace(/[\r\n]+/g, " ")
+    .trim();
+  const fallback = "Nytt innlegg fra SosialVekst";
+  const value = normalized.length > 0 ? normalized : fallback;
+  // TikTok er streng på post_info-felt; hold tittelen kort og ren.
+  return value.slice(0, 90);
+};
+
 const queryTikTokCreatorInfo = async (accessToken: string): Promise<TikTokCreatorInfo> => {
   const response = await fetch("https://open.tiktokapis.com/v2/post/publish/creator_info/query/", {
     method: "POST",
@@ -461,6 +472,8 @@ const publishTikTokVideo = async (input: PublishInput, accessToken: string, crea
   const videoBuffer = Buffer.from(await videoResponse.arrayBuffer());
   const videoSize = videoBuffer.byteLength;
 
+  const title = buildTikTokTitle(input.text);
+
   logger.info("[publishTikTokVideo] FILE_UPLOAD init", { videoSize, privacy: creator.privacyLevel });
 
   const initResponse = await fetch("https://open.tiktokapis.com/v2/post/publish/video/init/", {
@@ -471,7 +484,7 @@ const publishTikTokVideo = async (input: PublishInput, accessToken: string, crea
     },
     body: JSON.stringify({
       post_info: {
-        title: input.text.slice(0, 2200),
+        title,
         privacy_level: creator.privacyLevel,
         disable_duet: creator.duetDisabled,
         disable_stitch: creator.stitchDisabled,
@@ -534,6 +547,7 @@ const publishTikTokPhoto = async (input: PublishInput, accessToken: string, crea
     throw new Error("TikTok krever minst ett bilde for foto-publisering.");
   }
 
+  const title = buildTikTokTitle(input.text);
   const proxiedUrls = imageUrls.map(toProxyUrl).slice(0, 35);
   logger.info("[publishTikTokPhoto] PULL_FROM_URL via proxy", { count: proxiedUrls.length, privacy: creator.privacyLevel });
 
@@ -545,7 +559,7 @@ const publishTikTokPhoto = async (input: PublishInput, accessToken: string, crea
     },
     body: JSON.stringify({
       post_info: {
-        title: input.text.slice(0, 2200),
+        title,
         privacy_level: creator.privacyLevel,
         disable_comment: creator.commentDisabled,
       },
@@ -757,9 +771,15 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
       published += 1;
       logger.info("Published post", { jobId: job.id, postId: job.post_id, externalPostId });
     } catch (error) {
-      const exhausted = claimAttempt >= MAX_ATTEMPTS;
-      const retryDelay = RETRY_DELAYS_MS[Math.min(claimAttempt - 1, RETRY_DELAYS_MS.length - 1)];
       const errorMessage = error instanceof Error ? error.message : "Ukjent feil";
+      const deterministicFailure =
+        errorMessage.includes("Mangler gyldig tilgangstoken")
+        || errorMessage.includes("Mangler Facebook accountId")
+        || errorMessage.includes("Mangler Instagram accountId")
+        || errorMessage.includes("Mangler LinkedIn accountId")
+        || errorMessage.includes("Mangler TikTok tilgangstoken");
+      const exhausted = deterministicFailure || claimAttempt >= MAX_ATTEMPTS;
+      const retryDelay = RETRY_DELAYS_MS[Math.min(claimAttempt - 1, RETRY_DELAYS_MS.length - 1)];
 
       await admin
         .from("publish_jobs")
