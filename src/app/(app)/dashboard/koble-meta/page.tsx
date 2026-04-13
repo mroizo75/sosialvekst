@@ -12,15 +12,15 @@ const steps = [
   },
   {
     number: "2",
-    title: "Velg ALLE sidene dine",
+    title: "Gi tilgang til alle sidene dine",
     description:
-      "Facebook vil spørre hvilke sider appen skal ha tilgang til. Huk av for ALLE sidene du administrerer — ikke bare én.",
+      "Facebook viser hvilke sider appen har tilgang til. Hvis du har koblet til før og bare ser én side, klikk «Rediger innstillinger» og huk av for ALLE sidene du administrerer.",
   },
   {
     number: "3",
     title: "Velg riktig side",
     description:
-      "Du kommer tilbake hit og ser en liste over alle sidene. Velg hvilken side som tilhører denne bedriften.",
+      "Du kommer tilbake hit og ser en liste over alle sidene du ga tilgang til. Velg hvilken side som tilhører denne bedriften.",
   },
 ];
 
@@ -65,12 +65,12 @@ export default function ConnectMetaPage() {
             </svg>
             <div>
               <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
-                Viktig: Velg alle sider
+                Viktig: Gi tilgang til alle sider
               </p>
               <p className="mt-1 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-                Hvis du bare velger én side i Facebook-dialogen, vil du kun se den ene
-                siden etterpå. For å kunne koble ulike sider til ulike bedrifter, må du
-                gi tilgang til alle.
+                Har du koblet til før? Da husker Facebook forrige valg. I dialogen:
+                klikk <strong>Rediger innstillinger</strong> og huk av for alle sidene
+                du vil administrere. Uten dette ser du bare én side.
               </p>
             </div>
           </div>

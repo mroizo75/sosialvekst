@@ -283,7 +283,7 @@ export const generateProfessionalImage = async (
   return uploaded.publicUrl;
 };
 
-const LOGO_MAX_WIDTH_RATIO = 0.15;
+const LOGO_MAX_WIDTH_RATIO = 0.27;
 const LOGO_PADDING_RATIO = 0.03;
 
 export const overlayLogoOnImage = async (
@@ -330,18 +330,18 @@ export const overlayLogoOnImage = async (
       .composite([
         {
           input: resizedLogo,
-          gravity: "southeast",
           top: height - logoH - padding,
           left: width - logoW - padding,
         },
       ])
-      .png()
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
+      .jpeg({ quality: 90 })
       .toBuffer();
 
     const uploaded = await uploadUserFile({
       userId,
-      fileName: `ai-image-branded-${crypto.randomUUID()}.png`,
-      contentType: "image/png",
+      fileName: `ai-image-branded-${crypto.randomUUID()}.jpg`,
+      contentType: "image/jpeg",
       mediaKind: "image",
       body: new Uint8Array(composited),
     });

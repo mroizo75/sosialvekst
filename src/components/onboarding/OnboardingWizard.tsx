@@ -58,6 +58,13 @@ const CHANNEL_OPTIONS: Array<{ value: SocialChannel; label: string }> = [
   { value: "linkedin", label: "LinkedIn" },
   { value: "tiktok", label: "TikTok" },
 ];
+
+const MEDIA_MODE_OPTIONS: Array<{ value: MediaMode; label: string; description: string }> = [
+  { value: "ai_only", label: "AI-bilder", description: "AI lager alle bilder for deg" },
+  { value: "hybrid", label: "Mine + AI-bilder", description: "Kombinasjon av dine bilder og AI" },
+  { value: "owned_only", label: "Mine egne", description: "Bare dine egne bilder og videoer" },
+];
+
 const TOPIC_WINDOWS_STORAGE_KEY = "onboarding_topic_windows_v1";
 
 const Stepper = ({ currentStep, totalSteps }: { currentStep: number; totalSteps: number }) => (
@@ -1167,15 +1174,36 @@ export const OnboardingWizard = () => {
             <CardContent className="space-y-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Bilder i innlegg</label>
-                <select
-                  value={form.mediaMode}
-                  onChange={(e) => update("mediaMode", e.target.value as MediaMode)}
-                  className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <option value="ai_only">La AI lage alle bilder</option>
-                  <option value="hybrid">Bruk mine bilder + AI-bilder</option>
-                  <option value="owned_only">Bare mine egne bilder og videoer</option>
-                </select>
+                <div className="grid gap-2">
+                  {MEDIA_MODE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => update("mediaMode", option.value)}
+                      className={cn(
+                        "flex items-center gap-3 rounded-xl border p-3.5 text-left transition-all cursor-pointer",
+                        form.mediaMode === option.value
+                          ? "border-primary bg-primary/5 ring-1 ring-primary"
+                          : "border-border hover:border-primary/40",
+                      )}
+                    >
+                      <div className={cn(
+                        "flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+                        form.mediaMode === option.value
+                          ? "border-primary bg-primary"
+                          : "border-border",
+                      )}>
+                        {form.mediaMode === option.value && (
+                          <div className="size-2 rounded-full bg-white" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground">{option.label}</p>
+                        <p className="text-xs text-muted-foreground">{option.description}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -1424,15 +1452,36 @@ export const OnboardingWizard = () => {
           <CardContent className="space-y-5">
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Bilder i innlegg</label>
-              <select
-                value={form.mediaMode}
-                onChange={(e) => update("mediaMode", e.target.value as MediaMode)}
-                className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <option value="ai_only">La AI lage alle bilder</option>
-                <option value="hybrid">Bruk mine bilder + AI-bilder</option>
-                <option value="owned_only">Bare mine egne bilder og videoer</option>
-              </select>
+              <div className="grid gap-2">
+                {MEDIA_MODE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => update("mediaMode", option.value)}
+                    className={cn(
+                      "flex items-center gap-3 rounded-xl border p-3.5 text-left transition-all cursor-pointer",
+                      form.mediaMode === option.value
+                        ? "border-primary bg-primary/5 ring-1 ring-primary"
+                        : "border-border hover:border-primary/40",
+                    )}
+                  >
+                    <div className={cn(
+                      "flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+                      form.mediaMode === option.value
+                        ? "border-primary bg-primary"
+                        : "border-border",
+                    )}>
+                      {form.mediaMode === option.value && (
+                        <div className="size-2 rounded-full bg-white" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">{option.label}</p>
+                      <p className="text-xs text-muted-foreground">{option.description}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
               <p className="text-xs text-muted-foreground">
                 Du kan alltid endre bilder på enkeltposter etterpå.
               </p>

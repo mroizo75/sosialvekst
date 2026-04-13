@@ -71,6 +71,39 @@ const publishFacebook = async (input: PublishInput): Promise<string> => {
   return payload.post_id ?? payload.id ?? `facebook_${input.idempotencyKey}`;
 };
 
+const IG_CONTAINER_POLL_INTERVAL_MS = 3_000;
+const IG_CONTAINER_MAX_POLLS = 20;
+
+const waitForContainerStatus = async (
+  containerId: string,
+  accessToken: string,
+  apiVersion: string,
+): Promise<void> => {
+  for (let attempt = 0; attempt < IG_CONTAINER_MAX_POLLS; attempt += 1) {
+    const statusUrl = new URL(`https://graph.facebook.com/${apiVersion}/${containerId}`);
+    statusUrl.searchParams.set("access_token", accessToken);
+    statusUrl.searchParams.set("fields", "status_code,status");
+
+    const response = await fetch(statusUrl.toString());
+    const payload = (await response.json().catch(() => ({}))) as {
+      status_code?: string;
+      status?: string;
+    };
+
+    const code = payload.status_code ?? payload.status;
+
+    if (code === "FINISHED") return;
+
+    if (code === "ERROR") {
+      throw new Error(`Instagram container ${containerId} feilet under prosessering.`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, IG_CONTAINER_POLL_INTERVAL_MS));
+  }
+
+  throw new Error(`Instagram container ${containerId} ble aldri ferdig prosessert (timeout).`);
+};
+
 const publishInstagram = async (input: PublishInput): Promise<string> => {
   if (!input.accountId) {
     throw new Error("Mangler Instagram accountId.");
@@ -81,12 +114,13 @@ const publishInstagram = async (input: PublishInput): Promise<string> => {
     throw new Error("Instagram krever bilde eller video for publisering.");
   }
   const apiVersion = process.env.FACEBOOK_GRAPH_API_VERSION ?? "v23.0";
+  const token = input.accessToken ?? "";
 
   if (!input.videoUrl && imageUrls.length > 1) {
     const carouselIds: string[] = [];
     for (const imageUrl of imageUrls) {
       const itemForm = new URLSearchParams();
-      itemForm.set("access_token", input.accessToken ?? "");
+      itemForm.set("access_token", token);
       itemForm.set("image_url", imageUrl);
       itemForm.set("is_carousel_item", "true");
       const itemResponse = await fetch(
@@ -104,8 +138,12 @@ const publishInstagram = async (input: PublishInput): Promise<string> => {
       carouselIds.push(itemPayload.id);
     }
 
+    await Promise.all(
+      carouselIds.map((id) => waitForContainerStatus(id, token, apiVersion)),
+    );
+
     const parentForm = new URLSearchParams();
-    parentForm.set("access_token", input.accessToken ?? "");
+    parentForm.set("access_token", token);
     parentForm.set("media_type", "CAROUSEL");
     parentForm.set("children", carouselIds.join(","));
     parentForm.set("caption", input.text);
@@ -122,8 +160,10 @@ const publishInstagram = async (input: PublishInput): Promise<string> => {
       throw new Error("Instagram karusell-container ble ikke opprettet.");
     }
 
+    await waitForContainerStatus(parentPayload.id, token, apiVersion);
+
     const publishForm = new URLSearchParams();
-    publishForm.set("access_token", input.accessToken ?? "");
+    publishForm.set("access_token", token);
     publishForm.set("creation_id", parentPayload.id);
     const publishResponse = await fetch(
       `https://graph.facebook.com/${apiVersion}/${input.accountId}/media_publish`,
@@ -138,7 +178,7 @@ const publishInstagram = async (input: PublishInput): Promise<string> => {
   }
 
   const createForm = new URLSearchParams();
-  createForm.set("access_token", input.accessToken ?? "");
+  createForm.set("access_token", token);
   if (input.videoUrl) {
     createForm.set("video_url", input.videoUrl);
     createForm.set("media_type", "REELS");
@@ -159,8 +199,10 @@ const publishInstagram = async (input: PublishInput): Promise<string> => {
     throw new Error("Instagram media container ble ikke opprettet.");
   }
 
+  await waitForContainerStatus(createPayload.id, token, apiVersion);
+
   const publishForm = new URLSearchParams();
-  publishForm.set("access_token", input.accessToken ?? "");
+  publishForm.set("access_token", token);
   publishForm.set("creation_id", createPayload.id);
   const publishResponse = await fetch(
     `https://graph.facebook.com/${apiVersion}/${input.accountId}/media_publish`,
