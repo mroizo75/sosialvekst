@@ -20,7 +20,8 @@ export const CreatePostDialog = ({ onClose, onCreated }: CreatePostDialogProps) 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
   const handleSubmit = async () => {
     if (!text.trim() || !scheduledDate) {

@@ -90,6 +90,13 @@ const isSameDay = (a: Date, b: Date): boolean =>
 
 const isToday = (date: Date): boolean => isSameDay(date, new Date());
 
+const toLocalDateKey = (date: Date): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
 const channelColor: Record<SocialChannel, string> = {
   facebook: "bg-facebook/15 border-facebook/30 text-facebook",
   instagram: "bg-instagram/15 border-instagram/30 text-instagram",
@@ -1380,7 +1387,7 @@ export const PostCalendar = () => {
       return;
     }
 
-    if (new Date(sourcePost.scheduledAt).toISOString().slice(0, 10) === dateKey) {
+    if (toLocalDateKey(new Date(sourcePost.scheduledAt)) === dateKey) {
       return;
     }
 
@@ -1476,7 +1483,7 @@ export const PostCalendar = () => {
   const postsByDate = useMemo(() => {
     const map = new Map<string, PostDraft[]>();
     for (const post of posts) {
-      const key = new Date(post.scheduledAt).toISOString().slice(0, 10);
+      const key = toLocalDateKey(new Date(post.scheduledAt));
       const existing = map.get(key) ?? [];
       existing.push(post);
       map.set(key, existing);
@@ -1713,7 +1720,7 @@ export const PostCalendar = () => {
                   {weekNum}
                 </div>
                 {week.map((day, dayIdx) => {
-                  const dateKey = day.toISOString().slice(0, 10);
+                  const dateKey = toLocalDateKey(day);
                   const dayPosts = postsByDate.get(dateKey) ?? [];
                   const isCurrentMonth = day.getMonth() === currentDate.getMonth();
 
@@ -1828,7 +1835,7 @@ export const PostCalendar = () => {
                   {String(hour).padStart(2, "0")}:00
                 </div>
                 {weekDays.map((day, dayIdx) => {
-                  const dateKey = day.toISOString().slice(0, 10);
+                  const dateKey = toLocalDateKey(day);
                   const dayPosts = postsByDate.get(dateKey) ?? [];
                   const hourPosts = dayPosts.filter(
                     (p) => new Date(p.scheduledAt).getHours() === hour,
