@@ -1448,7 +1448,7 @@ export const OnboardingWizard = () => {
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <a
-                      href={`/api/social/oauth/meta/start?returnTo=${encodeURIComponent("/onboarding?step=3")}`}
+                      href="/dashboard/koble-meta"
                       className="inline-flex h-8 items-center rounded-lg border border-border bg-card px-3 text-xs font-medium hover:bg-secondary transition-colors"
                     >
                       Koble Facebook + Instagram

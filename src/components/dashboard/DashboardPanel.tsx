@@ -85,7 +85,7 @@ const SOCIAL_PLATFORMS = [
     channel: "facebook" as const,
     label: "Facebook",
     connectLabel: "Koble Facebook + Instagram",
-    href: "/api/social/oauth/meta/start",
+    href: "/dashboard/koble-meta",
     gradient: "from-[#1877F2] to-[#0C63D4]",
     bgLight: "bg-[#1877F2]/5",
     borderLight: "border-[#1877F2]/20",

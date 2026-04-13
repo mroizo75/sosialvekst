@@ -30,6 +30,7 @@ export async function GET(request: Request) {
   authUrl.searchParams.set("state", state);
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("scope", scopes);
+  authUrl.searchParams.set("auth_type", "rerequest");
 
   const response = NextResponse.redirect(authUrl.toString());
   response.cookies.set(OAUTH_STATE_COOKIE, state, {

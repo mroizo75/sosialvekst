@@ -20,9 +20,10 @@ type MetaPage = {
 export type PendingMetaPage = {
   id: string;
   name: string;
-  pageToken: string;
+  pageToken: string | null;
   igId: string | null;
   igUsername: string | null;
+  source: "oauth" | "business_manager";
 };
 
 export type PendingMetaData = {
@@ -71,13 +72,83 @@ const fetchPageAccessToken = async (
 const resolvePageToken = async (page: MetaPage, userAccessToken: string): Promise<string | null> =>
   page.access_token ?? await fetchPageAccessToken(page.id, userAccessToken);
 
+const fetchBusinessPages = async (
+  userAccessToken: string,
+): Promise<MetaPage[]> => {
+  const allPages: MetaPage[] = [];
+  try {
+    const bizUrl = new URL("https://graph.facebook.com/v23.0/me/businesses");
+    bizUrl.searchParams.set("access_token", userAccessToken);
+    bizUrl.searchParams.set("fields", "id,name");
+    bizUrl.searchParams.set("limit", "100");
+
+    const bizResponse = await fetch(bizUrl.toString(), { cache: "no-store" });
+    if (!bizResponse.ok) {
+      logger.info("[meta/callback] /me/businesses returnerte ikke-OK", {
+        status: bizResponse.status,
+      });
+      return allPages;
+    }
+    const bizPayload = (await bizResponse.json()) as {
+      data?: Array<{ id: string; name?: string }>;
+    };
+    const businesses = bizPayload.data ?? [];
+
+    logger.info("[meta/callback] Business Managers funnet", { count: businesses.length });
+
+    for (const biz of businesses) {
+      try {
+        const ownedUrl = new URL(
+          `https://graph.facebook.com/v23.0/${biz.id}/owned_pages`,
+        );
+        ownedUrl.searchParams.set("access_token", userAccessToken);
+        ownedUrl.searchParams.set(
+          "fields",
+          "id,name,instagram_business_account{id,username}",
+        );
+        ownedUrl.searchParams.set("limit", "100");
+
+        const ownedResponse = await fetch(ownedUrl.toString(), { cache: "no-store" });
+        if (!ownedResponse.ok) {
+          logger.info("[meta/callback] /{biz}/owned_pages feilet", {
+            businessId: biz.id,
+            status: ownedResponse.status,
+          });
+          continue;
+        }
+
+        const ownedPayload = (await ownedResponse.json()) as { data?: MetaPage[] };
+        const owned = ownedPayload.data ?? [];
+
+        logger.info("[meta/callback] Sider fra Business Manager", {
+          businessId: biz.id,
+          businessName: biz.name,
+          pageCount: owned.length,
+        });
+
+        allPages.push(...owned);
+      } catch {
+        logger.warn("[meta/callback] Feil ved henting av owned_pages", {
+          businessId: biz.id,
+        });
+      }
+    }
+  } catch (error) {
+    logger.warn("[meta/callback] fetchBusinessPages feilet", {
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+  }
+  return allPages;
+};
+
 export const connectSinglePage = async (
   userId: string,
   workspaceId: string,
   page: PendingMetaPage,
-  userAccessToken: string,
   tokenExpiresIn: number | null,
 ): Promise<string> => {
+  if (!page.pageToken) return "meta_page_token_missing";
+
   const supabase = await createSupabaseServerClient();
 
   await supabase
@@ -177,9 +248,11 @@ export async function GET(request: Request) {
       return failed;
     }
 
+    // Phase 1: Fetch pages from /me/accounts (with tokens)
     const pagesUrl = new URL("https://graph.facebook.com/v23.0/me/accounts");
     pagesUrl.searchParams.set("access_token", userAccessToken);
     pagesUrl.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username}");
+    pagesUrl.searchParams.set("limit", "100");
 
     const pagesResponse = await fetch(pagesUrl.toString(), { cache: "no-store" });
     const pagesPayload = (await pagesResponse.json().catch(() => ({}))) as {
@@ -195,22 +268,22 @@ export async function GET(request: Request) {
       failed.cookies.delete(OAUTH_STATE_COOKIE);
       return failed;
     }
-    const pages = pagesPayload.data ?? [];
+    const oauthPages = pagesPayload.data ?? [];
 
-    logger.info("[meta/callback] Sider hentet", {
-      pageCount: pages.length,
-      pagesWithIg: pages.filter((p) => p.instagram_business_account?.id).length,
+    logger.info("[meta/callback] OAuth-sider hentet", {
+      pageCount: oauthPages.length,
+      pagesWithIg: oauthPages.filter((p) => p.instagram_business_account?.id).length,
     });
 
-    const validPages = pages.filter((p) => Boolean(p.id));
-    if (validPages.length === 0) {
-      const none = redirectToReturnPath(returnPath, "meta_no_pages");
-      none.cookies.delete(OAUTH_STATE_COOKIE);
-      return none;
-    }
+    // Phase 2: Fetch additional pages from Business Manager API
+    const businessPages = await fetchBusinessPages(userAccessToken);
 
+    // Phase 3: Merge and deduplicate
+    const oauthPageIds = new Set(oauthPages.filter((p) => p.id).map((p) => p.id));
     const resolvedPages: PendingMetaPage[] = [];
-    for (const page of validPages) {
+
+    for (const page of oauthPages) {
+      if (!page.id) continue;
       const pageToken = await resolvePageToken(page, userAccessToken);
       if (!pageToken) continue;
       resolvedPages.push({
@@ -219,13 +292,34 @@ export async function GET(request: Request) {
         pageToken,
         igId: page.instagram_business_account?.id ?? null,
         igUsername: page.instagram_business_account?.username ?? null,
+        source: "oauth",
       });
     }
 
+    for (const page of businessPages) {
+      if (!page.id || oauthPageIds.has(page.id)) continue;
+      resolvedPages.push({
+        id: page.id,
+        name: page.name ?? `Side ${page.id}`,
+        pageToken: null,
+        igId: page.instagram_business_account?.id ?? null,
+        igUsername: page.instagram_business_account?.username ?? null,
+        source: "business_manager",
+      });
+    }
+
+    logger.info("[meta/callback] Totalt etter merge", {
+      oauthPages: oauthPages.length,
+      businessPages: businessPages.length,
+      resolvedTotal: resolvedPages.length,
+      withToken: resolvedPages.filter((p) => p.pageToken).length,
+      withoutToken: resolvedPages.filter((p) => !p.pageToken).length,
+    });
+
     if (resolvedPages.length === 0) {
-      const missingToken = redirectToReturnPath(returnPath, "meta_page_token_missing");
-      missingToken.cookies.delete(OAUTH_STATE_COOKIE);
-      return missingToken;
+      const none = redirectToReturnPath(returnPath, "meta_no_pages");
+      none.cookies.delete(OAUTH_STATE_COOKIE);
+      return none;
     }
 
     const pendingData: PendingMetaData = {

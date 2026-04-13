@@ -52,12 +52,22 @@ export async function POST(request: Request) {
     );
   }
 
+  if (!selectedPage.pageToken) {
+    return NextResponse.json(
+      {
+        code: "NEEDS_REAUTH",
+        message: "Denne siden krever ny autorisasjon. Koble til Facebook på nytt og velg denne siden i dialogen.",
+        redirectUrl: "/dashboard/koble-meta",
+      },
+      { status: 400 },
+    );
+  }
+
   try {
     const statusMsg = await connectSinglePage(
       userId,
       workspaceId,
       selectedPage,
-      pending.userAccessToken,
       pending.tokenExpiresIn,
     );
 

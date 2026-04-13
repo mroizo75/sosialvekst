@@ -11,6 +11,7 @@ const ROUTE_LABELS: Record<string, string> = {
   publiser: "Publiser",
   onboarding: "Min bedrift",
   "velg-side": "Velg Facebook-side",
+  "koble-meta": "Koble Facebook",
 };
 
 export const Breadcrumbs = () => {
