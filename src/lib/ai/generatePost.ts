@@ -1,7 +1,7 @@
 import { buildNorwegianCopyPrompt } from "@/lib/ai/copyPromptBuilderNo";
 import { mergeBrandRules } from "@/lib/ai/brandRules";
 import { generateImageToVideo, isFalAvailable } from "@/lib/ai/falClient";
-import { generateBrandedImage, generateProfessionalImage } from "@/lib/ai/imageGeneration";
+import { generateProfessionalImage, overlayLogoOnImage } from "@/lib/ai/imageGeneration";
 import { generateProductImage } from "@/lib/ai/imageEngine";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
@@ -254,15 +254,6 @@ const createText = async (input: GeneratePostInput): Promise<string> => {
   return response.output_text || fallbackText(input.topic, input.brandContext?.companyName);
 };
 
-type ImageBrandMode = "clean" | "branded" | "text";
-
-const pickImageMode = (scheduledAt: string): ImageBrandMode => {
-  const hash = hashStringToIndex(scheduledAt) % 100;
-  if (hash < 40) return "clean";
-  if (hash < 75) return "branded";
-  return "text";
-};
-
 const createImageUrl = async (input: GeneratePostInput): Promise<string | undefined> => {
   if (input.mediaMode === "owned_only") {
     return pickOwnedImageUrl(input);
@@ -284,13 +275,11 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     }
   }
 
-  const brandMode = pickImageMode(input.scheduledAt);
   const logoUrl = input.brandContext?.logoUrl;
 
-  logger.info("Bildemodus valgt", {
+  logger.info("Bildegenerering startet", {
     userId: input.userId,
     channel: input.channel,
-    brandMode,
     hasLogo: Boolean(logoUrl),
   });
 
@@ -310,24 +299,22 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     brandContext: input.brandContext,
     imageDirection: input.imageDirection,
     format: input.format,
-    brandMode,
   });
 
-  if (brandMode === "branded" && logoUrl) {
-    const branded = await generateBrandedImage({
-      userId: input.userId,
-      prompt: imagePrompt,
-      logoUrl,
-      profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
-    });
-    if (branded) return branded;
-  }
-
-  return generateProfessionalImage({
+  let imageUrl = await generateProfessionalImage({
     userId: input.userId,
     prompt: imagePrompt,
     profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
   });
+
+  if (imageUrl && logoUrl) {
+    const branded = await overlayLogoOnImage(imageUrl, logoUrl, input.userId);
+    if (branded) {
+      imageUrl = branded;
+    }
+  }
+
+  return imageUrl;
 };
 
 const tryProductImageGeneration = async (
@@ -450,23 +437,15 @@ const generateCarouselImages = async (
     const variantPrompt = `${primaryImagePrompt}\n\nVARIASJON: Vis dette ${variant}. Behold samme stil, fargepalett og kvalitet.`;
 
     try {
-      let url: string | undefined;
+      let url = await generateProfessionalImage({
+        userId: input.userId,
+        prompt: variantPrompt,
+        profile: policy.imageProfile,
+      });
 
-      if (logoUrl && i === 0) {
-        url = await generateBrandedImage({
-          userId: input.userId,
-          prompt: variantPrompt,
-          logoUrl,
-          profile: policy.imageProfile,
-        });
-      }
-
-      if (!url) {
-        url = await generateProfessionalImage({
-          userId: input.userId,
-          prompt: variantPrompt,
-          profile: policy.imageProfile,
-        });
+      if (url && logoUrl) {
+        const branded = await overlayLogoOnImage(url, logoUrl, input.userId);
+        if (branded) url = branded;
       }
 
       if (url) {
@@ -500,14 +479,6 @@ const generateCarouselImages = async (
   }
 
   return urls;
-};
-
-const hashStringToIndex = (str: string): number => {
-  let hash = 0;
-  for (let i = 0; i < str.length; i += 1) {
-    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
-  }
-  return Math.abs(hash);
 };
 
 const buildVideoMotionPrompt = (input: GeneratePostInput): string => {
@@ -610,7 +581,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
 
   let additionalImageUrls: string[] | undefined;
   if (imageUrl && shouldGenerateCarousel(input.channel, input.format)) {
-    const brandRules = mergeBrandRules({
+    const carouselBrandRules = mergeBrandRules({
       targetAudience: input.brandContext?.targetAudience,
       brandVoice: input.brandContext?.brandVoice,
       keyMessages: input.brandContext?.keyMessages,
@@ -621,7 +592,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       topic: input.topic,
       channel: input.channel,
       mediaMode: input.mediaMode,
-      brandRules,
+      brandRules: carouselBrandRules,
       brandContext: input.brandContext,
       imageDirection: input.imageDirection,
       format: input.format,

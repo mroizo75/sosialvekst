@@ -1,8 +1,6 @@
 import type { BrandRules } from "@/lib/ai/brandRules";
 import type { BrandContext, MediaMode, PostFormat } from "@/lib/types";
 
-export type ImageBrandMode = "clean" | "branded" | "text";
-
 type ImagePromptInput = {
   topic: string;
   channel: "facebook" | "instagram" | "linkedin" | "tiktok";
@@ -11,7 +9,6 @@ type ImagePromptInput = {
   brandContext?: BrandContext;
   imageDirection?: string;
   format?: PostFormat;
-  brandMode?: ImageBrandMode;
 };
 
 const CHANNEL_SPEC: Record<ImagePromptInput["channel"], { format: string; style: string }> = {
@@ -130,46 +127,16 @@ export const buildImagePrompt = (input: ImagePromptInput): string => {
     ].join("\n"),
   );
 
-  const brandMode = input.brandMode ?? "clean";
-
-  if (brandMode === "branded") {
-    sections.push(
-      [
-        "LOGO-INTEGRERING (VIKTIG):",
-        "- Et referansebilde av bedriftens logo er vedlagt.",
-        "- Integrer denne logoen NATURLIG i scenen — pa et av disse stedene:",
-        "  * Brodert eller trykket pa arbeidsklaer, uniform eller hjelm",
-        "  * Pa utstyr, verktoey, kjoeretoey eller materialer i bruk",
-        "  * Pa et skilt, vegg, doer eller banner i bakgrunnen",
-        "  * Pa en skjerm, dokument, emballasje eller fasade i scenen",
-        "- Logoen skal se ut som den HOERER HJEMME der — ikke klistret pa.",
-        "- Behold logoens farger og proporsjoner noyaktig som i referansebildet.",
-        "- Logoen trenger ikke vaere dominant, men skal vaere gjenkjennbar.",
-        "- INGEN annen tekst i bildet utover logoen selv.",
-      ].join("\n"),
-    );
-  } else if (brandMode === "text") {
-    sections.push(
-      [
-        "TEKST I BILDET:",
-        `- Du KAN inkludere firmanavnet "${companyName}" som kort, ren tekst i bildet.`,
-        "- Maks 1-2 ord. Tydelig, lesbar skrifttype. Godt plassert i komposisjonen.",
-        "- Teksten skal vaere en naturlig del av designet, ikke et paaklistret element.",
-        "- INGEN andre ord, setninger, slagord eller tilfeldig tekst — kun firmanavnet.",
-        "- Hvis korrekt tekstgjengivelse er usikkert: dropp teksten helt.",
-      ].join("\n"),
-    );
-  } else {
-    sections.push(
-      [
-        "ABSOLUTT INGEN TEKST I BILDET:",
-        "- Bildet skal IKKE inneholde noen form for tekst, bokstaver, ord, tall eller typografi.",
-        "- Ingen firmanavn, ingen slagord, ingen overskrifter, ingen vannmerker med tekst.",
-        "- Hvis det er skilt, plakater eller skjermer i scenen, skal de vaere uten lesbar tekst.",
-        "- Dette kravet er UFRAVIKELIG. Ethvert bilde med synlig tekst er feil.",
-      ].join("\n"),
-    );
-  }
+  sections.push(
+    [
+      "ABSOLUTT INGEN TEKST I BILDET:",
+      "- Bildet skal IKKE inneholde noen form for tekst, bokstaver, ord, tall eller typografi.",
+      "- Ingen firmanavn, ingen slagord, ingen overskrifter, ingen vannmerker med tekst.",
+      "- Hvis det er skilt, plakater eller skjermer i scenen, skal de vaere uten lesbar tekst.",
+      "- Dette kravet er UFRAVIKELIG. Ethvert bilde med synlig tekst er feil.",
+      "- Logoen legges pa programmatisk etterpaa — IKKE tegn den inn i bildet.",
+    ].join("\n"),
+  );
 
   const brandingLines = [
     "VISUELL BRANDING:",
@@ -185,14 +152,6 @@ export const buildImagePrompt = (input: ImagePromptInput): string => {
     if (colorParts.length > 0) {
       brandingLines.push(`- Bedriftens merkevarefarger: ${colorParts.join(", ")}. Bruk disse som referanse for fargepalett i bildet — integrer subtilt i miljo, klaer, rekvisitter eller bakgrunn.`);
     }
-  }
-
-  if (ctx.tagline && brandMode !== "clean") {
-    brandingLines.push(`- Bedriftens tagline er "${ctx.tagline}" — la bildet visuelt reflektere dette budskapet.`);
-  }
-
-  if (ctx.fontStyle && brandMode === "text") {
-    brandingLines.push(`- Foretrukket font-stil: ${ctx.fontStyle}.`);
   }
 
   sections.push(brandingLines.join("\n"));

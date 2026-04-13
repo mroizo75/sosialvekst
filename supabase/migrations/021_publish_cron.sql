@@ -2,6 +2,18 @@
 create extension if not exists pg_cron;
 create extension if not exists pg_net with schema extensions;
 
+-- Config-tabell for app-innstillinger (erstatter current_setting som krever superuser)
+create table if not exists public.app_config (
+  key text primary key,
+  value text not null
+);
+
+alter table public.app_config enable row level security;
+
+create policy "app_config_service_only"
+on public.app_config for select
+using (auth.role() = 'service_role');
+
 -- Funksjon som sjekker forfalne jobber og trigger publisering
 create or replace function public.trigger_publish_run()
 returns void
@@ -22,11 +34,16 @@ begin
     return;
   end if;
 
-  _app_url := current_setting('app.publish_url', true);
-  _cron_secret := current_setting('app.cron_secret', true);
+  select value into _app_url
+  from public.app_config
+  where key = 'publish_url';
+
+  select value into _cron_secret
+  from public.app_config
+  where key = 'cron_secret';
 
   if _app_url is null or _cron_secret is null then
-    raise warning '[publish_cron] app.publish_url or app.cron_secret not configured';
+    raise warning '[publish_cron] publish_url or cron_secret not configured in app_config';
     return;
   end if;
 

@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
+import sharp from "sharp";
+
 import { uploadUserFile } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
@@ -281,69 +283,74 @@ export const generateProfessionalImage = async (
   return uploaded.publicUrl;
 };
 
-type BrandedImageInput = {
-  userId: string;
-  prompt: string;
-  logoUrl: string;
-  profile?: ImageProfile;
-};
+const LOGO_MAX_WIDTH_RATIO = 0.15;
+const LOGO_PADDING_RATIO = 0.03;
 
-export const generateBrandedImage = async (
-  input: BrandedImageInput,
+export const overlayLogoOnImage = async (
+  imageUrl: string,
+  logoUrl: string,
+  userId: string,
 ): Promise<string | undefined> => {
-  const client = getOpenAiClient();
-  if (!client) return undefined;
-
-  const imageClient = client as unknown as {
-    images: {
-      edit: (args: {
-        model: string;
-        prompt: string;
-        image: Array<{ url: string; detail?: string }>;
-        size: string;
-        quality: string;
-      }) => Promise<{ data?: Array<{ b64_json?: string; url?: string }> }>;
-    };
-  };
-
-  const imageQuality = (input.profile ?? "final") === "preview" ? "medium" : "high";
-
   try {
-    const response = await imageClient.images.edit({
-      model: "gpt-image-1",
-      prompt: input.prompt,
-      image: [{ url: input.logoUrl, detail: "high" }],
-      size: "1024x1024",
-      quality: imageQuality,
-    });
+    const [imageResponse, logoResponse] = await Promise.all([
+      fetch(imageUrl),
+      fetch(logoUrl),
+    ]);
 
-    const payload = response.data?.[0];
-    if (!payload) return undefined;
+    if (!imageResponse.ok || !logoResponse.ok) {
+      logger.warn("overlayLogoOnImage: kunne ikke laste bilde/logo", {
+        userId,
+        imageStatus: imageResponse.status,
+        logoStatus: logoResponse.status,
+      });
+      return undefined;
+    }
 
-    const imageBytes = payload.b64_json
-      ? toBytes(payload.b64_json)
-      : payload.url
-        ? await fetchImageBytes(payload.url)
-        : null;
+    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+    const logoBuffer = Buffer.from(await logoResponse.arrayBuffer());
 
-    if (!imageBytes) return undefined;
+    const baseImage = sharp(imageBuffer);
+    const metadata = await baseImage.metadata();
+    const width = metadata.width ?? 1024;
+    const height = metadata.height ?? 1024;
+
+    const maxLogoWidth = Math.round(width * LOGO_MAX_WIDTH_RATIO);
+    const padding = Math.round(width * LOGO_PADDING_RATIO);
+
+    const resizedLogo = await sharp(logoBuffer)
+      .resize({ width: maxLogoWidth, withoutEnlargement: true })
+      .png()
+      .toBuffer();
+
+    const logoMeta = await sharp(resizedLogo).metadata();
+    const logoW = logoMeta.width ?? maxLogoWidth;
+    const logoH = logoMeta.height ?? maxLogoWidth;
+
+    const composited = await baseImage
+      .composite([
+        {
+          input: resizedLogo,
+          gravity: "southeast",
+          top: height - logoH - padding,
+          left: width - logoW - padding,
+        },
+      ])
+      .png()
+      .toBuffer();
 
     const uploaded = await uploadUserFile({
-      userId: input.userId,
-      fileName: `branded-scene-${crypto.randomUUID()}.png`,
+      userId,
+      fileName: `ai-image-branded-${crypto.randomUUID()}.png`,
       contentType: "image/png",
       mediaKind: "image",
-      body: imageBytes,
+      body: new Uint8Array(composited),
     });
 
-    logger.info("Scene-integrert logo-bilde generert", {
-      userId: input.userId,
-    });
-
+    logger.info("Logo-overlay lagt til på bilde", { userId });
     return uploaded.publicUrl;
   } catch (error) {
-    logger.warn("generateBrandedImage feilet, faller tilbake til standard", {
-      userId: input.userId,
+    logger.warn("overlayLogoOnImage feilet", {
+      userId,
       error: error instanceof Error ? error.message : "ukjent",
     });
     return undefined;
