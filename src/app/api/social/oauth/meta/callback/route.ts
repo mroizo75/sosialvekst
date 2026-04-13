@@ -8,17 +8,28 @@ import { requireWorkspaceId } from "@/lib/workspace";
 
 const OAUTH_STATE_COOKIE = "social_oauth_state_meta";
 const RETURN_PATH_COOKIE = "social_oauth_return_path_meta";
+export const META_PENDING_PAGES_COOKIE = "meta_pending_pages";
 
 type MetaPage = {
   id: string;
   name?: string;
   access_token?: string;
-  instagram_business_account?: { id?: string };
+  instagram_business_account?: { id?: string; username?: string };
 };
 
-type InstagramBusinessAccount = {
+export type PendingMetaPage = {
   id: string;
-  username?: string;
+  name: string;
+  pageToken: string;
+  igId: string | null;
+  igUsername: string | null;
+};
+
+export type PendingMetaData = {
+  pages: PendingMetaPage[];
+  userAccessToken: string;
+  tokenExpiresIn: number | null;
+  returnPath: string;
 };
 
 const getReturnPath = (request: Request): string => {
@@ -40,21 +51,6 @@ const redirectToReturnPath = (returnPath: string, status: string): NextResponse 
   return response;
 };
 
-const fetchInstagramViaPages = (pages: MetaPage[]): {
-  igId: string;
-  accessToken: string;
-} | null => {
-  for (const page of pages) {
-    if (page.access_token && page.instagram_business_account?.id) {
-      return {
-        igId: page.instagram_business_account.id,
-        accessToken: page.access_token,
-      };
-    }
-  }
-  return null;
-};
-
 const fetchPageAccessToken = async (
   pageId: string,
   userAccessToken: string,
@@ -64,9 +60,7 @@ const fetchPageAccessToken = async (
     pageUrl.searchParams.set("access_token", userAccessToken);
     pageUrl.searchParams.set("fields", "access_token");
     const response = await fetch(pageUrl.toString(), { cache: "no-store" });
-    if (!response.ok) {
-      return null;
-    }
+    if (!response.ok) return null;
     const payload = (await response.json().catch(() => ({}))) as { access_token?: string };
     return payload.access_token ?? null;
   } catch {
@@ -74,69 +68,70 @@ const fetchPageAccessToken = async (
   }
 };
 
-const fetchInstagramViaBusinessLogin = async (
+const resolvePageToken = async (page: MetaPage, userAccessToken: string): Promise<string | null> =>
+  page.access_token ?? await fetchPageAccessToken(page.id, userAccessToken);
+
+export const connectSinglePage = async (
+  userId: string,
+  workspaceId: string,
+  page: PendingMetaPage,
   userAccessToken: string,
-): Promise<{ igId: string; accessToken: string } | null> => {
-  try {
-    const igUrl = new URL("https://graph.facebook.com/v23.0/me/accounts");
-    igUrl.searchParams.set("access_token", userAccessToken);
-    igUrl.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username}");
+  tokenExpiresIn: number | null,
+): Promise<string> => {
+  const supabase = await createSupabaseServerClient();
 
-    const igResponse = await fetch(igUrl.toString(), { cache: "no-store" });
-    if (!igResponse.ok) {
-      logger.warn("[meta/callback] Instagram Business pages fetch feilet", {
-        status: igResponse.status,
-      });
-      return null;
-    }
+  await supabase
+    .from("social_accounts")
+    .delete()
+    .eq("user_id", userId)
+    .eq("workspace_id", workspaceId)
+    .in("channel", ["facebook", "instagram"]);
 
-    const igPayload = (await igResponse.json()) as { data?: MetaPage[] };
-    const pages = igPayload.data ?? [];
+  const tokenExpiresAt = tokenExpiresIn
+    ? new Date(Date.now() + tokenExpiresIn * 1000).toISOString()
+    : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
 
-    for (const page of pages) {
-      if (page.access_token && page.instagram_business_account?.id) {
-        return {
-          igId: page.instagram_business_account.id,
-          accessToken: page.access_token,
-        };
-      }
-    }
+  const upserts: Array<{
+    user_id: string;
+    workspace_id: string;
+    channel: "facebook" | "instagram";
+    account_id: string;
+    access_token: string;
+    refresh_token: null;
+    token_expires_at: string;
+    updated_at: string;
+  }> = [
+    {
+      user_id: userId,
+      workspace_id: workspaceId,
+      channel: "facebook",
+      account_id: page.id,
+      access_token: page.pageToken,
+      refresh_token: null,
+      token_expires_at: tokenExpiresAt,
+      updated_at: new Date().toISOString(),
+    },
+  ];
 
-    const igDirectUrl = new URL("https://graph.facebook.com/v23.0/me/instagram_accounts");
-    igDirectUrl.searchParams.set("access_token", userAccessToken);
-    igDirectUrl.searchParams.set("fields", "id,username");
-
-    const igDirectResponse = await fetch(igDirectUrl.toString(), { cache: "no-store" });
-    if (!igDirectResponse.ok) {
-      logger.warn("[meta/callback] Instagram direct accounts fetch feilet", {
-        status: igDirectResponse.status,
-      });
-      return null;
-    }
-
-    const igDirectPayload = (await igDirectResponse.json()) as {
-      data?: InstagramBusinessAccount[];
-    };
-    const igAccounts = igDirectPayload.data ?? [];
-
-    if (igAccounts.length > 0 && igAccounts[0]?.id) {
-      logger.info("[meta/callback] Fant Instagram via direct API", {
-        igId: igAccounts[0].id,
-        username: igAccounts[0].username,
-      });
-      return {
-        igId: igAccounts[0].id,
-        accessToken: userAccessToken,
-      };
-    }
-
-    return null;
-  } catch (error) {
-    logger.warn("[meta/callback] Instagram Business Login fallback feilet", {
-      error: error instanceof Error ? error.message : "ukjent",
+  if (page.igId) {
+    upserts.push({
+      user_id: userId,
+      workspace_id: workspaceId,
+      channel: "instagram",
+      account_id: page.igId,
+      access_token: page.pageToken,
+      refresh_token: null,
+      token_expires_at: tokenExpiresAt,
+      updated_at: new Date().toISOString(),
     });
-    return null;
   }
+
+  const { error } = await supabase.from("social_accounts").upsert(upserts, {
+    onConflict: "user_id,channel,account_id",
+  });
+
+  if (error) return "meta_save_failed";
+  return page.igId ? "meta_connected" : "meta_connected_no_instagram";
 };
 
 export async function GET(request: Request) {
@@ -175,7 +170,7 @@ export async function GET(request: Request) {
       expires_in?: number;
     };
     const userAccessToken = tokenPayload.access_token;
-    const tokenExpiresIn = tokenPayload.expires_in;
+    const tokenExpiresIn = tokenPayload.expires_in ?? null;
     if (!tokenResponse.ok || !userAccessToken) {
       const failed = redirectToReturnPath(returnPath, "meta_token_failed");
       failed.cookies.delete(OAUTH_STATE_COOKIE);
@@ -207,98 +202,63 @@ export async function GET(request: Request) {
       pagesWithIg: pages.filter((p) => p.instagram_business_account?.id).length,
     });
 
-    const facebookPage = pages.find((page) => Boolean(page.id));
-    if (!facebookPage?.id) {
+    const validPages = pages.filter((p) => Boolean(p.id));
+    if (validPages.length === 0) {
       const none = redirectToReturnPath(returnPath, "meta_no_pages");
       none.cookies.delete(OAUTH_STATE_COOKIE);
       return none;
     }
 
-    const pageAccessToken = facebookPage.access_token
-      ?? await fetchPageAccessToken(facebookPage.id, userAccessToken);
-
-    if (!pageAccessToken) {
-      logger.warn("[meta/callback] Fant side, men fikk ikke side-access-token", {
-        pageId: facebookPage.id,
+    const resolvedPages: PendingMetaPage[] = [];
+    for (const page of validPages) {
+      const pageToken = await resolvePageToken(page, userAccessToken);
+      if (!pageToken) continue;
+      resolvedPages.push({
+        id: page.id,
+        name: page.name ?? `Side ${page.id}`,
+        pageToken,
+        igId: page.instagram_business_account?.id ?? null,
+        igUsername: page.instagram_business_account?.username ?? null,
       });
+    }
+
+    if (resolvedPages.length === 0) {
       const missingToken = redirectToReturnPath(returnPath, "meta_page_token_missing");
       missingToken.cookies.delete(OAUTH_STATE_COOKIE);
       return missingToken;
     }
 
-    let igResult = fetchInstagramViaPages(pages);
-
-    if (!igResult) {
-      logger.info("[meta/callback] Ingen Instagram via sider, prøver Business Login fallback");
-      igResult = await fetchInstagramViaBusinessLogin(userAccessToken);
+    if (resolvedPages.length === 1) {
+      const statusMsg = await connectSinglePage(
+        userId,
+        workspaceId,
+        resolvedPages[0],
+        userAccessToken,
+        tokenExpiresIn,
+      );
+      const done = redirectToReturnPath(returnPath, statusMsg);
+      done.cookies.delete(OAUTH_STATE_COOKIE);
+      return done;
     }
 
-    logger.info("[meta/callback] Instagram-resultat", {
-      found: Boolean(igResult),
-      igId: igResult?.igId ?? null,
+    const pendingData: PendingMetaData = {
+      pages: resolvedPages,
+      userAccessToken,
+      tokenExpiresIn,
+      returnPath,
+    };
+
+    const selectUrl = new URL("/dashboard/velg-side", getAppUrl());
+    const response = NextResponse.redirect(selectUrl.toString());
+    response.cookies.set(META_PENDING_PAGES_COOKIE, JSON.stringify(pendingData), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 10,
     });
-
-    const supabase = await createSupabaseServerClient();
-
-    await supabase
-      .from("social_accounts")
-      .delete()
-      .eq("user_id", userId)
-      .eq("workspace_id", workspaceId)
-      .in("channel", ["facebook", "instagram"]);
-
-    const tokenExpiresAt = tokenExpiresIn
-      ? new Date(Date.now() + tokenExpiresIn * 1000).toISOString()
-      : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
-
-    const upserts: Array<{
-      user_id: string;
-      workspace_id: string;
-      channel: "facebook" | "instagram";
-      account_id: string;
-      access_token: string;
-      refresh_token: null;
-      token_expires_at: string;
-      updated_at: string;
-    }> = [
-      {
-        user_id: userId,
-        workspace_id: workspaceId,
-        channel: "facebook",
-        account_id: facebookPage.id,
-        access_token: pageAccessToken,
-        refresh_token: null,
-        token_expires_at: tokenExpiresAt,
-        updated_at: new Date().toISOString(),
-      },
-    ];
-
-    if (igResult) {
-      upserts.push({
-        user_id: userId,
-        workspace_id: workspaceId,
-        channel: "instagram",
-        account_id: igResult.igId,
-        access_token: igResult.accessToken,
-        refresh_token: null,
-        token_expires_at: tokenExpiresAt,
-        updated_at: new Date().toISOString(),
-      });
-    }
-
-    const { error } = await supabase.from("social_accounts").upsert(upserts, {
-      onConflict: "user_id,channel,account_id",
-    });
-
-    const statusMsg = error
-      ? "meta_save_failed"
-      : igResult
-        ? "meta_connected"
-        : "meta_connected_no_instagram";
-
-    const done = redirectToReturnPath(returnPath, statusMsg);
-    done.cookies.delete(OAUTH_STATE_COOKIE);
-    return done;
+    response.cookies.delete(OAUTH_STATE_COOKIE);
+    return response;
   } catch (error) {
     logger.error("[meta/callback] Callback feilet", {
       error: error instanceof Error ? error.message : "ukjent",

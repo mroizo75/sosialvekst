@@ -10,6 +10,7 @@ const ROUTE_LABELS: Record<string, string> = {
   media: "Bilder og video",
   publiser: "Publiser",
   onboarding: "Min bedrift",
+  "velg-side": "Velg Facebook-side",
 };
 
 export const Breadcrumbs = () => {
