@@ -84,8 +84,8 @@ export default function SelectMetaPagePage() {
           Velg Facebook-side
         </h1>
         <p className="mt-1.5 text-sm text-muted-foreground">
-          Vi fant flere Facebook-sider på kontoen din.
-          Velg hvilken side du vil koble til denne bedriften.
+          Velg hvilken Facebook-side du vil koble til denne bedriften.
+          {pages.length === 1 && " Bekreft at dette er riktig side."}
         </p>
       </div>
 
@@ -115,7 +115,7 @@ export default function SelectMetaPagePage() {
                 {page.igUsername ? (
                   <p className="mt-0.5 text-xs text-muted-foreground flex items-center gap-1.5">
                     <svg className="size-3.5 text-[#DD2A7B]" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
+                      <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259 .014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z" />
                     </svg>
                     Instagram: @{page.igUsername}
                   </p>
@@ -137,12 +137,33 @@ export default function SelectMetaPagePage() {
                     Kobler...
                   </span>
                 ) : (
-                  "Velg denne"
+                  "Koble denne"
                 )}
               </Button>
             </CardContent>
           </Card>
         ))}
+      </div>
+
+      <div className="mt-8 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/30">
+        <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+          Ser du ikke riktig side?
+        </p>
+        <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+          {"Når du kobler til via Facebook, velger du hvilke sider appen får tilgang til. For å se alle sidene dine, klikk knappen under og huk av for alle sidene i Facebook-dialogen."}
+        </p>
+        <a
+          href="/api/social/oauth/meta/start"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-amber-700 transition-colors"
+        >
+          <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+            <path d="M3 3v5h5" />
+            <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+            <path d="M16 16h5v5" />
+          </svg>
+          {"Koble til på nytt med alle sider"}
+        </a>
       </div>
 
       <div className="mt-6 flex justify-center">
@@ -151,7 +172,7 @@ export default function SelectMetaPagePage() {
           onClick={() => router.push("/dashboard")}
           className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
         >
-          Avbryt og gå tilbake
+          {"Avbryt og gå tilbake"}
         </button>
       </div>
     </div>

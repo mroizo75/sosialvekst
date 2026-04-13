@@ -136,7 +136,7 @@ export const connectSinglePage = async (
 
 export async function GET(request: Request) {
   const userId = await requireUserId();
-  const workspaceId = await requireWorkspaceId(userId);
+  await requireWorkspaceId(userId);
   const returnPath = getReturnPath(request);
 
   const url = new URL(request.url);
@@ -226,19 +226,6 @@ export async function GET(request: Request) {
       const missingToken = redirectToReturnPath(returnPath, "meta_page_token_missing");
       missingToken.cookies.delete(OAUTH_STATE_COOKIE);
       return missingToken;
-    }
-
-    if (resolvedPages.length === 1) {
-      const statusMsg = await connectSinglePage(
-        userId,
-        workspaceId,
-        resolvedPages[0],
-        userAccessToken,
-        tokenExpiresIn,
-      );
-      const done = redirectToReturnPath(returnPath, statusMsg);
-      done.cookies.delete(OAUTH_STATE_COOKIE);
-      return done;
     }
 
     const pendingData: PendingMetaData = {
