@@ -209,67 +209,72 @@ export const generateProfessionalImage = async (
     return undefined;
   }
 
-  const imageClient = client as unknown as {
-    images: {
-      generate: (args: {
-        model: string;
-        prompt: string;
-        size: string;
-        quality: string;
-      }) => Promise<{ data?: Array<{ b64_json?: string; url?: string }> }>;
-    };
-  };
-
   const profile = input.profile ?? "final";
-  // Use 1024x1024 for both profiles for higher API compatibility.
-  const imageSize = "1024x1024";
-  const imageQuality = profile === "preview" ? "medium" : "high";
+  const imageSize = "1024x1024" as const;
+  const imageQuality = profile === "preview" ? ("medium" as const) : ("high" as const);
 
-  let response: { data?: Array<{ b64_json?: string; url?: string }> } | null = null;
-  const variants: Array<{ size: string; quality: string }> = [
+  type ImageVariant = { size: string; quality: string };
+  const variants: ImageVariant[] = [
     { size: imageSize, quality: imageQuality },
     { size: "1024x1024", quality: "medium" },
     { size: "1024x1024", quality: "low" },
   ];
 
+  let lastVariantError: string | undefined;
+  let imageBytes: Uint8Array | null = null;
+
   for (const variant of variants) {
     try {
-      response = await imageClient.images.generate({
+      const response = await client.images.generate({
         model: "gpt-image-1",
         prompt: input.prompt,
+        size: variant.size as "1024x1024",
+        quality: variant.quality as "low" | "medium" | "high",
+      });
+
+      const first = response.data?.[0];
+      if (!first) {
+        lastVariantError = `Tom data-array. Keys: ${Object.keys(response).join(",")}, dataLen: ${response.data?.length ?? "undefined"}`;
+        logger.warn("Image generation variant returned empty data", {
+          userId: input.userId,
+          size: variant.size,
+          quality: variant.quality,
+          responseKeys: Object.keys(response),
+          dataLength: response.data?.length ?? 0,
+        });
+        continue;
+      }
+
+      if (first.b64_json) {
+        imageBytes = toBytes(first.b64_json);
+      } else if (first.url) {
+        imageBytes = await fetchImageBytes(first.url);
+      }
+
+      if (imageBytes) break;
+
+      lastVariantError = "Variant returnerte data men verken b64_json eller url";
+      logger.warn("Image generation variant missing image data", {
+        userId: input.userId,
         size: variant.size,
         quality: variant.quality,
+        hasB64: Boolean(first.b64_json),
+        hasUrl: Boolean(first.url),
+        firstKeys: Object.keys(first),
       });
-      if (response.data?.[0]) {
-        break;
-      }
     } catch (error) {
+      lastVariantError = error instanceof Error ? error.message : "unknown";
       logger.warn("Image generation variant failed", {
         userId: input.userId,
         size: variant.size,
         quality: variant.quality,
-        error: error instanceof Error ? error.message : "unknown",
+        error: lastVariantError,
       });
     }
   }
 
-  if (!response?.data?.[0]) {
-    throw new Error("Bildegenerator feilet for alle varianter.");
-  }
-
-  const payload = response.data?.[0];
-  if (!payload) {
-    throw new Error("Bildegenerator returnerte tomt svar.");
-  }
-
-  const imageBytes = payload.b64_json
-    ? toBytes(payload.b64_json)
-    : payload.url
-      ? await fetchImageBytes(payload.url)
-      : null;
-
   if (!imageBytes) {
-    throw new Error("Bildegenerator returnerte verken base64 eller URL.");
+    throw new Error(`Bildegenerator feilet for alle varianter. Siste: ${lastVariantError ?? "ukjent"}`);
   }
 
   const uploaded = await uploadUserFile({
