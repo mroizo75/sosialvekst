@@ -386,7 +386,7 @@ const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<string
     }
   }
 
-  return undefined;
+  throw new Error(`Bildegenerering feilet etter ${maxAttempts} forsøk.`);
 };
 
 const shouldGenerateCarousel = (

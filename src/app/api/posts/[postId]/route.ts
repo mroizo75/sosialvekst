@@ -14,7 +14,7 @@ import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { TopicWindow } from "@/lib/types";
 
-const REGENERATE_TIMEOUT_MS = 120_000;
+const REGENERATE_TIMEOUT_MS = 180_000;
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -313,10 +313,20 @@ export async function PATCH(request: Request, context: RouteContext) {
         updatedAdditionalImageUrls = post.additionalImageUrls ?? [];
       }
       if (action === "regenerate_all" || action === "rewrite_topic") {
-        updatedText = regenerated.text;
-        updatedImageUrl = regenerated.imageUrl;
-        updatedVideoUrl = regenerated.videoUrl;
-        updatedAdditionalImageUrls = regenerated.additionalImageUrls ?? [];
+        if (!regenerated.imageUrl && post.channel !== "tiktok") {
+          logger.warn("[post/patch] regenerate_all uten bilde, beholder eksisterende", {
+            postId, channel: post.channel,
+          });
+          updatedText = regenerated.text;
+          updatedImageUrl = post.imageUrl;
+          updatedVideoUrl = post.videoUrl;
+          updatedAdditionalImageUrls = post.additionalImageUrls ?? [];
+        } else {
+          updatedText = regenerated.text;
+          updatedImageUrl = regenerated.imageUrl;
+          updatedVideoUrl = regenerated.videoUrl;
+          updatedAdditionalImageUrls = regenerated.additionalImageUrls ?? [];
+        }
       }
 
       // TODO: Aktiver igjen etter test
