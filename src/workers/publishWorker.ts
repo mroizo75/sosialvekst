@@ -693,7 +693,7 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
 
   let query = admin
     .from("publish_jobs")
-    .select("id, post_id, user_id, channel, attempts, status, run_at")
+    .select("id, post_id, user_id, workspace_id, channel, attempts, status, run_at")
     .lte("run_at", new Date().toISOString())
     .in("status", ["queued", "retrying"])
     .order("run_at", { ascending: true })
@@ -761,6 +761,7 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
           .from("social_accounts")
           .select("account_id, access_token, refresh_token, token_expires_at")
           .eq("user_id", job.user_id)
+          .eq("workspace_id", job.workspace_id)
           .eq("channel", job.channel)
           .limit(1)
           .maybeSingle(),
