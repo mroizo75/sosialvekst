@@ -82,6 +82,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </div>
           ) : null}
 
+          {error === "confirmation_failed" || error === "missing_code" ? (
+            <div className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
+              Bekreftelseslenken er ugyldig eller utløpt. Prøv å logge inn, så kan du sende en ny lenke.
+            </div>
+          ) : null}
+
           <form action={signInAction} className="space-y-4">
             <Input
               name="email"

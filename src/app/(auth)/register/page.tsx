@@ -1,9 +1,9 @@
 import Link from "next/link";
 
 import { signUpAction } from "@/app/(auth)/actions";
-import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Checkbox, Input } from "@/components/ui/Input";
+import { SubmitButton } from "@/components/ui/SubmitButton";
 
 type RegisterPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -101,9 +101,9 @@ export default async function RegisterPage({ searchParams }: RegisterPageProps) 
               />
             </div>
 
-            <Button type="submit" className="w-full" size="lg">
+            <SubmitButton className="w-full" size="lg" cooldownMs={10000} pendingText="Oppretter konto …">
               Opprett konto
-            </Button>
+            </SubmitButton>
           </form>
         </CardContent>
 
