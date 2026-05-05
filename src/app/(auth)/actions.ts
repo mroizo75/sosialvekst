@@ -48,6 +48,8 @@ export const signUpAction = async (formData: FormData): Promise<void> => {
     redirect(`/register?error=terms_required&email=${encodeURIComponent(email)}`);
   }
 
+  await supabase.auth.signOut();
+
   const { error } = await supabase.auth.signUp({
     email,
     password,
@@ -61,6 +63,12 @@ export const signUpAction = async (formData: FormData): Promise<void> => {
     const lowerMessage = error.message.toLowerCase();
     if (lowerMessage.includes("already registered") || lowerMessage.includes("already exists")) {
       redirect(`/register?error=email_exists&email=${encodeURIComponent(email)}`);
+    }
+    if (lowerMessage.includes("rate") || lowerMessage.includes("too many") || lowerMessage.includes("exceeded")) {
+      redirect(`/register?error=rate_limited&email=${encodeURIComponent(email)}`);
+    }
+    if (lowerMessage.includes("password")) {
+      redirect(`/register?error=weak_password&email=${encodeURIComponent(email)}`);
     }
     redirect(`/register?error=signup_failed&email=${encodeURIComponent(email)}`);
   }

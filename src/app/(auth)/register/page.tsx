@@ -50,6 +50,18 @@ export default async function RegisterPage({ searchParams }: RegisterPageProps) 
             </div>
           ) : null}
 
+          {error === "rate_limited" ? (
+            <div className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
+              For mange forsøk. Vent noen minutter og prøv igjen.
+            </div>
+          ) : null}
+
+          {error === "weak_password" ? (
+            <div className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
+              Passordet er for svakt. Velg et sterkere passord med minst 8 tegn.
+            </div>
+          ) : null}
+
           {error === "signup_failed" ? (
             <div className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
               Noe gikk galt. Prøv igjen om litt.
