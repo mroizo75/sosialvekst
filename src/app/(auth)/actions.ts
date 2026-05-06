@@ -110,7 +110,16 @@ export const signUpAction = async (formData: FormData): Promise<void> => {
 
 export const signOutAction = async (): Promise<void> => {
   const supabase = await createSupabaseServerClient();
-  await supabase.auth.signOut();
+  await supabase.auth.signOut({ scope: "local" });
+
+  const { cookies: cookiesFn } = await import("next/headers");
+  const jar = await cookiesFn();
+  for (const cookie of jar.getAll()) {
+    if (cookie.name.startsWith("sb-")) {
+      jar.delete(cookie.name);
+    }
+  }
+
   redirect("/login");
 };
 

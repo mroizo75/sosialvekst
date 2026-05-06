@@ -160,7 +160,7 @@ export const connectSinglePage = async (
 
   const tokenExpiresAt = tokenExpiresIn
     ? new Date(Date.now() + tokenExpiresIn * 1000).toISOString()
-    : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
+    : null;
 
   const upserts: Array<{
     user_id: string;
@@ -169,7 +169,7 @@ export const connectSinglePage = async (
     account_id: string;
     access_token: string;
     refresh_token: null;
-    token_expires_at: string;
+    token_expires_at: string | null;
     updated_at: string;
   }> = [
     {
@@ -240,12 +240,33 @@ export async function GET(request: Request) {
       access_token?: string;
       expires_in?: number;
     };
-    const userAccessToken = tokenPayload.access_token;
-    const tokenExpiresIn = tokenPayload.expires_in ?? null;
-    if (!tokenResponse.ok || !userAccessToken) {
+    const shortLivedToken = tokenPayload.access_token;
+    if (!tokenResponse.ok || !shortLivedToken) {
       const failed = redirectToReturnPath(returnPath, "meta_token_failed");
       failed.cookies.delete(OAUTH_STATE_COOKIE);
       return failed;
+    }
+
+    const exchangeUrl = new URL("https://graph.facebook.com/v23.0/oauth/access_token");
+    exchangeUrl.searchParams.set("grant_type", "fb_exchange_token");
+    exchangeUrl.searchParams.set("client_id", getRequiredEnv("FACEBOOK_APP_ID"));
+    exchangeUrl.searchParams.set("client_secret", getRequiredEnv("FACEBOOK_APP_SECRET"));
+    exchangeUrl.searchParams.set("fb_exchange_token", shortLivedToken);
+    const exchangeResponse = await fetch(exchangeUrl.toString(), { cache: "no-store" });
+    const exchangePayload = (await exchangeResponse.json().catch(() => ({}))) as {
+      access_token?: string;
+      expires_in?: number;
+    };
+
+    const userAccessToken = exchangePayload.access_token ?? shortLivedToken;
+    const tokenExpiresIn = exchangePayload.access_token
+      ? (exchangePayload.expires_in ?? null)
+      : (tokenPayload.expires_in ?? null);
+
+    if (!exchangePayload.access_token) {
+      logger.warn("[meta/callback] Long-lived token exchange feilet, bruker kortlevd token", {
+        status: exchangeResponse.status,
+      });
     }
 
     // Phase 1: Fetch pages from /me/accounts (with tokens)
