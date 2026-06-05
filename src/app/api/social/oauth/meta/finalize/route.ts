@@ -69,6 +69,7 @@ export async function POST(request: Request) {
       workspaceId,
       selectedPage,
       pending.tokenExpiresIn,
+      pending.isLongLived ?? false,
     );
 
     jar.delete(META_PENDING_PAGES_COOKIE);

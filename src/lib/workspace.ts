@@ -34,7 +34,9 @@ export const ensureDefaultWorkspace = async (userId: string, name?: string): Pro
     .from("workspaces")
     .select("id")
     .eq("user_id", userId)
-    .eq("is_default", true)
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: true })
+    .limit(1)
     .maybeSingle();
 
   if (existing?.id) return existing.id as string;

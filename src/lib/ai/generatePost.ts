@@ -432,35 +432,40 @@ const generateCarouselImages = async (
     return urls;
   }
 
-  for (let i = 0; i < extraCount; i += 1) {
+  const generateSlide = async (i: number): Promise<string | undefined> => {
     const variant = CAROUSEL_ANGLE_VARIANTS[i % CAROUSEL_ANGLE_VARIANTS.length];
     const variantPrompt = `${primaryImagePrompt}\n\nVARIASJON: Vis dette ${variant}. Behold samme stil, fargepalett og kvalitet.`;
-
     try {
       let url = await generateProfessionalImage({
         userId: input.userId,
         prompt: variantPrompt,
         profile: policy.imageProfile,
       });
-
       if (url && logoUrl) {
         const branded = await overlayLogoOnImage(url, logoUrl, input.userId);
         if (branded) url = branded;
       }
-
-      if (url) {
-        if (usedUrls.has(url)) {
-          continue;
-        }
-        usedUrls.add(url);
-        urls.push(url);
-      }
+      return url ?? undefined;
     } catch (error) {
       logger.warn("Karusellbilde generering feilet", {
         userId: input.userId,
         variant: i,
         error: error instanceof Error ? error.message : "ukjent",
       });
+      return undefined;
+    }
+  };
+
+  const slideResults = await Promise.allSettled(
+    Array.from({ length: extraCount }, (_, i) => generateSlide(i)),
+  );
+
+  for (const result of slideResults) {
+    if (result.status === "fulfilled" && result.value) {
+      if (!usedUrls.has(result.value)) {
+        usedUrls.add(result.value);
+        urls.push(result.value);
+      }
     }
   }
 

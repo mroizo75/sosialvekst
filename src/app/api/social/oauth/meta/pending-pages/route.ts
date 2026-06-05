@@ -8,7 +8,7 @@ import {
   type PendingMetaPage,
 } from "@/app/api/social/oauth/meta/callback/route";
 
-type PublicPage = Pick<PendingMetaPage, "id" | "name" | "igId" | "igUsername" | "source"> & {
+type PublicPage = Pick<PendingMetaPage, "id" | "name" | "igId" | "igUsername"> & {
   hasToken: boolean;
 };
 
@@ -29,7 +29,6 @@ export async function GET() {
       name: p.name,
       igId: p.igId,
       igUsername: p.igUsername,
-      source: p.source,
       hasToken: Boolean(p.pageToken),
     }));
     return NextResponse.json({ pages });

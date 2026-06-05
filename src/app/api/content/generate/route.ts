@@ -259,8 +259,14 @@ export async function POST(request: Request) {
 
 const DB_RETRY_ATTEMPTS = 3;
 const DB_RETRY_DELAY_MS = 800;
-const POST_GENERATION_TIMEOUT_MS = 90_000;
+const POST_GENERATION_TIMEOUT_MS: Record<string, number> = {
+  instagram: 180_000,
+  default: 90_000,
+};
 const CONCURRENCY = 3;
+
+const getTimeoutMs = (channel: string): number =>
+  POST_GENERATION_TIMEOUT_MS[channel] ?? POST_GENERATION_TIMEOUT_MS.default;
 
 async function updatePostWithRetry(
   supabase: ReturnType<typeof createSupabaseAdminClient>,
@@ -315,7 +321,7 @@ async function generateSingleSlot(
       channel: slot.channel,
     });
 
-    const timeoutMs = POST_GENERATION_TIMEOUT_MS;
+    const timeoutMs = getTimeoutMs(slot.channel);
 
     const post = await withTimeout(
       generatePost({
@@ -343,18 +349,22 @@ async function generateSingleSlot(
       quality_score: post.quality,
     });
 
-    if (dbOk && post.additionalImageUrls && post.additionalImageUrls.length > 0) {
-      const mediaRows = post.additionalImageUrls.map((url, idx) => ({
-        post_id: slot.id,
-        file_url: url,
-        sort_order: idx + 1,
-      }));
-      const { error: mediaErr } = await supabase
-        .from("post_media_assets")
-        .upsert(mediaRows, { onConflict: "post_id,sort_order" });
+    if (dbOk) {
+      await supabase.from("post_media_assets").delete().eq("post_id", slot.id);
 
-      if (mediaErr) {
-        console.error(`[generate] Karusell-lagring feilet for ${slot.id.slice(0, 8)}:`, mediaErr.message);
+      if (post.additionalImageUrls && post.additionalImageUrls.length > 0) {
+        const mediaRows = post.additionalImageUrls.map((url, idx) => ({
+          post_id: slot.id,
+          file_url: url,
+          sort_order: idx + 1,
+        }));
+        const { error: mediaErr } = await supabase
+          .from("post_media_assets")
+          .insert(mediaRows);
+
+        if (mediaErr) {
+          console.error(`[generate] Karusell-lagring feilet for ${slot.id.slice(0, 8)}:`, mediaErr.message);
+        }
       }
     }
 

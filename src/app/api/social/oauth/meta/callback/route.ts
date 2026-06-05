@@ -23,13 +23,13 @@ export type PendingMetaPage = {
   pageToken: string | null;
   igId: string | null;
   igUsername: string | null;
-  source: "oauth" | "business_manager";
 };
 
 export type PendingMetaData = {
   pages: PendingMetaPage[];
   userAccessToken: string;
   tokenExpiresIn: number | null;
+  isLongLived: boolean;
   returnPath: string;
 };
 
@@ -61,10 +61,25 @@ const fetchPageAccessToken = async (
     pageUrl.searchParams.set("access_token", userAccessToken);
     pageUrl.searchParams.set("fields", "access_token");
     const response = await fetch(pageUrl.toString(), { cache: "no-store" });
-    if (!response.ok) return null;
-    const payload = (await response.json().catch(() => ({}))) as { access_token?: string };
-    return payload.access_token ?? null;
-  } catch {
+    const payload = (await response.json().catch(() => ({}))) as {
+      access_token?: string;
+      error?: { message?: string; code?: number };
+    };
+    if (!response.ok || !payload.access_token) {
+      logger.warn("[meta/callback] Kunne ikke hente sidetoken", {
+        pageId,
+        status: response.status,
+        error: payload.error?.message ?? null,
+        hasToken: Boolean(payload.access_token),
+      });
+      return null;
+    }
+    return payload.access_token;
+  } catch (err) {
+    logger.error("[meta/callback] fetchPageAccessToken feilet", {
+      pageId,
+      error: err instanceof Error ? err.message : "ukjent",
+    });
     return null;
   }
 };
@@ -72,80 +87,12 @@ const fetchPageAccessToken = async (
 const resolvePageToken = async (page: MetaPage, userAccessToken: string): Promise<string | null> =>
   page.access_token ?? await fetchPageAccessToken(page.id, userAccessToken);
 
-const fetchBusinessPages = async (
-  userAccessToken: string,
-): Promise<MetaPage[]> => {
-  const allPages: MetaPage[] = [];
-  try {
-    const bizUrl = new URL("https://graph.facebook.com/v23.0/me/businesses");
-    bizUrl.searchParams.set("access_token", userAccessToken);
-    bizUrl.searchParams.set("fields", "id,name");
-    bizUrl.searchParams.set("limit", "100");
-
-    const bizResponse = await fetch(bizUrl.toString(), { cache: "no-store" });
-    if (!bizResponse.ok) {
-      logger.info("[meta/callback] /me/businesses returnerte ikke-OK", {
-        status: bizResponse.status,
-      });
-      return allPages;
-    }
-    const bizPayload = (await bizResponse.json()) as {
-      data?: Array<{ id: string; name?: string }>;
-    };
-    const businesses = bizPayload.data ?? [];
-
-    logger.info("[meta/callback] Business Managers funnet", { count: businesses.length });
-
-    for (const biz of businesses) {
-      try {
-        const ownedUrl = new URL(
-          `https://graph.facebook.com/v23.0/${biz.id}/owned_pages`,
-        );
-        ownedUrl.searchParams.set("access_token", userAccessToken);
-        ownedUrl.searchParams.set(
-          "fields",
-          "id,name,instagram_business_account{id,username}",
-        );
-        ownedUrl.searchParams.set("limit", "100");
-
-        const ownedResponse = await fetch(ownedUrl.toString(), { cache: "no-store" });
-        if (!ownedResponse.ok) {
-          logger.info("[meta/callback] /{biz}/owned_pages feilet", {
-            businessId: biz.id,
-            status: ownedResponse.status,
-          });
-          continue;
-        }
-
-        const ownedPayload = (await ownedResponse.json()) as { data?: MetaPage[] };
-        const owned = ownedPayload.data ?? [];
-
-        logger.info("[meta/callback] Sider fra Business Manager", {
-          businessId: biz.id,
-          businessName: biz.name,
-          pageCount: owned.length,
-        });
-
-        allPages.push(...owned);
-      } catch {
-        logger.warn("[meta/callback] Feil ved henting av owned_pages", {
-          businessId: biz.id,
-        });
-      }
-    }
-  } catch (error) {
-    logger.warn("[meta/callback] fetchBusinessPages feilet", {
-      error: error instanceof Error ? error.message : "ukjent",
-    });
-  }
-  return allPages;
-};
-
 export const connectSinglePage = async (
   userId: string,
   workspaceId: string,
   page: PendingMetaPage,
-  tokenExpiresIn: number | null,
+  _tokenExpiresIn: number | null,
+  isLongLived = false,
 ): Promise<string> => {
   if (!page.pageToken) return "meta_page_token_missing";
 
@@ -158,9 +105,11 @@ export const connectSinglePage = async (
     .eq("workspace_id", workspaceId)
     .in("channel", ["facebook", "instagram"]);
 
-  const tokenExpiresAt = tokenExpiresIn
-    ? new Date(Date.now() + tokenExpiresIn * 1000).toISOString()
-    : null;
+  const tokenExpiresAt = isLongLived
+    ? null
+    : _tokenExpiresIn
+      ? new Date(Date.now() + _tokenExpiresIn * 1000).toISOString()
+      : null;
 
   const upserts: Array<{
     user_id: string;
@@ -258,32 +207,57 @@ export async function GET(request: Request) {
       expires_in?: number;
     };
 
+    const isLongLived = Boolean(exchangePayload.access_token);
     const userAccessToken = exchangePayload.access_token ?? shortLivedToken;
-    const tokenExpiresIn = exchangePayload.access_token
-      ? (exchangePayload.expires_in ?? null)
-      : (tokenPayload.expires_in ?? null);
 
-    if (!exchangePayload.access_token) {
+    if (!isLongLived) {
       logger.warn("[meta/callback] Long-lived token exchange feilet, bruker kortlevd token", {
         status: exchangeResponse.status,
       });
+    } else {
+      logger.info("[meta/callback] Long-lived token OK", {
+        expiresIn: exchangePayload.expires_in ?? "ukjent",
+      });
     }
 
-    // Phase 1: Fetch pages from /me/accounts (with tokens)
+    const permsUrl = new URL("https://graph.facebook.com/v23.0/me/permissions");
+    permsUrl.searchParams.set("access_token", userAccessToken);
+    const permsResponse = await fetch(permsUrl.toString(), { cache: "no-store" });
+    const permsPayload = (await permsResponse.json().catch(() => ({}))) as {
+      data?: Array<{ permission: string; status: string }>;
+    };
+    const grantedPerms = (permsPayload.data ?? [])
+      .filter((p) => p.status === "granted")
+      .map((p) => p.permission);
+    logger.info("[meta/callback] Brukerens tillatelser", {
+      granted: grantedPerms,
+      declined: (permsPayload.data ?? [])
+        .filter((p) => p.status !== "granted")
+        .map((p) => `${p.permission}:${p.status}`),
+    });
+
     const pagesUrl = new URL("https://graph.facebook.com/v23.0/me/accounts");
     pagesUrl.searchParams.set("access_token", userAccessToken);
     pagesUrl.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username}");
     pagesUrl.searchParams.set("limit", "100");
 
     const pagesResponse = await fetch(pagesUrl.toString(), { cache: "no-store" });
-    const pagesPayload = (await pagesResponse.json().catch(() => ({}))) as {
-      data?: MetaPage[];
-      error?: { message?: string };
-    };
+    const pagesRawText = await pagesResponse.text();
+    let pagesPayload: { data?: MetaPage[]; error?: { message?: string; code?: number; type?: string } } = {};
+    try {
+      pagesPayload = JSON.parse(pagesRawText) as typeof pagesPayload;
+    } catch {
+      logger.error("[meta/callback] Kunne ikke parse /me/accounts respons", {
+        body: pagesRawText.slice(0, 500),
+      });
+    }
+
     if (!pagesResponse.ok) {
-      logger.warn("[meta/callback] Kunne ikke hente sider fra /me/accounts", {
+      logger.warn("[meta/callback] /me/accounts feilet", {
         status: pagesResponse.status,
         error: pagesPayload.error?.message ?? null,
+        errorCode: pagesPayload.error?.code ?? null,
+        errorType: pagesPayload.error?.type ?? null,
       });
       const failed = redirectToReturnPath(returnPath, "meta_pages_fetch_failed");
       failed.cookies.delete(OAUTH_STATE_COOKIE);
@@ -291,20 +265,64 @@ export async function GET(request: Request) {
     }
     const oauthPages = pagesPayload.data ?? [];
 
-    logger.info("[meta/callback] OAuth-sider hentet", {
+    logger.info("[meta/callback] Sider hentet", {
       pageCount: oauthPages.length,
+      pagesWithToken: oauthPages.filter((p) => p.access_token).length,
       pagesWithIg: oauthPages.filter((p) => p.instagram_business_account?.id).length,
+      isLongLived,
+      pageNames: oauthPages.map((p) => p.name ?? p.id),
     });
 
-    // Phase 2: Fetch additional pages from Business Manager API
-    const businessPages = await fetchBusinessPages(userAccessToken);
+    let allPages = [...oauthPages];
 
-    // Phase 3: Merge and deduplicate
-    const oauthPageIds = new Set(oauthPages.filter((p) => p.id).map((p) => p.id));
+    if (allPages.length === 0) {
+      logger.info("[meta/callback] /me/accounts ga 0 sider, prøver Business Manager...");
+      const bizUrl = new URL("https://graph.facebook.com/v23.0/me/businesses");
+      bizUrl.searchParams.set("access_token", userAccessToken);
+      bizUrl.searchParams.set("fields", "id,name");
+      const bizResponse = await fetch(bizUrl.toString(), { cache: "no-store" });
+      const bizPayload = (await bizResponse.json().catch(() => ({}))) as {
+        data?: Array<{ id: string; name?: string }>;
+      };
+      const businesses = bizPayload.data ?? [];
+      logger.info("[meta/callback] Businesses funnet", {
+        count: businesses.length,
+        names: businesses.map((b) => b.name ?? b.id),
+      });
+
+      for (const biz of businesses) {
+        const bizPagesUrl = new URL(`https://graph.facebook.com/v23.0/${biz.id}/owned_pages`);
+        bizPagesUrl.searchParams.set("access_token", userAccessToken);
+        bizPagesUrl.searchParams.set("fields", "id,name,access_token,instagram_business_account{id,username}");
+        bizPagesUrl.searchParams.set("limit", "100");
+        const bizPagesResponse = await fetch(bizPagesUrl.toString(), { cache: "no-store" });
+        const bizPagesPayload = (await bizPagesResponse.json().catch(() => ({}))) as {
+          data?: MetaPage[];
+          error?: { message?: string };
+        };
+        if (bizPagesResponse.ok && bizPagesPayload.data) {
+          logger.info("[meta/callback] Business Manager-sider hentet", {
+            businessId: biz.id,
+            businessName: biz.name,
+            pageCount: bizPagesPayload.data.length,
+            pageNames: bizPagesPayload.data.map((p) => p.name ?? p.id),
+            pagesWithToken: bizPagesPayload.data.filter((p) => p.access_token).length,
+          });
+          allPages.push(...bizPagesPayload.data);
+        } else {
+          logger.warn("[meta/callback] Kunne ikke hente sider fra business", {
+            businessId: biz.id,
+            error: bizPagesPayload.error?.message ?? null,
+          });
+        }
+      }
+    }
+
+    const seenIds = new Set<string>();
     const resolvedPages: PendingMetaPage[] = [];
-
-    for (const page of oauthPages) {
-      if (!page.id) continue;
+    for (const page of allPages) {
+      if (!page.id || seenIds.has(page.id)) continue;
+      seenIds.add(page.id);
       const pageToken = await resolvePageToken(page, userAccessToken);
       if (!pageToken) continue;
       resolvedPages.push({
@@ -313,28 +331,12 @@ export async function GET(request: Request) {
         pageToken,
         igId: page.instagram_business_account?.id ?? null,
         igUsername: page.instagram_business_account?.username ?? null,
-        source: "oauth",
       });
     }
 
-    for (const page of businessPages) {
-      if (!page.id || oauthPageIds.has(page.id)) continue;
-      resolvedPages.push({
-        id: page.id,
-        name: page.name ?? `Side ${page.id}`,
-        pageToken: null,
-        igId: page.instagram_business_account?.id ?? null,
-        igUsername: page.instagram_business_account?.username ?? null,
-        source: "business_manager",
-      });
-    }
-
-    logger.info("[meta/callback] Totalt etter merge", {
-      oauthPages: oauthPages.length,
-      businessPages: businessPages.length,
-      resolvedTotal: resolvedPages.length,
-      withToken: resolvedPages.filter((p) => p.pageToken).length,
-      withoutToken: resolvedPages.filter((p) => !p.pageToken).length,
+    logger.info("[meta/callback] Totalt resolved sider", {
+      total: resolvedPages.length,
+      names: resolvedPages.map((p) => p.name),
     });
 
     if (resolvedPages.length === 0) {
@@ -346,7 +348,8 @@ export async function GET(request: Request) {
     const pendingData: PendingMetaData = {
       pages: resolvedPages,
       userAccessToken,
-      tokenExpiresIn,
+      tokenExpiresIn: isLongLived ? null : (tokenPayload.expires_in ?? null),
+      isLongLived,
       returnPath,
     };
 
