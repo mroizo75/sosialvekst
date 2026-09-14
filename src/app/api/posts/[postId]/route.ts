@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { generatePost } from "@/lib/ai/generatePost";
+import { assignPostStrategy } from "@/lib/ai/postStrategy";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
@@ -36,7 +37,16 @@ const updateSchema = z.object({
   topic: z.string().trim().min(2).max(180).optional(),
   scheduledAt: z.string().datetime().optional(),
   action: z
-    .enum(["save", "regenerate_all", "regenerate_text", "regenerate_image", "rewrite_topic", "reschedule", "unlock"])
+    .enum([
+      "save",
+      "regenerate_all",
+      "regenerate_text",
+      "regenerate_image",
+      "rewrite_topic",
+      "reschedule",
+      "unlock",
+      "reject_and_regenerate",
+    ])
     .optional(),
   regenerate: z.boolean().optional(),
 });
@@ -162,15 +172,20 @@ export async function PATCH(request: Request, context: RouteContext) {
       ?? brandContext?.products?.join(", ")?.slice(0, 180)
       ?? "Generell merkevarebygging";
     const action = payload.action ?? (payload.regenerate ? "regenerate_all" : "save");
+    const shouldUnlockFirst =
+      (action === "unlock" || action === "reject_and_regenerate") &&
+      (post.status === "approved" || post.status === "scheduled");
 
-    if (action === "unlock") {
+    if (action === "unlock" || action === "reject_and_regenerate") {
       if (post.status === "published") {
         return NextResponse.json(
           toAppError("POST_LOCKED", "Publiserte poster kan ikke låses opp."),
           { status: 400 },
         );
       }
+    }
 
+    if (shouldUnlockFirst) {
       const supabase = await createSupabaseServerClient();
       const { error: queueDeleteError } = await supabase
         .from("publish_jobs")
@@ -190,7 +205,9 @@ export async function PATCH(request: Request, context: RouteContext) {
           { status: 500 },
         );
       }
+    }
 
+    if (action === "unlock") {
       await savePost(userId, {
         ...post,
         status: "draft",
@@ -199,8 +216,10 @@ export async function PATCH(request: Request, context: RouteContext) {
       return NextResponse.json(refreshedPost);
     }
 
+    const regenAction = action === "reject_and_regenerate" ? "regenerate_all" : action;
+
     const isApprovalLocked = post.status === "approved" || post.status === "scheduled";
-    if (isApprovalLocked && action !== "reschedule") {
+    if (isApprovalLocked && regenAction !== "reschedule" && action !== "reject_and_regenerate") {
       return NextResponse.json(
         toAppError(
           "POST_APPROVAL_LOCKED",
@@ -243,29 +262,32 @@ export async function PATCH(request: Request, context: RouteContext) {
       );
     }
 
-    if (action !== "save") {
+    if (regenAction !== "save") {
       const t0 = Date.now();
       logger.info("[post/patch] Start AI-redigering", {
-        postId, action, channel: post.channel, userId,
+        postId, action, regenAction, channel: post.channel, userId,
       });
 
       await requireActiveSubscription(userId);
-      // TODO: Aktiver igjen etter test
-      // await checkAiEditAvailable(userId, workspaceId);
 
       const oldImageUrl = post.imageUrl;
       const topicFromPlan = await getTopicFromPlan(userId, postId);
       const mediaModeFromPlan = await getMediaModeFromPlan(userId, postId);
       const effectiveMediaMode = mediaModeFromPlan ?? "ai_only";
-      const topic = action === "rewrite_topic"
+      const topic = regenAction === "rewrite_topic"
         ? payload.topic ?? topicFromPlan ?? fallbackTopic
         : topicFromPlan ?? fallbackTopic;
-      const mediaMode = action === "regenerate_text"
+      const mediaMode = regenAction === "regenerate_text"
         ? "owned_only"
         : effectiveMediaMode === "owned_only"
           ? "owned_only"
           : "ai_only";
-      const imageProfile = action === "regenerate_image" ? "final" : "preview";
+      const imageProfile = regenAction === "regenerate_image" ? "final" : "preview";
+      const strategy = assignPostStrategy({
+        weekIndex: action === "reject_and_regenerate" ? Date.now() % 40 : 0,
+        dayIndex: new Date(post.scheduledAt).getUTCDay() % 3,
+        channel: post.channel,
+      });
 
       logger.info("[post/patch] Starter generatePost", {
         postId, action, channel: post.channel, mediaMode, imageProfile, topic: topic.slice(0, 60),
@@ -281,9 +303,13 @@ export async function PATCH(request: Request, context: RouteContext) {
           imageProfile,
           brandContext,
           skipVideo: true,
+          intent: strategy.intent,
+          format: strategy.format,
+          ctaType: strategy.ctaType,
+          imageDirection: strategy.imageDirection,
         }),
         REGENERATE_TIMEOUT_MS,
-        `${action}/${post.channel}`,
+        `${regenAction}/${post.channel}`,
       );
 
       logger.info("[post/patch] generatePost ferdig", {
@@ -294,7 +320,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         durationMs: Date.now() - t0,
       });
 
-      if (action === "regenerate_image") {
+      if (regenAction === "regenerate_image") {
         if (!regenerated.imageUrl) {
           logger.warn("[post/patch] Bildegenerering feilet", { postId, channel: post.channel });
           return NextResponse.json(
@@ -306,13 +332,13 @@ export async function PATCH(request: Request, context: RouteContext) {
         updatedVideoUrl = regenerated.videoUrl;
         updatedAdditionalImageUrls = regenerated.additionalImageUrls ?? [];
       }
-      if (action === "regenerate_text") {
+      if (regenAction === "regenerate_text") {
         updatedText = regenerated.text;
         updatedImageUrl = post.imageUrl;
         updatedVideoUrl = post.videoUrl;
         updatedAdditionalImageUrls = post.additionalImageUrls ?? [];
       }
-      if (action === "regenerate_all" || action === "rewrite_topic") {
+      if (regenAction === "regenerate_all" || regenAction === "rewrite_topic") {
         if (!regenerated.imageUrl && post.channel !== "tiktok") {
           logger.warn("[post/patch] regenerate_all uten bilde, beholder eksisterende", {
             postId, channel: post.channel,
@@ -328,9 +354,6 @@ export async function PATCH(request: Request, context: RouteContext) {
           updatedAdditionalImageUrls = regenerated.additionalImageUrls ?? [];
         }
       }
-
-      // TODO: Aktiver igjen etter test
-      // await consumeAiEdit(userId, workspaceId);
 
       if (oldImageUrl && oldImageUrl !== updatedImageUrl) {
         await deleteFilesByUrls([oldImageUrl]).catch(() => {});

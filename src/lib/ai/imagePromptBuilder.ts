@@ -1,4 +1,5 @@
 import type { BrandRules } from "@/lib/ai/brandRules";
+import { buildVisualBrief } from "@/lib/ai/visualDirection";
 import type { BrandContext, MediaMode, PostFormat } from "@/lib/types";
 
 type ImagePromptInput = {
@@ -46,28 +47,36 @@ const MEDIA_MODE_SPEC: Record<MediaMode, string> = {
 };
 
 const FORMAT_SPEC: Partial<Record<PostFormat, string>> = {
-  insight: "Kommuniser innsikt med tydelig hovedmotiv og profesjonell kontekst.",
-  tip: "Vis konkret handling eller praksisnaert scenario med klar nytteverdi.",
-  question: "Lag et motiv som inviterer til refleksjon og dialog.",
-  behind_the_scenes: "Autentisk arbeidsmiljo med ekte situasjon i fokus.",
-  case_study: "Resultat- eller leveranseorientert motiv med konkret faglig relevans.",
+  insight: "Tydelig hovedmotiv fra det bedriften faktisk leverer.",
+  tip: "Konkret handling i relevant miljo, uten skrivebord.",
+  question: "Motiv som inviterer til lengsel eller dialog, ikke et kontorportrett.",
+  behind_the_scenes: "Ekte situasjon fra leveransen ute i felt, kjokken, hotell eller verksted.",
+  case_study: "Resultat eller opplevelse i ekte setting.",
   fact: "Noytralt og tydelig informasjonsmotiv uten visuell stoy.",
-  how_to: "Trinnvis eller instruktivt preg med klar handling i bildet.",
-  myth_busting: "Vis kontrast mellom feil praksis og korrekt praksis pa en troverdig mate.",
-  opinion: "Tydelig standpunkt visuelt, men fortsatt profesjonelt og saklig uttrykk.",
+  how_to: "Handling i det relevante miljoeet, uten laptop-scene.",
+  myth_busting: "Vis kontrast i virkelige omgivelser, ikke i et mote-rom.",
+  opinion: "Tydelig karakter i et miljo som matcher bransjen.",
 };
 
 export const buildImagePrompt = (input: ImagePromptInput): string => {
   const ctx = input.brandContext ?? {};
   const companyName = ctx.companyName ?? "bedriften";
   const contextParts = [`Bedrift: ${companyName}.`];
+  if (ctx.industry) {
+    contextParts.push(`Bransje: ${ctx.industry}.`);
+  }
   if (ctx.companyDescription) {
-    contextParts.push(`Bransje/beskrivelse: ${ctx.companyDescription}.`);
+    contextParts.push(`Beskrivelse: ${ctx.companyDescription}.`);
   }
   if (ctx.products && ctx.products.length > 0) {
     contextParts.push(`Produkter/tjenester: ${ctx.products.join(", ")}.`);
   }
 
+  const visualBrief = buildVisualBrief({
+    topic: input.topic,
+    brandContext: ctx,
+    format: input.format,
+  });
   const channelSpec = CHANNEL_SPEC[input.channel];
   const toneKey = input.brandRules.toneOfVoice.toLowerCase().replaceAll("æ", "ae").replaceAll("ø", "o").replaceAll("å", "a");
   const visualTone = TONE_TO_VISUAL[toneKey] ?? `Visuell stil skal folge tonen: ${input.brandRules.toneOfVoice}.`;
@@ -108,7 +117,20 @@ export const buildImagePrompt = (input: ImagePromptInput): string => {
     [
       "VISUELL STIL:",
       `Tone: ${visualTone}`,
-      input.imageDirection ? `Retning: ${input.imageDirection}` : null,
+      `Hovedretning: ${visualBrief.subjectDirection}`,
+      input.imageDirection ? `Formatretning: ${input.imageDirection}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  );
+
+  sections.push(
+    [
+      "STEDLÅS (UFRAVIKELIG):",
+      visualBrief.sceneLock,
+      visualBrief.placeName
+        ? `Destinasjonen er ${visualBrief.placeName}. Alle motiver skal vaere der, ikke et tilfeldig annet sted.`
+        : null,
     ]
       .filter(Boolean)
       .join("\n"),
@@ -124,6 +146,8 @@ export const buildImagePrompt = (input: ImagePromptInput): string => {
       "- Ingen overmettet farge, neon, fantasy eller kitsch.",
       "- Bildet skal kommunisere en tydelig ide.",
       "- FOKUSLAS: Ikke tolk temaet bredt. Bruk eksakt semantikk fra tema og bedriftskontekst.",
+      "- FORBUDT:",
+      ...visualBrief.bans.map((ban) => `  - ${ban}`),
     ].join("\n"),
   );
 

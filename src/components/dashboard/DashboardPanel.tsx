@@ -143,6 +143,7 @@ export const DashboardPanel = () => {
   const [recovering, setRecovering] = useState(false);
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [planGenerating, setPlanGenerating] = useState(false);
+  const [disconnectingChannel, setDisconnectingChannel] = useState<SocialChannel | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const checkRecoveryStatus = useCallback(async () => {
@@ -283,6 +284,31 @@ export const DashboardPanel = () => {
     () => new Set(socialAccounts.filter((a) => a.tokenStatus === "valid").map((a) => a.channel)),
     [socialAccounts],
   );
+
+  const disconnectAccount = async (channel: SocialChannel) => {
+    const isMeta = channel === "facebook" || channel === "instagram";
+    const confirmed = window.confirm(
+      isMeta ? t("dashboard.disconnectConfirmMeta") : t("dashboard.disconnectConfirm", { channel: channel }),
+    );
+    if (!confirmed) return;
+
+    setDisconnectingChannel(channel);
+    setError("");
+    try {
+      const response = await fetch(`/api/social/accounts?channel=${channel}`, { method: "DELETE" });
+      const data = (await response.json().catch(() => ({}))) as { message?: string };
+      if (!response.ok) {
+        setError(data.message ?? t("dashboard.disconnectFailed"));
+        return;
+      }
+      setStatus(isMeta ? t("dashboard.disconnectedMeta") : t("dashboard.disconnected"));
+      await refresh({ quiet: true });
+    } catch {
+      setError(t("dashboard.disconnectFailed"));
+    } finally {
+      setDisconnectingChannel(null);
+    }
+  };
   const subscriptionLabel = useMemo(() => {
     if (!overview) return t("dashboard.unknownStatus");
     const key = overview.subscription.status as keyof typeof dictionary.dashboard.subscriptionStatus;
@@ -880,6 +906,20 @@ export const DashboardPanel = () => {
                             ? t("dashboard.reconnectShort")
                             : connectLabel}
                       </a>
+                    )}
+                    {(isConnected || hasIssue) && (
+                      <button
+                        type="button"
+                        onClick={() => void disconnectAccount(platform.channel)}
+                        disabled={disconnectingChannel !== null}
+                        className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {disconnectingChannel === platform.channel
+                          ? t("dashboard.disconnecting")
+                          : platform.channel === "facebook" || platform.channel === "instagram"
+                            ? t("dashboard.disconnectMeta")
+                            : t("dashboard.disconnect")}
+                      </button>
                     )}
                     {platform.extraLinks?.map((link) => (
                       <a

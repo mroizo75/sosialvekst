@@ -44,15 +44,15 @@ const CTA_MAP: Record<PostIntent, string> = {
 };
 
 const IMAGE_DIRECTION_MAP: Record<PostFormat, string> = {
-  insight: "Profesjonelt bilde som illustrerer en nøkkelinnsikt. Ingen tekst i bildet.",
-  tip: "Rent, minimalistisk bilde med fokus på et enkelt konsept eller verktøy.",
-  question: "Engasjerende bilde som inviterer til refleksjon. Visuelt uttrykk, ingen tekst.",
-  case_study: "Dokumentarisk stil som viser et resultat eller en prosess.",
-  how_to: "Visuelt steg-for-steg som viser en prosess eller metode. Ingen tekstoverlegg.",
-  fact: "Visuelt bilde som kommuniserer data eller innsikt gjennom motiv, ikke tekst.",
-  behind_the_scenes: "Autentisk, upolert bilde fra daglig drift eller arbeidsmiljø.",
-  myth_busting: "Kontrastfylt bilde som visuelt viser forskjellen mellom myte og virkelighet.",
-  opinion: "Bilde med tydelig karakter og personlighet som understreker et standpunkt.",
+  insight: "Fotorealistisk scene fra det bedriften faktisk leverer. Ingen tekst i bildet.",
+  tip: "Ett konkret motiv fra virkeligheten kunden ønsker seg. Ingen laptop eller kontor.",
+  question: "Lengsel eller nysgjerrighet gjennom ekte omgivelser. Ingen tekst.",
+  case_study: "Resultat eller opplevelse i ekte setting, ikke et møterom.",
+  how_to: "Handling i relevant miljø. Ingen skrivebordsscene og ingen tekstoverlegg.",
+  fact: "Motivet kommuniserer gjennom sted og detalj, ikke tekst eller infografikk.",
+  behind_the_scenes: "Ekte situasjon ute i felt, kjøkken, hotell eller verksted — ikke kontor.",
+  myth_busting: "Kontrast i virkelige omgivelser, ikke i et møterom.",
+  opinion: "Karakter gjennom sted og atmosfære, ikke et portrett ved PC.",
 };
 
 export const assignPostStrategy = (slot: PostSlot): PostStrategyResult => {

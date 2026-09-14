@@ -16,15 +16,15 @@ const CHANNEL_COMPOSITION: Record<SocialChannel, string> = {
 };
 
 const FORMAT_SCENE_DIRECTION: Record<string, string> = {
-  insight: "Product displayed in a professional setting that suggests expertise and industry knowledge. Clean desk, modern workspace, or studio environment.",
-  tip: "Product shown in active use — hands interacting with it, mid-action moment that demonstrates practical value.",
-  question: "Product placed in an intriguing or unexpected context that sparks curiosity. Slightly unconventional angle or setting.",
-  behind_the_scenes: "Product shown in its natural creation or work environment. Authentic, unpolished but appealing. Workshop, office, or production area.",
-  case_study: "Product shown alongside visible results or outcomes. Before/after context, or product in a successful deployment scenario.",
-  fact: "Product photographed in a clean, editorial style. Neutral background, precise lighting, the product speaks for itself.",
-  how_to: "Product shown step-by-step or mid-process. Hands visible, tools or accessories nearby, instructional context.",
-  myth_busting: "Product shown confidently in clear, honest light. No gimmicks — straightforward, transparent presentation.",
-  opinion: "Product photographed with character and personality. Strong angle, deliberate lighting that conveys a point of view.",
+  insight: "Product in the real environment the customer wants — destination, kitchen, workshop or store. Never a desk with a laptop.",
+  tip: "Product shown in active use in that same real environment.",
+  question: "Product placed in an intriguing real-world context that sparks desire or curiosity.",
+  behind_the_scenes: "Product in its natural creation or service environment: hotel, kitchen, workshop or field. Not an office.",
+  case_study: "Product shown with visible results in the same real setting.",
+  fact: "Product photographed in a clean, editorial style. Neutral background, precise lighting.",
+  how_to: "Product shown mid-process in the relevant environment. Tools nearby, no office desk.",
+  myth_busting: "Product shown honestly in clear light. No gimmicks.",
+  opinion: "Product photographed with character in brand-relevant surroundings.",
 };
 
 const getIndustrySceneContext = (brandContext?: BrandContext): string => {
@@ -78,14 +78,18 @@ export const buildProductScenePrompt = (input: ProductSceneInput): string => {
     "Include contextual props or environment elements that reinforce the topic, but the product remains the clear hero.",
   ].join("\n"));
 
-  if (input.format === "behind_the_scenes" || input.format === "how_to" || input.format === "tip" || input.format === "case_study") {
+  const industry = `${ctx.industry ?? ""} ${ctx.companyDescription ?? ""}`.toLowerCase();
+  const isTravel = /reise|hotel|hotell|ferie|turisme|travel|destinasjon|syden/.test(industry);
+  const allowPeople =
+    !isTravel &&
+    (input.format === "behind_the_scenes" || input.format === "how_to" || input.format === "tip");
+
+  if (allowPeople) {
     sections.push([
       "PEOPLE IN THE SCENE:",
-      "Include a person naturally interacting with or using the product.",
-      "The person should look genuine and relatable to the target audience.",
-      "Show realistic hands, natural skin tones, and authentic body language.",
-      "The person supports the scene but the product remains the focal point.",
-      "Avoid stiff poses — show natural, candid interaction.",
+      "A person may appear only if they are using the product in a real work or customer setting.",
+      "Never show anyone sitting at a computer, laptop or office desk.",
+      "The product remains the focal point.",
     ].join("\n"));
   }
 
@@ -114,6 +118,7 @@ export const buildProductScenePrompt = (input: ProductSceneInput): string => {
     "- Do NOT create a collage or split-screen layout.",
     "- Do NOT use neon colors, fantasy elements, or surreal styling.",
     "- Do NOT generate a generic stock photo — this must clearly feature THIS specific product.",
+    "- Do NOT show a person at a computer, laptop, or in an office landscape.",
   ].join("\n"));
 
   return sections.join("\n\n");

@@ -127,3 +127,65 @@ export async function GET() {
     );
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
+    const url = new URL(request.url);
+    const channel = url.searchParams.get("channel") as SocialChannel | null;
+    if (
+      channel !== "facebook" &&
+      channel !== "instagram" &&
+      channel !== "linkedin" &&
+      channel !== "tiktok"
+    ) {
+      return NextResponse.json(
+        toAppError("VALIDATION_ERROR", "Ugyldig kanal for frakobling."),
+        { status: 400 },
+      );
+    }
+
+    const channels: SocialChannel[] =
+      channel === "facebook" || channel === "instagram"
+        ? ["facebook", "instagram"]
+        : [channel];
+
+    const supabase = await createSupabaseServerClient();
+    const { error: jobsError } = await supabase
+      .from("publish_jobs")
+      .delete()
+      .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
+      .in("channel", channels)
+      .in("status", ["queued", "retrying"]);
+
+    if (jobsError) {
+      return NextResponse.json(
+        toAppError("SOCIAL_DISCONNECT_FAILED", "Kunne ikke rydde publiseringskø.", jobsError.message),
+        { status: 500 },
+      );
+    }
+
+    const { error } = await supabase
+      .from("social_accounts")
+      .delete()
+      .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
+      .in("channel", channels);
+
+    if (error) {
+      return NextResponse.json(
+        toAppError("SOCIAL_DISCONNECT_FAILED", "Kunne ikke koble fra kontoen.", error.message),
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.json({ ok: true, disconnected: channels });
+  } catch {
+    return NextResponse.json(
+      toAppError("SOCIAL_DISCONNECT_FAILED", "Kunne ikke koble fra kontoen."),
+      { status: 400 },
+    );
+  }
+}

@@ -255,6 +255,7 @@ type DetailPanelProps = {
   onRegenerateImage: (id: string) => void;
   onRewriteTopic: (id: string, topic: string) => void;
   onApprove: (id: string) => void;
+  onReject: (id: string) => void;
   onUnlock: (id: string) => void;
   processingAction: string | null;
   approving: boolean;
@@ -443,6 +444,7 @@ const DetailPanel = ({
   onRegenerateImage,
   onRewriteTopic,
   onApprove,
+  onReject,
   onUnlock,
   processingAction,
   approving,
@@ -665,18 +667,31 @@ const DetailPanel = ({
 
         {/* --- Approve banner --- */}
         {canApprove && (
-          <div className="flex items-center justify-between border-b border-primary/20 bg-gradient-to-r from-primary/5 to-transparent px-5 py-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-primary/20 bg-gradient-to-r from-primary/5 to-transparent px-5 py-2.5">
             <div className="flex items-center gap-2">
               <IconCheckCircle className="size-4 text-primary" />
-              <p className="text-sm font-medium text-foreground">Klar til å godkjenne?</p>
+              <p className="text-sm font-medium text-foreground">{t("calendar.readyToApprove")}</p>
             </div>
-            <Button
-              size="sm"
-              onClick={() => onApprove(post.id)}
-              disabled={approving || isProcessing}
-            >
-              {approving ? t("calendar.approving") : t("calendar.approve")}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onReject(post.id)}
+                disabled={approving || isProcessing}
+                className="bg-transparent"
+              >
+                {processingAction === "reject_and_regenerate"
+                  ? t("calendar.rejecting")
+                  : t("calendar.rejectAndRegenerate")}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => onApprove(post.id)}
+                disabled={approving || isProcessing}
+              >
+                {approving ? t("calendar.approving") : t("calendar.approve")}
+              </Button>
+            </div>
           </div>
         )}
         {post.status === "approved" && (
@@ -686,14 +701,28 @@ const DetailPanel = ({
               <p className="text-sm font-medium text-success">Godkjent — klar for publisering</p>
             </div>
             {canUnlock ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onUnlock(post.id)}
-                disabled={isProcessing}
-              >
-                {processingAction === "unlock" ? t("calendar.cancelling") : t("calendar.cancelApproval")}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onReject(post.id)}
+                  disabled={isProcessing}
+                  className="bg-transparent"
+                >
+                  {processingAction === "reject_and_regenerate"
+                    ? t("calendar.rejecting")
+                    : t("calendar.rejectAndRegenerate")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onUnlock(post.id)}
+                  disabled={isProcessing}
+                  className="bg-transparent"
+                >
+                  {processingAction === "unlock" ? t("calendar.cancelling") : t("calendar.cancelApproval")}
+                </Button>
+              </div>
             ) : null}
           </div>
         )}
@@ -704,14 +733,28 @@ const DetailPanel = ({
               <p className="text-sm font-medium text-success">Planlagt for automatisk publisering</p>
             </div>
             {canUnlock ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onUnlock(post.id)}
-                disabled={isProcessing}
-              >
-                {processingAction === "unlock" ? t("calendar.cancelling") : t("calendar.cancelPublishing")}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onReject(post.id)}
+                  disabled={isProcessing}
+                  className="bg-transparent"
+                >
+                  {processingAction === "reject_and_regenerate"
+                    ? t("calendar.rejecting")
+                    : t("calendar.rejectAndRegenerate")}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onUnlock(post.id)}
+                  disabled={isProcessing}
+                  className="bg-transparent"
+                >
+                  {processingAction === "unlock" ? t("calendar.cancelling") : t("calendar.cancelPublishing")}
+                </Button>
+              </div>
             ) : null}
           </div>
         )}
@@ -736,7 +779,7 @@ const DetailPanel = ({
                 ) : carouselPreviewUrls.length > 0 ? (
                   <div className={cn(
                     "relative overflow-hidden rounded-xl border border-border bg-card shadow-sm",
-                    (processingAction === "regenerate_image" || processingAction === "regenerate_all") && "border-primary/30",
+                    (processingAction === "regenerate_image" || processingAction === "regenerate_all" || processingAction === "reject_and_regenerate") && "border-primary/30",
                   )}>
                     <div className="flex items-center justify-between border-b border-border px-3 py-2">
                       <span className="text-[11px] font-semibold text-foreground">{t("calendar.preview")}</span>
@@ -753,11 +796,11 @@ const DetailPanel = ({
                         alt={t("calendar.preview")}
                         className={cn(
                           "h-full w-full object-cover transition-opacity duration-300",
-                          (processingAction === "regenerate_image" || processingAction === "regenerate_all") && "opacity-30",
+                          (processingAction === "regenerate_image" || processingAction === "regenerate_all" || processingAction === "reject_and_regenerate") && "opacity-30",
                         )}
                         onError={(event) => { event.currentTarget.style.display = "none"; }}
                       />
-                      {(processingAction === "regenerate_image" || processingAction === "regenerate_all") && (
+                      {(processingAction === "regenerate_image" || processingAction === "regenerate_all" || processingAction === "reject_and_regenerate") && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
                           <div className="size-10 animate-spin rounded-full border-[3px] border-primary/30 border-t-primary" />
                           <p className="text-sm font-medium text-foreground">Lager nye bilder...</p>
@@ -814,18 +857,18 @@ const DetailPanel = ({
                       alt={t("calendar.postImage")}
                       className={cn(
                         "h-full w-full object-contain transition-opacity duration-300",
-                        (processingAction === "regenerate_image" || processingAction === "regenerate_all") && "opacity-30",
+                        (processingAction === "regenerate_image" || processingAction === "regenerate_all" || processingAction === "reject_and_regenerate") && "opacity-30",
                       )}
                       onError={(event) => { event.currentTarget.style.display = "none"; }}
                     />
-                    {(processingAction === "regenerate_image" || processingAction === "regenerate_all") && (
+                    {(processingAction === "regenerate_image" || processingAction === "regenerate_all" || processingAction === "reject_and_regenerate") && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
                         <div className="size-10 animate-spin rounded-full border-[3px] border-primary/30 border-t-primary" />
                         <p className="text-sm font-medium text-foreground">Lager nytt bilde...</p>
                       </div>
                     )}
                   </div>
-                ) : (processingAction === "regenerate_image" || processingAction === "regenerate_all") ? (
+                ) : (processingAction === "regenerate_image" || processingAction === "regenerate_all" || processingAction === "reject_and_regenerate") ? (
                   <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-primary/30 bg-primary/5">
                     <div className="size-10 animate-spin rounded-full border-[3px] border-primary/30 border-t-primary" />
                     <p className="text-sm font-medium text-foreground">Lager bilde med AI...</p>
@@ -1040,7 +1083,7 @@ const DetailPanel = ({
                 <div className="mb-2 flex items-center gap-1.5">
                   <IconEdit className="size-3.5 text-muted-foreground" />
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tekst</p>
-                  {(processingAction === "regenerate_text" || processingAction === "regenerate_all") && (
+                  {(processingAction === "regenerate_text" || processingAction === "regenerate_all" || processingAction === "reject_and_regenerate") && (
                     <span className="ml-auto flex items-center gap-1 text-[11px] font-medium text-primary animate-pulse">
                       <div className="size-3 animate-spin rounded-full border border-primary border-t-transparent" />
                       {t("calendar.writingText")}
@@ -1054,12 +1097,12 @@ const DetailPanel = ({
                     rows={10}
                     className={cn(
                       "resize-none transition-opacity duration-300",
-                      (processingAction === "regenerate_text" || processingAction === "regenerate_all") && "opacity-40",
+                      (processingAction === "regenerate_text" || processingAction === "regenerate_all" || processingAction === "reject_and_regenerate") && "opacity-40",
                     )}
                     placeholder="Skriv teksten til innlegget her..."
-                    disabled={processingAction === "regenerate_text" || processingAction === "regenerate_all"}
+                    disabled={processingAction === "regenerate_text" || processingAction === "regenerate_all" || processingAction === "reject_and_regenerate"}
                   />
-                  {(processingAction === "regenerate_text" || processingAction === "regenerate_all") && (
+                  {(processingAction === "regenerate_text" || processingAction === "regenerate_all" || processingAction === "reject_and_regenerate") && (
                     <div className="absolute inset-0 flex flex-col items-start justify-start gap-2 rounded-md p-3 pointer-events-none">
                       <div className="h-3 w-11/12 animate-pulse rounded bg-primary/10" />
                       <div className="h-3 w-full animate-pulse rounded bg-primary/10" style={{ animationDelay: "100ms" }} />
@@ -1289,7 +1332,7 @@ export const PostCalendar = () => {
   const [selectedPost, setSelectedPost] = useState<PostDraft | null>(null);
   const [processingPost, setProcessingPost] = useState<{
     id: string;
-    action: "save" | "regenerate_all" | "regenerate_text" | "regenerate_image" | "rewrite_topic" | "unlock";
+    action: "save" | "regenerate_all" | "regenerate_text" | "regenerate_image" | "rewrite_topic" | "unlock" | "reject_and_regenerate";
   } | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
@@ -1335,7 +1378,7 @@ export const PostCalendar = () => {
 
   const updatePost = async (
     postId: string,
-    action: "save" | "regenerate_all" | "regenerate_text" | "regenerate_image" | "rewrite_topic" | "unlock",
+    action: "save" | "regenerate_all" | "regenerate_text" | "regenerate_image" | "rewrite_topic" | "unlock" | "reject_and_regenerate",
     payload: Record<string, string | string[] | undefined> = {},
   ) => {
     // TODO: Aktiver igjen etter test
@@ -1349,8 +1392,10 @@ export const PostCalendar = () => {
       action === "save"
         ? t("calendar.savingChanges")
         : action === "unlock"
-          ? "Avbryter godkjenning/publisering..."
-          : "AI oppdaterer posten...",
+          ? t("calendar.unlockingStatus")
+          : action === "reject_and_regenerate"
+            ? t("calendar.rejecting")
+            : t("calendar.aiUpdatingPost")
     );
 
     const response = await fetch(`/api/posts/${postId}`, {
@@ -1370,7 +1415,10 @@ export const PostCalendar = () => {
     setPosts((prev) => prev.map((p) => (p.id === updatedPost.id ? updatedPost : p)));
     setSelectedPost(updatedPost);
     if (action === "unlock") {
-      setStatus("Posten er låst opp. Du kan nå redigere og generere nytt innhold.");
+      setStatus(t("calendar.unlockedStatus"));
+      setTimeout(() => setStatus(""), 3000);
+    } else if (action === "reject_and_regenerate") {
+      setStatus(t("calendar.rejectedStatus"));
       setTimeout(() => setStatus(""), 3000);
     } else {
       setStatus("");
@@ -2010,6 +2058,7 @@ export const PostCalendar = () => {
             onRegenerateImage={(id) => void updatePost(id, "regenerate_image")}
             onRewriteTopic={(id, topic) => void updatePost(id, "rewrite_topic", { topic })}
             onApprove={(id) => void approvePost(id)}
+            onReject={(id) => void updatePost(id, "reject_and_regenerate")}
             onUnlock={(id) => void updatePost(id, "unlock")}
             processingAction={processingPost?.id === selectedPost.id ? processingPost.action : null}
             approving={approvingId === selectedPost.id}

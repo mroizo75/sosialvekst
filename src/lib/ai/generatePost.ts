@@ -4,6 +4,7 @@ import { generateImageToVideo, isFalAvailable } from "@/lib/ai/falClient";
 import { generateProfessionalImage, overlayLogoOnImage } from "@/lib/ai/imageGeneration";
 import { generateProductImage } from "@/lib/ai/imageEngine";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
+import { buildCarouselVariantPrompt, buildVisualBrief } from "@/lib/ai/visualDirection";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
 import { uploadUserFile, listUserFiles } from "@/lib/cloudflare/r2";
@@ -399,12 +400,6 @@ const shouldGenerateCarousel = (
   return true;
 };
 
-const CAROUSEL_ANGLE_VARIANTS = [
-  "fra en annen vinkel, nærmere detaljer",
-  "i bruk, kontekst og miljø rundt",
-  "ovenfra-perspektiv med omgivelsene",
-];
-
 const generateCarouselImages = async (
   input: GeneratePostInput,
   primaryImagePrompt: string,
@@ -432,9 +427,14 @@ const generateCarouselImages = async (
     return urls;
   }
 
+  const visualBrief = buildVisualBrief({
+    topic: input.topic,
+    brandContext: input.brandContext,
+    format: input.format,
+  });
+
   const generateSlide = async (i: number): Promise<string | undefined> => {
-    const variant = CAROUSEL_ANGLE_VARIANTS[i % CAROUSEL_ANGLE_VARIANTS.length];
-    const variantPrompt = `${primaryImagePrompt}\n\nVARIASJON: Vis dette ${variant}. Behold samme stil, fargepalett og kvalitet.`;
+    const variantPrompt = buildCarouselVariantPrompt(primaryImagePrompt, visualBrief, i);
     try {
       let url = await generateProfessionalImage({
         userId: input.userId,
