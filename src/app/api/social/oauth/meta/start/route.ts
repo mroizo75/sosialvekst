@@ -14,21 +14,28 @@ export async function GET(request: Request) {
   const returnTo = url.searchParams.get("returnTo") ?? "/dashboard";
 
   const appId = getRequiredEnv("FACEBOOK_APP_ID");
-  const configId = getRequiredEnv("FACEBOOK_LOGIN_CONFIG_ID");
   const callbackUrl = `${getAppUrl()}/api/social/oauth/meta/callback`;
   const state = crypto.randomUUID();
+  const scopes = [
+    "pages_show_list",
+    "pages_manage_posts",
+    "instagram_basic",
+    "instagram_content_publish",
+    "business_management",
+  ].join(",");
 
   const authUrl = new URL("https://www.facebook.com/v23.0/dialog/oauth");
   authUrl.searchParams.set("client_id", appId);
   authUrl.searchParams.set("redirect_uri", callbackUrl);
   authUrl.searchParams.set("state", state);
   authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("config_id", configId);
+  authUrl.searchParams.set("scope", scopes);
+  authUrl.searchParams.set("auth_type", "rerequest");
 
   logger.info("[meta/start] OAuth redirect", {
     appId,
-    configId,
     callbackUrl,
+    scopes,
     fullUrl: authUrl.toString(),
   });
 
