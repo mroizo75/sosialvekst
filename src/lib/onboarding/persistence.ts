@@ -1,11 +1,13 @@
 import { toAppError } from "@/lib/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { OnboardingWizardSchema } from "@/lib/onboarding/schema";
+import type { OnboardingInput } from "@/lib/types";
 
 export const persistOnboarding = async (
   userId: string,
   payload: OnboardingWizardSchema,
   workspaceId?: string,
+  preferredLanguage: OnboardingInput["preferredLanguage"] = "nb-NO",
 ) => {
   const supabase = await createSupabaseServerClient();
 
@@ -15,7 +17,7 @@ export const persistOnboarding = async (
       full_name: payload.fullName,
       company_name: payload.companyName,
       country_code: payload.countryCode.toUpperCase(),
-      preferred_language: "nb-NO",
+      preferred_language: preferredLanguage,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id" },

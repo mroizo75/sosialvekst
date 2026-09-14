@@ -5,16 +5,18 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { signOutAction } from "@/app/(auth)/actions";
+import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { cn } from "@/lib/utils";
 
-const NAV_ITEMS = [
-  { href: "/dashboard", label: "Oversikt" },
-  { href: "/kalender", label: "Kalender" },
-  { href: "/media", label: "Bilder og video" },
-  { href: "/video-studio", label: "Video Studio" },
-  { href: "/publiser", label: "Publiser" },
-  { href: "/onboarding", label: "Min bedrift" },
-] as const;
+const NAV_HREFS = [
+  { href: "/dashboard", key: "overview" as const },
+  { href: "/kalender", key: "calendar" as const },
+  { href: "/media", key: "media" as const },
+  { href: "/video-studio", key: "videoStudio" as const },
+  { href: "/publiser", key: "publish" as const },
+  { href: "/onboarding", key: "myCompany" as const },
+];
 
 type Workspace = {
   id: string;
@@ -24,12 +26,19 @@ type Workspace = {
 
 export const AppNav = () => {
   const pathname = usePathname();
+  const { dictionary } = useI18n();
+  const nav = dictionary.nav;
   const [mobileOpen, setMobileOpen] = useState(false);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [wsDropdownOpen, setWsDropdownOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
+
+  const navItems = NAV_HREFS.map((item) => ({
+    href: item.href,
+    label: nav[item.key],
+  }));
 
   const isActive = (href: string): boolean => {
     if (href === "/kalender") {
@@ -78,7 +87,7 @@ export const AppNav = () => {
     setCreating(false);
   };
 
-  const activeName = workspaces.find((w) => w.id === activeId)?.name ?? "Bedrift";
+  const activeName = workspaces.find((w) => w.id === activeId)?.name ?? nav.companyFallback;
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur-lg">
@@ -120,13 +129,13 @@ export const AppNav = () => {
                       ))}
                     </div>
                     <div className="border-t border-border p-2">
-                      <p className="px-2 pb-1.5 text-xs font-medium text-muted-foreground">Ny bedrift</p>
+                      <p className="px-2 pb-1.5 text-xs font-medium text-muted-foreground">{nav.newCompany}</p>
                       <div className="flex gap-1.5">
                         <input
                           type="text"
                           value={newName}
                           onChange={(e) => setNewName(e.target.value)}
-                          placeholder="Bedriftsnavn..."
+                          placeholder={nav.companyNamePlaceholder}
                           className="flex-1 min-w-0 rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
                           onKeyDown={(e) => { if (e.key === "Enter") void createWorkspace(); }}
                         />
@@ -136,7 +145,7 @@ export const AppNav = () => {
                           disabled={!newName.trim() || creating}
                           className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50 transition-colors cursor-pointer"
                         >
-                          {creating ? "..." : "Opprett"}
+                          {creating ? "..." : nav.create}
                         </button>
                       </div>
                     </div>
@@ -147,7 +156,7 @@ export const AppNav = () => {
           )}
 
           <nav className="hidden sm:flex items-center gap-1">
-            {NAV_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -164,20 +173,23 @@ export const AppNav = () => {
           </nav>
         </div>
 
-        <form action={signOutAction} className="hidden sm:block">
-          <button
-            type="submit"
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors cursor-pointer"
-          >
-            Logg ut
-          </button>
-        </form>
+        <div className="hidden sm:flex items-center gap-2">
+          <LanguageSwitcher variant="app" />
+          <form action={signOutAction}>
+            <button
+              type="submit"
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors cursor-pointer"
+            >
+              {nav.logOut}
+            </button>
+          </form>
+        </div>
 
         <button
           type="button"
           onClick={() => setMobileOpen((prev) => !prev)}
           className="sm:hidden flex flex-col items-center justify-center gap-1 p-2 -ml-2 rounded-lg hover:bg-secondary transition-colors cursor-pointer"
-          aria-label="Meny"
+          aria-label={dictionary.common.menu}
         >
           <span className={cn(
             "block h-0.5 w-5 rounded-full bg-foreground transition-all",
@@ -199,7 +211,7 @@ export const AppNav = () => {
       {mobileOpen && (
         <div className="sm:hidden border-t border-border bg-card animate-in slide-in-from-top-2 fade-in duration-200">
           <nav className="flex flex-col p-2 gap-0.5">
-            {NAV_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -214,13 +226,16 @@ export const AppNav = () => {
                 {item.label}
               </Link>
             ))}
-            <div className="border-t border-border mt-1 pt-1">
+            <div className="border-t border-border mt-1 pt-1 space-y-1">
+              <div className="px-4 py-2">
+                <LanguageSwitcher variant="app" />
+              </div>
               <form action={signOutAction}>
                 <button
                   type="submit"
                   className="w-full rounded-lg px-4 py-3 text-left text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors cursor-pointer"
                 >
-                  Logg ut
+                  {nav.logOut}
                 </button>
               </form>
             </div>

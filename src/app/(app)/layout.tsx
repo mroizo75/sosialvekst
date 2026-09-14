@@ -3,15 +3,22 @@ import Link from "next/link";
 
 import { AppNav } from "@/components/layout/AppNav";
 import { Breadcrumbs } from "@/components/layout/Breadcrumbs";
+import { getDictionary } from "@/lib/i18n/dictionary";
+import { getLocale } from "@/lib/i18n/get-locale";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-const getGreeting = (): string => {
+const getGreeting = (greetings: {
+  goodNight: string;
+  goodMorning: string;
+  goodAfternoon: string;
+  goodEvening: string;
+}): string => {
   const nowInNorway = new Date().toLocaleString("en-US", { timeZone: "Europe/Oslo" });
   const hour = new Date(nowInNorway).getHours();
-  if (hour < 6) return "God natt";
-  if (hour < 12) return "God morgen";
-  if (hour < 17) return "God ettermiddag";
-  return "God kveld";
+  if (hour < 6) return greetings.goodNight;
+  if (hour < 12) return greetings.goodMorning;
+  if (hour < 17) return greetings.goodAfternoon;
+  return greetings.goodEvening;
 };
 
 const getUserName = async (): Promise<string | null> => {
@@ -37,9 +44,11 @@ export default async function AppLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getLocale();
+  const dict = getDictionary(locale);
   const name = await getUserName();
   const firstName = name?.split(" ")[0] ?? null;
-  const greeting = getGreeting();
+  const greeting = getGreeting(dict.app.greetings);
 
   return (
     <div className="min-h-screen bg-background">

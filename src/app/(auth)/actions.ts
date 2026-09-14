@@ -61,6 +61,8 @@ export const signUpAction = async (formData: FormData): Promise<void> => {
   const password = getStringValue(formData, "password");
   const fullName = getStringValue(formData, "fullName");
   const termsAccepted = getCheckedValue(formData, "termsAccepted");
+  const rawWebsiteUrl = formData.get("websiteUrl");
+  const websiteUrl = typeof rawWebsiteUrl === "string" && rawWebsiteUrl.trim() ? rawWebsiteUrl.trim() : undefined;
   const appUrl = getAppUrl();
   const redirectTo = `${appUrl}/api/auth/callback?next=${encodeURIComponent("/login?confirmed=1")}`;
 
@@ -80,7 +82,7 @@ export const signUpAction = async (formData: FormData): Promise<void> => {
     email,
     password,
     email_confirm: false,
-    user_metadata: { fullName },
+    user_metadata: { fullName, ...(websiteUrl ? { pendingWebsiteUrl: websiteUrl } : {}) },
   });
 
   if (error) {

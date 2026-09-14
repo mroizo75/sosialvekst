@@ -1,5 +1,6 @@
 "use client";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { Button } from "@/components/ui/Button";
 
 type ErrorPageProps = {
@@ -8,6 +9,8 @@ type ErrorPageProps = {
 };
 
 export default function AppError({ reset }: ErrorPageProps) {
+  const { t } = useI18n();
+
   return (
     <div className="flex items-center justify-center py-24">
       <div className="flex flex-col items-center gap-4 text-center">
@@ -15,13 +18,13 @@ export default function AppError({ reset }: ErrorPageProps) {
           <span className="text-2xl text-destructive">!</span>
         </div>
         <div>
-          <h2 className="text-lg font-bold text-foreground">Noe gikk galt</h2>
+          <h2 className="text-lg font-bold text-foreground">{t("error.title")}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            En uventet feil oppstod. Prøv å laste siden på nytt.
+            {t("error.body")}
           </p>
         </div>
         <Button variant="outline" onClick={reset}>
-          Prøv igjen
+          {t("error.retry")}
         </Button>
       </div>
     </div>

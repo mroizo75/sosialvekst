@@ -19,7 +19,6 @@ export async function GET(request: Request) {
   const scopes = [
     "public_profile",
     "pages_show_list",
-    "pages_read_engagement",
     "pages_manage_posts",
     "business_management",
     "instagram_basic",

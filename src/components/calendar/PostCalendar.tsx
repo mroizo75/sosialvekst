@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { CreatePostDialog } from "@/components/calendar/CreatePostDialog";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
-import { CreatePostDialog } from "@/components/calendar/CreatePostDialog";
-import { cn } from "@/lib/utils";
+import { localeToPreferredLanguage } from "@/lib/i18n/config";
 import type { PostDraft, SocialChannel } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 /* ─── Inline SVG icon components ─── */
 
@@ -43,7 +45,6 @@ const IconGrid = ic("M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25
 
 type CalendarView = "month" | "week";
 
-const DAY_NAMES = ["man", "tir", "ons", "tor", "fre", "lor", "son"] as const;
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
 const getIsoWeekNumber = (date: Date): number => {
@@ -116,10 +117,13 @@ type PostCardMiniProps = {
   onClick: () => void;
   onDragStart?: (postId: string) => void;
   onDragEnd?: () => void;
+  isProcessing?: boolean;
 };
 
-const PostCardMini = ({ post, onClick, onDragStart, onDragEnd }: PostCardMiniProps) => {
-  const time = new Date(post.scheduledAt).toLocaleTimeString("nb-NO", {
+const PostCardMini = ({ post, onClick, onDragStart, onDragEnd, isProcessing }: PostCardMiniProps) => {
+  const { t, locale } = useI18n();
+  const dateLocale = localeToPreferredLanguage[locale];
+  const time = new Date(post.scheduledAt).toLocaleTimeString(dateLocale, {
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -154,14 +158,14 @@ const PostCardMini = ({ post, onClick, onDragStart, onDragEnd }: PostCardMiniPro
     <button
       type="button"
       onClick={onClick}
-      draggable
+      draggable={!isProcessing}
       onDragStart={(event) => {
         event.dataTransfer.setData("text/post-id", post.id);
         onDragStart?.(post.id);
       }}
       onDragEnd={() => onDragEnd?.()}
       className={cn(
-        "w-full rounded-md border overflow-hidden text-left transition-all hover:shadow-md hover:scale-[1.02] cursor-pointer",
+        "relative w-full rounded-md border overflow-hidden text-left transition-all hover:shadow-md hover:scale-[1.02] cursor-pointer",
         isScheduled
           ? "border-success bg-success/5 ring-1 ring-success/30"
           : isApproved
@@ -171,33 +175,42 @@ const PostCardMini = ({ post, onClick, onDragStart, onDragEnd }: PostCardMiniPro
               : isFailed
                 ? "border-destructive/50 bg-destructive/5"
                 : channelColor[post.channel],
+        isProcessing && "ring-1 ring-primary/40",
       )}
     >
+      {isProcessing && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 backdrop-blur-[2px]">
+          <div className="flex flex-col items-center gap-1">
+            <div className="size-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <span className="text-[9px] font-medium text-primary">{t("calendar.aiWorking")}</span>
+          </div>
+        </div>
+      )}
       {isApproved && (
         <div className="flex items-center gap-1 bg-primary/10 px-1.5 py-0.5">
           <span className="flex size-3 items-center justify-center rounded-full bg-primary text-[7px] text-white font-bold">✓</span>
-          <span className="text-[9px] font-semibold text-primary">Godkjent</span>
+          <span className="text-[9px] font-semibold text-primary">{t("calendar.statusApproved")}</span>
         </div>
       )}
       {isScheduled && (
         <div className="flex items-center gap-1 bg-success/15 px-1.5 py-0.5">
           <span className="flex size-3 items-center justify-center rounded-full bg-success text-[7px] text-white font-bold">✓</span>
-          <span className="text-[9px] font-semibold text-success">Publiseres automatisk</span>
+          <span className="text-[9px] font-semibold text-success">{t("calendar.statusAutoPublish")}</span>
         </div>
       )}
       {isPublished && (
         <div className="flex items-center gap-1 bg-success/10 px-1.5 py-0.5">
-          <span className="text-[9px] font-semibold text-success">Publisert</span>
+          <span className="text-[9px] font-semibold text-success">{t("calendar.statusPublished")}</span>
         </div>
       )}
       {isFailed && (
         <div className="flex items-center gap-1 bg-destructive/10 px-1.5 py-0.5">
-          <span className="text-[9px] font-semibold text-destructive">Feilet</span>
+          <span className="text-[9px] font-semibold text-destructive">{t("calendar.statusFailed")}</span>
         </div>
       )}
       {post.videoUrl ? (
         <div className="flex h-12 w-full items-center justify-center bg-muted/40 text-[10px] font-medium text-muted-foreground">
-          Video valgt
+          {t("calendar.videoSelected")}
         </div>
       ) : post.imageUrl && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -265,29 +278,11 @@ type MediaFile = {
   updatedAt: string;
 };
 
-const STATUS_LABEL_NO: Record<string, string> = {
-  generating: "Genereres",
-  draft: "Utkast",
-  approved: "Godkjent",
-  scheduled: "Planlagt",
-  published: "Publisert",
-  failed: "Feilet",
-  needs_review: "Trenger gjennomgang",
-};
-
-const CHANNEL_LABEL_NO: Record<SocialChannel, string> = {
+const CHANNEL_LABEL: Record<SocialChannel, string> = {
   facebook: "Facebook",
   instagram: "Instagram",
   linkedin: "LinkedIn",
   tiktok: "TikTok",
-};
-
-const PUBLISH_JOB_STATUS_LABEL_NO: Record<string, string> = {
-  queued: "I kø",
-  retrying: "Prøver igjen",
-  processing: "Publiserer nå",
-  completed: "Publisert",
-  failed: "Feilet",
 };
 
 const detectMediaKind = (key: string): "image" | "video" | "other" => {
@@ -302,6 +297,7 @@ type MediaPickerDialogProps = {
 };
 
 const MediaPickerDialog = ({ onClose, onSelect }: MediaPickerDialogProps) => {
+  const { t } = useI18n();
   const [files, setFiles] = useState<MediaFile[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(true);
   const [error, setError] = useState("");
@@ -313,7 +309,7 @@ const MediaPickerDialog = ({ onClose, onSelect }: MediaPickerDialogProps) => {
       try {
         const response = await fetch("/api/media/files");
         if (!response.ok) {
-          if (!cancelled) setError("Kunne ikke hente filer fra mediebiblioteket.");
+          if (!cancelled) setError(t("calendar.couldNotFetchFiles"));
           return;
         }
         const data = (await response.json()) as { files: MediaFile[] };
@@ -322,7 +318,7 @@ const MediaPickerDialog = ({ onClose, onSelect }: MediaPickerDialogProps) => {
           setError("");
         }
       } catch {
-        if (!cancelled) setError("Nettverksfeil ved henting av mediefiler.");
+        if (!cancelled) setError(t("calendar.networkErrorFiles"));
       } finally {
         if (!cancelled) setLoadingFiles(false);
       }
@@ -339,9 +335,9 @@ const MediaPickerDialog = ({ onClose, onSelect }: MediaPickerDialogProps) => {
   }, [files, filter]);
 
   const FILTER_OPTIONS = [
-    { key: "all" as const, label: "Alle", icon: <IconGrid className="size-3.5" /> },
-    { key: "image" as const, label: "Bilder", icon: <IconImage className="size-3.5" /> },
-    { key: "video" as const, label: "Video", icon: <IconVideo className="size-3.5" /> },
+    { key: "all" as const, label: t("calendar.filterAll"), icon: <IconGrid className="size-3.5" /> },
+    { key: "image" as const, label: t("calendar.filterImages"), icon: <IconImage className="size-3.5" /> },
+    { key: "video" as const, label: t("calendar.filterVideo"), icon: <IconVideo className="size-3.5" /> },
   ];
 
   return (
@@ -452,6 +448,10 @@ const DetailPanel = ({
   approving,
   aiEditsRemaining,
 }: DetailPanelProps) => {
+  const { t, dictionary, locale } = useI18n();
+  const dateLocale = localeToPreferredLanguage[locale];
+  const statusLabels = dictionary.calendar.statuses as Record<string, string>;
+  const jobStatusLabels = dictionary.calendar.jobStatuses as Record<string, string>;
   const scheduledDate = new Date(post.scheduledAt);
   const [textDraft, setTextDraft] = useState(post.text);
   const [imageUrlDraft, setImageUrlDraft] = useState(post.imageUrl ?? "");
@@ -474,7 +474,7 @@ const DetailPanel = ({
       formData.append("file", file);
       formData.append("mediaKind", "video");
       const response = await fetch("/api/media/upload", { method: "POST", body: formData });
-      if (!response.ok) throw new Error("Upload feilet");
+      if (!response.ok) throw new Error(t("calendar.uploadFailed"));
       const data = (await response.json()) as { url?: string };
       if (data.url) {
         setVideoUrlDraft(data.url);
@@ -533,7 +533,7 @@ const DetailPanel = ({
         const response = await fetch(`/api/publish/history?postId=${post.id}`);
         if (!response.ok) {
           if (!cancelled) {
-            setPublishHistoryStatus("Kunne ikke hente publiseringshistorikk.");
+            setPublishHistoryStatus(t("calendar.couldNotFetchHistory"));
           }
           return;
         }
@@ -544,7 +544,7 @@ const DetailPanel = ({
         }
       } catch {
         if (!cancelled) {
-          setPublishHistoryStatus("Nettverksfeil ved henting av publiseringshistorikk.");
+          setPublishHistoryStatus(t("calendar.networkErrorHistory"));
         }
       }
     };
@@ -625,7 +625,7 @@ const DetailPanel = ({
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Rediger post"
+        aria-label={t("calendar.editPost")}
         tabIndex={-1}
         className="flex h-[95vh] sm:h-[90vh] w-full sm:max-w-5xl flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl border border-border bg-card shadow-2xl animate-scale-in"
       >
@@ -638,18 +638,18 @@ const DetailPanel = ({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold leading-tight">
-                  {CHANNEL_LABEL_NO[post.channel]}
+                  {CHANNEL_LABEL[post.channel]}
                 </h3>
                 <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold", statusBadge.bg, statusBadge.text)}>
-                  {STATUS_LABEL_NO[post.status] ?? post.status}
+                  {statusLabels[post.status] ?? post.status}
                 </span>
               </div>
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
                 <IconCalendar className="size-3" />
-                {scheduledDate.toLocaleDateString("nb-NO", { weekday: "long", day: "numeric", month: "long" })}
+                {scheduledDate.toLocaleDateString(dateLocale, { weekday: "long", day: "numeric", month: "long" })}
                 <span className="text-border">·</span>
                 <IconClock className="size-3" />
-                {scheduledDate.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" })}
+                {scheduledDate.toLocaleTimeString(dateLocale, { hour: "2-digit", minute: "2-digit" })}
               </p>
             </div>
           </div>
@@ -675,7 +675,7 @@ const DetailPanel = ({
               onClick={() => onApprove(post.id)}
               disabled={approving || isProcessing}
             >
-              {approving ? "Godkjenner..." : "Godkjenn"}
+              {approving ? t("calendar.approving") : t("calendar.approve")}
             </Button>
           </div>
         )}
@@ -692,7 +692,7 @@ const DetailPanel = ({
                 onClick={() => onUnlock(post.id)}
                 disabled={isProcessing}
               >
-                {processingAction === "unlock" ? "Avbryter..." : "Avbryt godkjenning"}
+                {processingAction === "unlock" ? t("calendar.cancelling") : t("calendar.cancelApproval")}
               </Button>
             ) : null}
           </div>
@@ -710,7 +710,7 @@ const DetailPanel = ({
                 onClick={() => onUnlock(post.id)}
                 disabled={isProcessing}
               >
-                {processingAction === "unlock" ? "Avbryter..." : "Avbryt publisering"}
+                {processingAction === "unlock" ? t("calendar.cancelling") : t("calendar.cancelPublishing")}
               </Button>
             ) : null}
           </div>
@@ -727,16 +727,19 @@ const DetailPanel = ({
               <div>
                 <div className="mb-2 flex items-center gap-1.5">
                   <IconImage className="size-3.5 text-muted-foreground" />
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Forhåndsvisning</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t("calendar.preview")}</p>
                 </div>
                 {videoUrlDraft ? (
                   <div className="flex aspect-[4/3] w-full items-center justify-center rounded-xl border border-border bg-muted/20 overflow-hidden">
                     <video src={videoUrlDraft} controls className="h-full w-full object-contain" />
                   </div>
                 ) : carouselPreviewUrls.length > 0 ? (
-                  <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+                  <div className={cn(
+                    "relative overflow-hidden rounded-xl border border-border bg-card shadow-sm",
+                    (processingAction === "regenerate_image" || processingAction === "regenerate_all") && "border-primary/30",
+                  )}>
                     <div className="flex items-center justify-between border-b border-border px-3 py-2">
-                      <span className="text-[11px] font-semibold text-foreground">Forhåndsvisning</span>
+                      <span className="text-[11px] font-semibold text-foreground">{t("calendar.preview")}</span>
                       <span className="text-[11px] text-muted-foreground">
                         {carouselPreviewUrls.length > 1
                           ? `${carouselPreviewIndex + 1} / ${carouselPreviewUrls.length}`
@@ -747,10 +750,19 @@ const DetailPanel = ({
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={carouselPreviewUrls[carouselPreviewIndex]}
-                        alt="Forhåndsvisning"
-                        className="h-full w-full object-cover"
+                        alt={t("calendar.preview")}
+                        className={cn(
+                          "h-full w-full object-cover transition-opacity duration-300",
+                          (processingAction === "regenerate_image" || processingAction === "regenerate_all") && "opacity-30",
+                        )}
                         onError={(event) => { event.currentTarget.style.display = "none"; }}
                       />
+                      {(processingAction === "regenerate_image" || processingAction === "regenerate_all") && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                          <div className="size-10 animate-spin rounded-full border-[3px] border-primary/30 border-t-primary" />
+                          <p className="text-sm font-medium text-foreground">Lager nye bilder...</p>
+                        </div>
+                      )}
                       {carouselPreviewUrls.length > 1 ? (
                         <>
                           <button
@@ -795,14 +807,28 @@ const DetailPanel = ({
                     </div>
                   </div>
                 ) : imageUrlDraft ? (
-                  <div className="flex aspect-[4/3] w-full items-center justify-center rounded-xl border border-border bg-muted/20 overflow-hidden">
+                  <div className="relative flex aspect-[4/3] w-full items-center justify-center rounded-xl border border-border bg-muted/20 overflow-hidden">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={imageUrlDraft}
-                      alt="Postbilde"
-                      className="h-full w-full object-contain"
+                      alt={t("calendar.postImage")}
+                      className={cn(
+                        "h-full w-full object-contain transition-opacity duration-300",
+                        (processingAction === "regenerate_image" || processingAction === "regenerate_all") && "opacity-30",
+                      )}
                       onError={(event) => { event.currentTarget.style.display = "none"; }}
                     />
+                    {(processingAction === "regenerate_image" || processingAction === "regenerate_all") && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                        <div className="size-10 animate-spin rounded-full border-[3px] border-primary/30 border-t-primary" />
+                        <p className="text-sm font-medium text-foreground">Lager nytt bilde...</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (processingAction === "regenerate_image" || processingAction === "regenerate_all") ? (
+                  <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-primary/30 bg-primary/5">
+                    <div className="size-10 animate-spin rounded-full border-[3px] border-primary/30 border-t-primary" />
+                    <p className="text-sm font-medium text-foreground">Lager bilde med AI...</p>
                   </div>
                 ) : (
                   <div className="flex aspect-[4/3] w-full items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/5">
@@ -814,7 +840,7 @@ const DetailPanel = ({
                         }
                       </div>
                       <p className="text-sm font-medium text-muted-foreground">
-                        {post.channel === "tiktok" ? "Last opp video for TikTok" : "Ingen bilde eller video"}
+                        {post.channel === "tiktok" ? t("calendar.uploadVideoTiktok") : t("calendar.noImageOrVideo")}
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {post.channel === "tiktok" && (
@@ -836,7 +862,7 @@ const DetailPanel = ({
                               disabled={isProcessing || uploadingVideo}
                             >
                               <IconUpload className="size-3.5" />
-                              {uploadingVideo ? "Laster opp..." : "Last opp video"}
+                              {uploadingVideo ? t("calendar.uploading") : t("calendar.uploadVideo")}
                             </Button>
                           </>
                         )}
@@ -894,7 +920,7 @@ const DetailPanel = ({
                       disabled={isProcessing || uploadingVideo}
                     >
                       <IconUpload className="size-3.5" />
-                      {uploadingVideo ? "Laster opp..." : "Bytt video"}
+                      {uploadingVideo ? t("calendar.uploading") : t("calendar.changeVideo")}
                     </Button>
                   )}
                   <Button
@@ -989,14 +1015,14 @@ const DetailPanel = ({
                       {publishHistoryStatus && <p className="text-xs text-muted-foreground">{publishHistoryStatus}</p>}
                       {publishJobs.map((job) => (
                         <div key={job.id} className="flex items-center justify-between rounded-lg bg-secondary/50 px-3 py-2 text-xs">
-                          <span className="font-medium">{CHANNEL_LABEL_NO[job.channel] ?? job.channel}</span>
+                          <span className="font-medium">{CHANNEL_LABEL[job.channel] ?? job.channel}</span>
                           <span className={cn(
                             "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold",
                             job.status === "completed" && "bg-success/10 text-success",
                             job.status === "failed" && "bg-destructive/10 text-destructive",
                             (job.status === "queued" || job.status === "retrying") && "bg-warning/10 text-warning-foreground",
                           )}>
-                            {PUBLISH_JOB_STATUS_LABEL_NO[job.status] ?? job.status}
+                            {jobStatusLabels[job.status] ?? job.status}
                           </span>
                         </div>
                       ))}
@@ -1014,14 +1040,35 @@ const DetailPanel = ({
                 <div className="mb-2 flex items-center gap-1.5">
                   <IconEdit className="size-3.5 text-muted-foreground" />
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tekst</p>
+                  {(processingAction === "regenerate_text" || processingAction === "regenerate_all") && (
+                    <span className="ml-auto flex items-center gap-1 text-[11px] font-medium text-primary animate-pulse">
+                      <div className="size-3 animate-spin rounded-full border border-primary border-t-transparent" />
+                      {t("calendar.writingText")}
+                    </span>
+                  )}
                 </div>
-                <Textarea
-                  value={textDraft}
-                  onChange={(event) => setTextDraft(event.target.value)}
-                  rows={10}
-                  className="resize-none"
-                  placeholder="Skriv teksten til innlegget her..."
-                />
+                <div className="relative">
+                  <Textarea
+                    value={textDraft}
+                    onChange={(event) => setTextDraft(event.target.value)}
+                    rows={10}
+                    className={cn(
+                      "resize-none transition-opacity duration-300",
+                      (processingAction === "regenerate_text" || processingAction === "regenerate_all") && "opacity-40",
+                    )}
+                    placeholder="Skriv teksten til innlegget her..."
+                    disabled={processingAction === "regenerate_text" || processingAction === "regenerate_all"}
+                  />
+                  {(processingAction === "regenerate_text" || processingAction === "regenerate_all") && (
+                    <div className="absolute inset-0 flex flex-col items-start justify-start gap-2 rounded-md p-3 pointer-events-none">
+                      <div className="h-3 w-11/12 animate-pulse rounded bg-primary/10" />
+                      <div className="h-3 w-full animate-pulse rounded bg-primary/10" style={{ animationDelay: "100ms" }} />
+                      <div className="h-3 w-9/12 animate-pulse rounded bg-primary/10" style={{ animationDelay: "200ms" }} />
+                      <div className="h-3 w-full animate-pulse rounded bg-primary/10" style={{ animationDelay: "300ms" }} />
+                      <div className="h-3 w-10/12 animate-pulse rounded bg-primary/10" style={{ animationDelay: "400ms" }} />
+                    </div>
+                  )}
+                </div>
                 <p className="mt-1 text-right text-[11px] text-muted-foreground">{textDraft.length} tegn</p>
               </div>
 
@@ -1040,12 +1087,12 @@ const DetailPanel = ({
                 {processingAction === "save" ? (
                   <>
                     <div className="size-4 animate-spin rounded-full border-2 border-primary-foreground border-t-transparent" />
-                    Lagrer...
+                    {t("calendar.saving")}
                   </>
                 ) : (
                   <>
                     <IconSave className="size-4" />
-                    Lagre endringer
+                    {t("calendar.saveChanges")}
                   </>
                 )}
               </Button>
@@ -1099,14 +1146,20 @@ const DetailPanel = ({
                         disabled={isProcessing}
                         className={cn(
                           "group rounded-xl border border-border bg-card p-3 text-left transition-all hover:border-primary/30 hover:shadow-sm disabled:opacity-50 cursor-pointer",
-                          processingAction === "regenerate_text" && "border-primary/40 animate-pulse",
+                          processingAction === "regenerate_text" && "border-primary/40 bg-primary/5",
                         )}
                       >
-                        <div className="flex size-8 items-center justify-center rounded-lg bg-secondary transition-colors group-hover:bg-primary/10">
-                          <IconEdit className="size-4 text-muted-foreground transition-colors group-hover:text-primary" />
+                        <div className={cn(
+                          "flex size-8 items-center justify-center rounded-lg bg-secondary transition-colors group-hover:bg-primary/10",
+                          processingAction === "regenerate_text" && "bg-primary/10",
+                        )}>
+                          {processingAction === "regenerate_text"
+                            ? <div className="size-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                            : <IconEdit className="size-4 text-muted-foreground transition-colors group-hover:text-primary" />
+                          }
                         </div>
                         <p className="mt-2 text-xs font-semibold text-foreground">
-                          {processingAction === "regenerate_text" ? "Skriver..." : "Ny tekst"}
+                          {processingAction === "regenerate_text" ? t("calendar.writingText") : t("calendar.newText")}
                         </p>
                         <p className="text-[11px] text-muted-foreground">Behold bilde</p>
                       </button>
@@ -1117,14 +1170,20 @@ const DetailPanel = ({
                         disabled={isProcessing}
                         className={cn(
                           "group rounded-xl border border-border bg-card p-3 text-left transition-all hover:border-primary/30 hover:shadow-sm disabled:opacity-50 cursor-pointer",
-                          processingAction === "regenerate_image" && "border-primary/40 animate-pulse",
+                          processingAction === "regenerate_image" && "border-primary/40 bg-primary/5",
                         )}
                       >
-                        <div className="flex size-8 items-center justify-center rounded-lg bg-secondary transition-colors group-hover:bg-primary/10">
-                          <IconImage className="size-4 text-muted-foreground transition-colors group-hover:text-primary" />
+                        <div className={cn(
+                          "flex size-8 items-center justify-center rounded-lg bg-secondary transition-colors group-hover:bg-primary/10",
+                          processingAction === "regenerate_image" && "bg-primary/10",
+                        )}>
+                          {processingAction === "regenerate_image"
+                            ? <div className="size-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                            : <IconImage className="size-4 text-muted-foreground transition-colors group-hover:text-primary" />
+                          }
                         </div>
                         <p className="mt-2 text-xs font-semibold text-foreground">
-                          {processingAction === "regenerate_image" ? "Lager bilde..." : "Nytt bilde"}
+                          {processingAction === "regenerate_image" ? t("calendar.creatingImage") : t("calendar.newImage")}
                         </p>
                         <p className="text-[11px] text-muted-foreground">Behold tekst</p>
                       </button>
@@ -1136,16 +1195,22 @@ const DetailPanel = ({
                       disabled={isProcessing}
                       className={cn(
                         "group w-full rounded-xl border border-border bg-card p-3 text-left transition-all hover:border-primary/30 hover:shadow-sm disabled:opacity-50 cursor-pointer",
-                        processingAction === "regenerate_all" && "border-primary/40 animate-pulse",
+                        processingAction === "regenerate_all" && "border-primary/40 bg-primary/5",
                       )}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary transition-colors group-hover:bg-primary/10">
-                          <IconRefresh className="size-4 text-muted-foreground transition-colors group-hover:text-primary" />
+                        <div className={cn(
+                          "flex size-8 shrink-0 items-center justify-center rounded-lg bg-secondary transition-colors group-hover:bg-primary/10",
+                          processingAction === "regenerate_all" && "bg-primary/10",
+                        )}>
+                          {processingAction === "regenerate_all"
+                            ? <div className="size-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                            : <IconRefresh className="size-4 text-muted-foreground transition-colors group-hover:text-primary" />
+                          }
                         </div>
                         <div>
                           <p className="text-xs font-semibold text-foreground">
-                            {processingAction === "regenerate_all" ? "Genererer..." : "Lag helt nytt innlegg"}
+                            {processingAction === "regenerate_all" ? t("calendar.regeneratingPost") : t("calendar.regeneratePost")}
                           </p>
                           <p className="text-[11px] text-muted-foreground">Ny tekst og nytt bilde</p>
                         </div>
@@ -1169,7 +1234,7 @@ const DetailPanel = ({
                         size="sm"
                         className="w-full"
                       >
-                        {processingAction === "rewrite_topic" ? "Skriver om..." : "Skriv om med dette temaet"}
+                        {processingAction === "rewrite_topic" ? t("calendar.rewritingTopic") : t("calendar.rewriteWithTopic")}
                       </Button>
                     </div>
                   </>
@@ -1214,6 +1279,9 @@ const DetailPanel = ({
 type AiEditLimits = { used: number; limit: number };
 
 export const PostCalendar = () => {
+  const { t, dictionary, locale } = useI18n();
+  const dateLocale = localeToPreferredLanguage[locale];
+  const dayNames = dictionary.calendar.dayNames;
   const [posts, setPosts] = useState<PostDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<CalendarView>("month");
@@ -1245,7 +1313,7 @@ export const PostCalendar = () => {
     try {
       const response = await fetch("/api/posts");
       if (!response.ok) {
-        setStatus("Kunne ikke hente poster");
+        setStatus(t("calendar.couldNotFetchPosts"));
         setPollErrorCount((current) => Math.min(current + 1, 6));
         setLoading(false);
         return;
@@ -1255,12 +1323,12 @@ export const PostCalendar = () => {
       if (data.aiEdits) setAiLimits(data.aiEdits);
       setPollErrorCount(0);
     } catch {
-      setStatus("Nettverksfeil ved henting av poster");
+      setStatus(t("calendar.networkErrorPosts"));
       setPollErrorCount((current) => Math.min(current + 1, 6));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   // TODO: Aktiver igjen etter test
   const aiEditsRemaining = aiLimits.limit; // aiLimits.limit - aiLimits.used;
@@ -1279,7 +1347,7 @@ export const PostCalendar = () => {
     setProcessingPost({ id: postId, action });
     setStatus(
       action === "save"
-        ? "Lagrer endringer..."
+        ? t("calendar.savingChanges")
         : action === "unlock"
           ? "Avbryter godkjenning/publisering..."
           : "AI oppdaterer posten...",
@@ -1293,7 +1361,7 @@ export const PostCalendar = () => {
 
     if (!response.ok) {
       const data = await response.json().catch(() => null) as { message?: string; code?: string } | null;
-      setStatus(data?.message ?? "Kunne ikke oppdatere posten.");
+      setStatus(data?.message ?? t("calendar.couldNotUpdatePost"));
       setProcessingPost(null);
       return;
     }
@@ -1331,14 +1399,14 @@ export const PostCalendar = () => {
       if (response.ok) {
         setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, status: "approved" as const } : p)));
         setSelectedPost((prev) => prev?.id === postId ? { ...prev, status: "approved" as const } : prev);
-        setStatus("Posten er godkjent for publisering.");
+        setStatus(t("calendar.postApproved"));
         setTimeout(() => setStatus(""), 3000);
         return;
       }
       const data = (await response.json().catch(() => null)) as { message?: string } | null;
-      setStatus(data?.message ?? "Kunne ikke godkjenne posten.");
+      setStatus(data?.message ?? t("calendar.couldNotApprovePost"));
     } catch {
-      setStatus("Nettverksfeil ved godkjenning av post.");
+      setStatus(t("calendar.networkErrorApprove"));
     } finally {
       setApprovingId(null);
     }
@@ -1349,7 +1417,7 @@ export const PostCalendar = () => {
       .filter((p) => p.status === "draft" || p.status === "needs_review")
       .map((p) => p.id);
     if (ids.length === 0) return;
-    setStatus("Godkjenner alle poster...");
+    setStatus(t("calendar.approvingAll"));
     const response = await fetch("/api/posts/approve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1368,7 +1436,7 @@ export const PostCalendar = () => {
       setTimeout(() => setStatus(""), 3000);
     } else {
       const data = (await response.json().catch(() => null)) as { message?: string } | null;
-      setStatus(data?.message ?? "Kunne ikke godkjenne poster.");
+      setStatus(data?.message ?? t("calendar.couldNotApprovePosts"));
     }
   };
 
@@ -1383,7 +1451,7 @@ export const PostCalendar = () => {
     target.setHours(original.getHours(), original.getMinutes(), 0, 0);
 
     if (target.getTime() <= Date.now()) {
-      setStatus("Du kan ikke flytte en post til en dato i fortiden.");
+      setStatus(t("calendar.cannotMoveToPast"));
       return;
     }
 
@@ -1403,7 +1471,7 @@ export const PostCalendar = () => {
 
     if (!response.ok) {
       const data = (await response.json().catch(() => null)) as { message?: string } | null;
-      setStatus(data?.message ?? "Kunne ikke flytte post.");
+      setStatus(data?.message ?? t("calendar.couldNotMovePost"));
       return;
     }
 
@@ -1414,7 +1482,7 @@ export const PostCalendar = () => {
         .sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()),
     );
     setSelectedPost((prev) => (prev?.id === updatedPost.id ? updatedPost : prev));
-    setStatus("Post flyttet.");
+    setStatus(t("calendar.postMoved"));
     setTimeout(() => setStatus(""), 2000);
   };
 
@@ -1522,7 +1590,7 @@ export const PostCalendar = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="text-sm text-muted-foreground">Laster kalender…</div>
+        <div className="text-sm text-muted-foreground">{t("common.loading")}</div>
       </div>
     );
   }
@@ -1530,12 +1598,12 @@ export const PostCalendar = () => {
   if (posts.length === 0 && !hasGenerating) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <p className="text-muted-foreground">Ingen poster funnet.</p>
+        <p className="text-muted-foreground">{t("calendar.noPostsFound")}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Gå til oppsett for å generere innhold, eller lag din egen post.
+          {t("calendar.noPostsHint")}
         </p>
         <Button className="mt-4" onClick={() => setShowCreateDialog(true)}>
-          + Lag egen post
+          {t("calendar.createOwnPost")}
         </Button>
         {status ? (
           <div className="mt-3 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
@@ -1557,12 +1625,9 @@ export const PostCalendar = () => {
     );
   }
 
-  const monthLabel = currentDate.toLocaleDateString("nb-NO", {
-    month: "long",
-    year: "numeric",
-  });
+  const monthLabel = `${dictionary.calendar.months[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
 
-  const weekLabel = `Uke ${getIsoWeekNumber(weekDays[0])}, ${weekDays[0].toLocaleDateString("nb-NO", { day: "numeric", month: "short" })} - ${weekDays[6].toLocaleDateString("nb-NO", { day: "numeric", month: "short", year: "numeric" })}`;
+  const weekLabel = `${t("calendar.weekLabel", { week: getIsoWeekNumber(weekDays[0]) })}, ${weekDays[0].toLocaleDateString(dateLocale, { day: "numeric", month: "short" })} - ${weekDays[6].toLocaleDateString(dateLocale, { day: "numeric", month: "short", year: "numeric" })}`;
 
   return (
     <div className="flex flex-col gap-3 sm:gap-4">
@@ -1576,7 +1641,7 @@ export const PostCalendar = () => {
             &larr;
           </Button>
           <Button variant="ghost" size="sm" onClick={goToToday}>
-            I dag
+            {t("calendar.today")}
           </Button>
           <Button
             variant="outline"
@@ -1596,7 +1661,7 @@ export const PostCalendar = () => {
               size="sm"
               onClick={() => void approveAll()}
             >
-              Godkjenn alle ({draftCount})
+              {t("calendar.approveAll", { count: draftCount })}
             </Button>
           )}
           <Button
@@ -1604,7 +1669,7 @@ export const PostCalendar = () => {
             size="sm"
             onClick={() => setShowCreateDialog(true)}
           >
-            + Lag egen post
+            {t("calendar.createOwnPost")}
           </Button>
 
           <div className="flex items-center gap-1 rounded-lg border border-border bg-muted/50 p-0.5">
@@ -1618,7 +1683,7 @@ export const PostCalendar = () => {
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            Måned
+            {t("calendar.month")}
           </button>
           <button
             type="button"
@@ -1630,14 +1695,14 @@ export const PostCalendar = () => {
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            Uke
+            {t("calendar.week")}
           </button>
           </div>
         </div>
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground">
-        <p className="hidden sm:block">Tips: Godkjenn poster fortløpende. Godkjente poster publiseres automatisk.</p>
+        <p className="hidden sm:block">{t("calendar.tip")}</p>
         <div className={cn(
           "rounded-lg border px-3 py-1.5 font-medium text-center sm:text-left",
           aiEditsRemaining > 0
@@ -1657,7 +1722,7 @@ export const PostCalendar = () => {
                 <span className="relative size-3 rounded-full bg-primary" />
               </div>
               <div>
-                <span className="text-base font-bold text-primary">Genererer innhold</span>
+                <span className="text-base font-bold text-primary">{t("calendar.generatingContent")}</span>
                 <p className="text-xs text-muted-foreground">
                   {readyCount === 0
                     ? "Starter generering av tekst og bilder..."
@@ -1697,9 +1762,9 @@ export const PostCalendar = () => {
           <div className="min-w-[480px]">
           <div className="grid grid-cols-[2.5rem_repeat(7,1fr)] sm:grid-cols-[3rem_repeat(7,1fr)] border-b border-border bg-muted/30">
             <div className="p-1.5 sm:p-2 text-center text-[9px] sm:text-[10px] font-medium uppercase text-muted-foreground">
-              Uke
+              {t("calendar.week")}
             </div>
-            {DAY_NAMES.map((name) => (
+            {dayNames.map((name) => (
               <div
                 key={name}
                 className="border-l border-border p-1.5 sm:p-2 text-center text-[9px] sm:text-[10px] font-medium uppercase text-muted-foreground"
@@ -1772,6 +1837,7 @@ export const PostCalendar = () => {
                             key={post.id}
                             post={post}
                             onClick={() => setSelectedPost(post)}
+                            isProcessing={processingPost?.id === post.id}
                             onDragStart={(id) => {
                               setDraggingPostId(id);
                             }}
@@ -1811,7 +1877,7 @@ export const PostCalendar = () => {
                 )}
               >
                 <div className="text-[9px] sm:text-[10px] font-medium uppercase text-muted-foreground">
-                  {DAY_NAMES[i]}
+                  {dayNames[i]}
                 </div>
                 <div
                   className={cn(

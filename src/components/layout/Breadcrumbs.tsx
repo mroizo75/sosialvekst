@@ -3,26 +3,32 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const ROUTE_LABELS: Record<string, string> = {
-  dashboard: "Oversikt",
-  kalender: "Kalender",
-  calendar: "Kalender",
-  media: "Bilder og video",
-  publiser: "Publiser",
-  onboarding: "Min bedrift",
-  "velg-side": "Velg Facebook-side",
-  "koble-meta": "Koble Facebook",
-};
+import { useI18n } from "@/components/i18n/I18nProvider";
 
 export const Breadcrumbs = () => {
   const pathname = usePathname();
+  const { dictionary } = useI18n();
+  const b = dictionary.breadcrumbs;
+
+  const routeLabels: Record<string, string> = {
+    dashboard: b.overview,
+    kalender: b.calendar,
+    calendar: b.calendar,
+    media: b.media,
+    "video-studio": b.videoStudio,
+    publiser: b.publish,
+    onboarding: b.myCompany,
+    "velg-side": b.chooseFacebookPage,
+    "koble-meta": b.connectFacebook,
+  };
+
   const segments = pathname.split("/").filter(Boolean);
 
   if (segments.length === 0) return null;
 
   const crumbs = segments.map((segment, index) => {
     const href = "/" + segments.slice(0, index + 1).join("/");
-    const label = ROUTE_LABELS[segment] ?? segment;
+    const label = routeLabels[segment] ?? segment;
     const isLast = index === segments.length - 1;
 
     return { href, label, isLast };
@@ -34,7 +40,7 @@ export const Breadcrumbs = () => {
         href="/dashboard"
         className="text-muted-foreground hover:text-foreground transition-colors"
       >
-        Hjem
+        {b.home}
       </Link>
       {crumbs.map((crumb) => (
         <span key={crumb.href} className="flex items-center gap-1.5">

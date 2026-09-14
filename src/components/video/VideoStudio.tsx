@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 
@@ -14,11 +15,9 @@ type GenerationState = "idle" | "generating" | "done" | "error";
 type VideoModel = "veo3" | "kling";
 type VideoType = "product" | "intro" | "service" | "event" | "testimonial";
 
-const MODELS = [
+const MODEL_CONFIGS = [
   {
     id: "veo3" as const,
-    name: "Tekst til video",
-    description: "Lag video fra en tekstbeskrivelse. Inkluderer musikk og lydeffekter.",
     badge: "Google Veo 3",
     durations: [4, 6, 8] as number[],
     defaultDuration: 8,
@@ -27,8 +26,6 @@ const MODELS = [
   },
   {
     id: "kling" as const,
-    name: "Bilde til video",
-    description: "Animer et produktbilde eller foto til en profesjonell video.",
     badge: "Kling v3 Pro",
     durations: [5, 10] as number[],
     defaultDuration: 5,
@@ -37,57 +34,30 @@ const MODELS = [
   },
 ] as const;
 
-const VIDEO_TYPES = [
-  {
-    id: "product" as VideoType,
-    label: "Produktvideo",
-    icon: "📦",
-    description: "Vis frem et produkt fra alle vinkler",
-    placeholder: "Hva skal vises? F.eks.: Vårt nye verktøysett i bruk på en byggeplass",
-  },
-  {
-    id: "intro" as VideoType,
-    label: "Bedriftsintro",
-    icon: "🏢",
-    description: "Presenter bedriften profesjonelt",
-    placeholder: "Hva er viktig å formidle? F.eks.: Vi er et lokalt rørleggerfirma med 20 års erfaring",
-  },
-  {
-    id: "service" as VideoType,
-    label: "Tjeneste i aksjon",
-    icon: "⚡",
-    description: "Vis tjenesten deres i arbeid",
-    placeholder: "Hvilken tjeneste? F.eks.: Profesjonell rengjøring av kontorer og næringsbygg",
-  },
-  {
-    id: "event" as VideoType,
-    label: "Kampanje / Event",
-    icon: "🎯",
-    description: "Skap energi rundt en kampanje eller event",
-    placeholder: "Hva promoteres? F.eks.: Sommerkampanje med 30% rabatt på alle tjenester",
-  },
-  {
-    id: "testimonial" as VideoType,
-    label: "Kundehistorie",
-    icon: "💬",
-    description: "Vis en fornøyd kunde-opplevelse",
-    placeholder: "Hva er historien? F.eks.: En bedriftskunde som sparte tid med vår løsning",
-  },
-] as const;
+const VIDEO_TYPE_IDS: { id: VideoType; icon: string }[] = [
+  { id: "product", icon: "📦" },
+  { id: "intro", icon: "🏢" },
+  { id: "service", icon: "⚡" },
+  { id: "event", icon: "🎯" },
+  { id: "testimonial", icon: "💬" },
+];
 
-const CREDIT_PACKS = [
-  { mode: "video_credits_10", label: "10 videoer", price: "kr 99" },
-  { mode: "video_credits_30", label: "30 videoer", price: "kr 249" },
-  { mode: "video_credits_100", label: "100 videoer", price: "kr 699" },
+const CREDIT_PACK_MODES = [
+  "video_credits_10",
+  "video_credits_30",
+  "video_credits_100",
 ] as const;
-
-const ASPECT_LABELS: Record<string, string> = {
-  "16:9": "Liggende (16:9)",
-  "9:16": "Stående (9:16)",
-  "1:1": "Kvadrat (1:1)",
-};
 
 export const VideoStudio = () => {
+  const { dictionary } = useI18n();
+  const vs = dictionary.videoStudio;
+
+  const ASPECT_LABELS: Record<string, string> = useMemo(() => ({
+    "16:9": vs.aspectLandscape,
+    "9:16": vs.aspectPortrait,
+    "1:1": vs.aspectSquare,
+  }), [vs.aspectLandscape, vs.aspectPortrait, vs.aspectSquare]);
+
   const [balance, setBalance] = useState<VideoBalance | null>(null);
   const [model, setModel] = useState<VideoModel>("veo3");
   const [videoType, setVideoType] = useState<VideoType>("intro");
@@ -108,8 +78,11 @@ export const VideoStudio = () => {
   const [loadingPack, setLoadingPack] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
 
-  const activeModel = MODELS.find((m) => m.id === model) ?? MODELS[0];
-  const activeVideoType = VIDEO_TYPES.find((t) => t.id === videoType) ?? VIDEO_TYPES[1];
+  const activeModel = MODEL_CONFIGS.find((m) => m.id === model) ?? MODEL_CONFIGS[0];
+  const activeModelIndex = MODEL_CONFIGS.findIndex((m) => m.id === model);
+  const activeVideoTypeIndex = VIDEO_TYPE_IDS.findIndex((t) => t.id === videoType);
+  const activeVideoTypeDisplay = vs.videoTypes[activeVideoTypeIndex >= 0 ? activeVideoTypeIndex : 1];
+  const activeModelDisplay = vs.models[activeModelIndex >= 0 ? activeModelIndex : 0];
 
   const fetchBalance = useCallback(async () => {
     try {
@@ -151,7 +124,7 @@ export const VideoStudio = () => {
       });
 
       if (!res.ok) {
-        setError("Bildeopplasting feilet.");
+        setError(vs.imageUploadFailed);
         return;
       }
 
@@ -159,7 +132,7 @@ export const VideoStudio = () => {
       setImageUrl(data.publicUrl as string);
       setImagePreview(URL.createObjectURL(file));
     } catch {
-      setError("Bildeopplasting feilet.");
+      setError(vs.imageUploadFailed);
     } finally {
       setUploadingImage(false);
     }
@@ -174,7 +147,7 @@ export const VideoStudio = () => {
     setVideoUrl(null);
     setEnrichedPrompt(null);
     setProgress(0);
-    setProgressDetail("Starter...");
+    setProgressDetail(vs.starting);
 
     try {
       const res = await fetch("/api/video/generate", {
@@ -193,7 +166,7 @@ export const VideoStudio = () => {
 
       const reader = res.body?.getReader();
       if (!reader) {
-        setError("Kunne ikke lese respons fra server.");
+        setError(vs.couldNotReadResponse);
         setState("error");
         return;
       }
@@ -226,11 +199,11 @@ export const VideoStudio = () => {
                   setEnrichedPrompt(payload.enrichedPrompt as string);
                 }
                 setProgress(100);
-                setProgressDetail("Ferdig!");
+                setProgressDetail(vs.done);
                 setState("done");
                 void fetchBalance();
               } else if (eventType === "error") {
-                setError(payload.message as string ?? "Noe gikk galt.");
+                setError(payload.message as string ?? vs.somethingWentWrong);
                 setState("error");
               }
             } catch {
@@ -243,7 +216,7 @@ export const VideoStudio = () => {
 
       setState((s) => s === "generating" ? "idle" : s);
     } catch {
-      setError("Nettverksfeil — prøv igjen.");
+      setError(vs.networkError);
       setState("error");
     }
   };
@@ -287,86 +260,92 @@ export const VideoStudio = () => {
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-medium text-muted-foreground">Videokreditter</p>
+            <p className="text-sm font-medium text-muted-foreground">{vs.videoCredits}</p>
             <p className="mt-1 text-3xl font-bold tracking-tight">
               {balance === null ? "..." : balance.balance}
             </p>
           </div>
           <div className="text-right text-xs text-muted-foreground">
-            Totalt kjøpt: {balance?.totalPurchased ?? 0}
+            {vs.totalPurchased}: {balance?.totalPurchased ?? 0}
           </div>
         </div>
       </div>
 
       {/* Videotype-velger */}
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-        <h2 className="text-lg font-semibold">Hva slags video vil du lage?</h2>
+        <h2 className="text-lg font-semibold">{vs.whatKind}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Velg en type — AI-en tilpasser automatisk stil, kamera og stemning basert på bedriften din.
+          {vs.whatKindDesc}
         </p>
         <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {VIDEO_TYPES.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setVideoType(t.id)}
-              disabled={state === "generating"}
-              className={cn(
-                "flex flex-col items-center gap-1.5 rounded-xl border-2 p-4 text-center transition-all cursor-pointer",
-                videoType === t.id
-                  ? "border-primary bg-primary/5 shadow-sm"
-                  : "border-border bg-background hover:border-primary/40 hover:shadow-sm",
-              )}
-            >
-              <span className="text-2xl">{t.icon}</span>
-              <span className="text-sm font-semibold">{t.label}</span>
-              <span className="text-[11px] leading-tight text-muted-foreground">{t.description}</span>
-            </button>
-          ))}
+          {VIDEO_TYPE_IDS.map((t, i) => {
+            const display = vs.videoTypes[i];
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setVideoType(t.id)}
+                disabled={state === "generating"}
+                className={cn(
+                  "flex flex-col items-center gap-1.5 rounded-xl border-2 p-4 text-center transition-all cursor-pointer",
+                  videoType === t.id
+                    ? "border-primary bg-primary/5 shadow-sm"
+                    : "border-border bg-background hover:border-primary/40 hover:shadow-sm",
+                )}
+              >
+                <span className="text-2xl">{t.icon}</span>
+                <span className="text-sm font-semibold">{display.label}</span>
+                <span className="text-[11px] leading-tight text-muted-foreground">{display.description}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Modellvelger */}
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-        <h2 className="text-lg font-semibold">Velg AI-modell</h2>
+        <h2 className="text-lg font-semibold">{vs.chooseModel}</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          {MODELS.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => setModel(m.id)}
-              disabled={state === "generating"}
-              className={cn(
-                "flex flex-col gap-2 rounded-xl border-2 p-5 text-left transition-all cursor-pointer",
-                model === m.id
-                  ? "border-primary bg-primary/5 shadow-sm"
-                  : "border-border bg-background hover:border-primary/40 hover:shadow-sm",
-              )}
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-base font-semibold">{m.name}</span>
-                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
-                  {m.badge}
-                </span>
-              </div>
-              <p className="text-sm text-muted-foreground">{m.description}</p>
-            </button>
-          ))}
+          {MODEL_CONFIGS.map((m, i) => {
+            const display = vs.models[i];
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setModel(m.id)}
+                disabled={state === "generating"}
+                className={cn(
+                  "flex flex-col gap-2 rounded-xl border-2 p-5 text-left transition-all cursor-pointer",
+                  model === m.id
+                    ? "border-primary bg-primary/5 shadow-sm"
+                    : "border-border bg-background hover:border-primary/40 hover:shadow-sm",
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-base font-semibold">{display.name}</span>
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-primary">
+                    {m.badge}
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground">{display.description}</p>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Generator */}
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-        <h2 className="text-lg font-semibold">Beskriv videoen</h2>
+        <h2 className="text-lg font-semibold">{vs.describeVideo}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Skriv kort hva videoen handler om. AI-en bygger automatisk en profesjonell prompt med bedriftsinformasjonen din.
+          {vs.describeVideoHint}
         </p>
 
         <div className="mt-5 space-y-5">
           {/* Bildeopplasting for Kling */}
           {activeModel.needsImage && (
             <div>
-              <label className="mb-2 block text-sm font-medium">Bilde</label>
+              <label className="mb-2 block text-sm font-medium">{vs.imageLabel}</label>
               <input
                 ref={imageInputRef}
                 type="file"
@@ -382,7 +361,7 @@ export const VideoStudio = () => {
                 <div className="flex items-start gap-4">
                   <img
                     src={imagePreview}
-                    alt="Valgt bilde"
+                    alt={vs.selectedImage}
                     className="h-32 w-32 rounded-lg border border-border object-cover"
                   />
                   <div className="flex flex-col gap-2">
@@ -392,14 +371,14 @@ export const VideoStudio = () => {
                       onClick={() => imageInputRef.current?.click()}
                       disabled={uploadingImage || state === "generating"}
                     >
-                      {uploadingImage ? "Laster opp..." : "Bytt bilde"}
+                      {uploadingImage ? dictionary.common.loading : vs.changeImage}
                     </Button>
                     <button
                       type="button"
                       onClick={() => { setImageUrl(null); setImagePreview(null); }}
                       className="text-xs text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
                     >
-                      Fjern bilde
+                      {vs.removeImage}
                     </button>
                   </div>
                 </div>
@@ -410,7 +389,7 @@ export const VideoStudio = () => {
                   disabled={uploadingImage || state === "generating"}
                   className="flex h-32 w-full items-center justify-center rounded-xl border-2 border-dashed border-border bg-background text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 cursor-pointer disabled:opacity-50"
                 >
-                  {uploadingImage ? "Laster opp..." : "Klikk for å laste opp bilde (produktfoto, logo, osv.)"}
+                  {uploadingImage ? dictionary.common.loading : vs.uploadImageHint}
                 </button>
               )}
             </div>
@@ -418,24 +397,26 @@ export const VideoStudio = () => {
 
           {/* Prompt */}
           <div>
-            <label className="mb-2 block text-sm font-medium">Hva handler videoen om?</label>
+            <label className="mb-2 block text-sm font-medium">{vs.videoPromptLabel}</label>
             <textarea
               className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none"
               rows={3}
-              placeholder={activeVideoType.placeholder}
+              placeholder={activeVideoTypeDisplay.placeholder}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               maxLength={1000}
               disabled={state === "generating"}
             />
-            <span className="mt-1 block text-xs text-muted-foreground">{prompt.length}/1000 tegn</span>
+            <span className="mt-1 block text-xs text-muted-foreground">
+              {vs.charsCount.replace("{count}", String(prompt.length))}
+            </span>
           </div>
 
           {/* Innstillinger */}
           <div className="grid gap-4 sm:grid-cols-3">
             {/* Varighet */}
             <div>
-              <label className="mb-2 block text-sm font-medium">Varighet</label>
+              <label className="mb-2 block text-sm font-medium">{vs.duration}</label>
               <div className="flex gap-1.5">
                 {activeModel.durations.map((d) => (
                   <button
@@ -458,7 +439,7 @@ export const VideoStudio = () => {
 
             {/* Format */}
             <div>
-              <label className="mb-2 block text-sm font-medium">Format</label>
+              <label className="mb-2 block text-sm font-medium">{vs.format}</label>
               <select
                 value={aspectRatio}
                 onChange={(e) => setAspectRatio(e.target.value)}
@@ -473,7 +454,7 @@ export const VideoStudio = () => {
 
             {/* Lyd */}
             <div>
-              <label className="mb-2 block text-sm font-medium">Lyd</label>
+              <label className="mb-2 block text-sm font-medium">{vs.audio}</label>
               <button
                 type="button"
                 onClick={() => setGenerateAudio((v) => !v)}
@@ -485,7 +466,7 @@ export const VideoStudio = () => {
                     : "border-border bg-background text-muted-foreground",
                 )}
               >
-                {generateAudio ? "Musikk og lyd på" : "Lyd av"}
+                {generateAudio ? vs.audioOn : vs.audioOff}
               </button>
             </div>
           </div>
@@ -497,7 +478,7 @@ export const VideoStudio = () => {
               disabled={!canGenerate}
               size="lg"
             >
-              {state === "generating" ? "Genererer video..." : "Generer video (1 kreditt)"}
+              {state === "generating" ? vs.generatingVideo : vs.generateVideo}
             </Button>
           </div>
         </div>
@@ -506,7 +487,7 @@ export const VideoStudio = () => {
         {state === "generating" && (
           <div className="mt-6 space-y-3">
             <div className="flex items-center justify-between text-sm">
-              <span className="font-medium text-foreground">{progressDetail || "Starter..."}</span>
+              <span className="font-medium text-foreground">{progressDetail || vs.starting}</span>
               <span className="tabular-nums font-semibold text-primary">{progress}%</span>
             </div>
             <div className="h-3 w-full overflow-hidden rounded-full bg-secondary">
@@ -516,7 +497,9 @@ export const VideoStudio = () => {
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              {activeVideoType.label} med {activeModel.badge} — dette kan ta 1-4 minutter
+              {vs.generatingWith
+                .replace("{type}", activeVideoTypeDisplay.label)
+                .replace("{model}", activeModel.badge)}
             </p>
           </div>
         )}
@@ -530,7 +513,9 @@ export const VideoStudio = () => {
         {videoUrl && (
           <div className="mt-6 space-y-4">
             <p className="text-sm font-medium text-green-700 dark:text-green-300">
-              {activeVideoType.label} generert med {activeModel.badge}!
+              {vs.videoGenerated
+                .replace("{type}", activeVideoTypeDisplay.label)
+                .replace("{model}", activeModel.badge)}
             </p>
             <video
               src={videoUrl}
@@ -543,10 +528,10 @@ export const VideoStudio = () => {
                 download
                 className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-secondary"
               >
-                Last ned video
+                {vs.downloadVideo}
               </a>
               <Button variant="outline" size="sm" onClick={resetForm}>
-                Lag ny video
+                {vs.createNew}
               </Button>
               {enrichedPrompt && (
                 <Button
@@ -554,7 +539,7 @@ export const VideoStudio = () => {
                   size="sm"
                   onClick={() => setShowPrompt((v) => !v)}
                 >
-                  {showPrompt ? "Skjul AI-prompt" : "Vis AI-prompt"}
+                  {showPrompt ? vs.hidePrompt : vs.showPrompt}
                 </Button>
               )}
             </div>
@@ -569,29 +554,32 @@ export const VideoStudio = () => {
 
       {/* Kjøp kreditter */}
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-        <h2 className="text-lg font-semibold">Kjøp videokreditter</h2>
+        <h2 className="text-lg font-semibold">{vs.buyCredits}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Hver kreditt lar deg generere en AI-video med musikk, uansett modell eller varighet.
+          {vs.buyCreditsDesc}
         </p>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
-          {CREDIT_PACKS.map((pack) => (
-            <div
-              key={pack.mode}
-              className="flex flex-col items-center gap-3 rounded-xl border border-border bg-background p-5 text-center transition-shadow hover:shadow-md"
-            >
-              <p className="text-xl font-bold">{pack.label}</p>
-              <p className="text-2xl font-extrabold text-primary">{pack.price}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={loadingPack !== null}
-                onClick={() => void handleBuyCredits(pack.mode)}
+          {CREDIT_PACK_MODES.map((mode, i) => {
+            const display = vs.creditPacks[i];
+            return (
+              <div
+                key={mode}
+                className="flex flex-col items-center gap-3 rounded-xl border border-border bg-background p-5 text-center transition-shadow hover:shadow-md"
               >
-                {loadingPack === pack.mode ? "Åpner betaling..." : "Kjøp"}
-              </Button>
-            </div>
-          ))}
+                <p className="text-xl font-bold">{display.label}</p>
+                <p className="text-2xl font-extrabold text-primary">{display.price}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingPack !== null}
+                  onClick={() => void handleBuyCredits(mode)}
+                >
+                  {loadingPack === mode ? vs.openingPayment : vs.buy}
+                </Button>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

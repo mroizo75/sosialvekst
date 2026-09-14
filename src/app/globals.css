@@ -2,6 +2,7 @@
 
 @theme {
   --font-sans: var(--font-plus-jakarta);
+  --font-display: var(--font-bricolage);
 
   --color-background: oklch(98.8% 0.002 75);
   --color-foreground: oklch(16% 0.015 260);
@@ -74,6 +75,182 @@
     from { transform: scale(0.96); opacity: 0; }
     to { transform: scale(1); opacity: 1; }
   }
+
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-float-slow: float 9s ease-in-out infinite;
+  --animate-gradient-shift: gradient-shift 8s ease infinite;
+  --animate-pulse-ring: pulse-ring 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-slide-up-lg: slide-up-lg 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0) scale(1); }
+    50% { transform: translateY(-24px) scale(1.03); }
+  }
+
+  @keyframes gradient-shift {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
+
+  @keyframes pulse-ring {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(1.05); }
+  }
+
+  @keyframes slide-up-lg {
+    from { transform: translateY(2rem); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+}
+
+/* ─── Scroll-driven reveal (CSS only, no JS) ──────────── */
+@supports (animation-timeline: view()) {
+  .scroll-reveal {
+    animation: slide-up-lg 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-timeline: view();
+    animation-range: entry 5% entry 35%;
+  }
+  .scroll-reveal-delay-1 {
+    animation: slide-up-lg 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
+    animation-timeline: view();
+    animation-range: entry 5% entry 35%;
+  }
+  .scroll-reveal-delay-2 {
+    animation: slide-up-lg 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+    animation-timeline: view();
+    animation-range: entry 5% entry 35%;
+  }
+  .scroll-reveal-delay-3 {
+    animation: slide-up-lg 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both;
+    animation-timeline: view();
+    animation-range: entry 5% entry 35%;
+  }
+}
+
+/* ─── Extra animation keyframes ───────────────────────── */
+@theme {
+  --animate-glow-pulse: glow-pulse 2.5s ease-in-out infinite;
+  --animate-shimmer: shimmer 2.5s linear infinite;
+  --animate-spin-slow: spin-slow 10s linear infinite;
+
+  @keyframes glow-pulse {
+    0%, 100% { box-shadow: 0 0 32px oklch(66% 0.28 280 / 0.45); }
+    50%       { box-shadow: 0 0 60px oklch(66% 0.28 280 / 0.75); }
+  }
+
+  @keyframes shimmer {
+    0%   { background-position: -200% center; }
+    100% { background-position:  200% center; }
+  }
+
+  @keyframes spin-slow {
+    to { transform: rotate(360deg); }
+  }
+}
+
+/* ─── Utility classes ──────────────────────────────────── */
+.glow-btn {
+  animation: glow-pulse 2.5s ease-in-out infinite;
+}
+
+.card-hover {
+  transition: transform 0.25s cubic-bezier(0.16,1,0.3,1), box-shadow 0.25s ease;
+}
+.card-hover:hover {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.1);
+}
+
+.card-hover-dark {
+  transition: transform 0.25s cubic-bezier(0.16,1,0.3,1), box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.card-hover-dark:hover {
+  transform: translateY(-4px);
+  border-color: oklch(66% 0.28 280 / 0.4) !important;
+  box-shadow: 0 16px 40px oklch(0% 0 0 / 0.3), 0 0 0 1px oklch(66% 0.28 280 / 0.15);
+}
+
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    oklch(72% 0.3 280) 0%,
+    oklch(82% 0.2 200) 40%,
+    oklch(72% 0.3 280) 80%,
+    oklch(68% 0.28 310) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 3s linear infinite;
+}
+
+.gradient-border {
+  position: relative;
+}
+.gradient-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, oklch(66% 0.28 280), oklch(70% 0.22 210), oklch(66% 0.28 280));
+  background-size: 200% auto;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: shimmer 3s linear infinite;
+  pointer-events: none;
+}
+
+/* ─── Marketing dark theme ─────────────────────────────── */
+.dark-marketing {
+  --color-background: oklch(9% 0.022 265);
+  --color-foreground: oklch(95% 0.005 260);
+  --color-primary: oklch(66% 0.28 280);
+  --color-primary-foreground: oklch(98% 0.003 260);
+  --color-primary-hover: oklch(71% 0.3 280);
+  --color-primary-light: oklch(20% 0.045 280);
+  --color-secondary: oklch(14% 0.022 265);
+  --color-secondary-foreground: oklch(92% 0.008 260);
+  --color-secondary-hover: oklch(18% 0.025 265);
+  --color-muted: oklch(13.5% 0.02 265);
+  --color-muted-foreground: oklch(58% 0.018 260);
+  --color-accent: oklch(80% 0.18 75);
+  --color-accent-foreground: oklch(20% 0.05 75);
+  --color-border: oklch(22% 0.025 265);
+  --color-ring: oklch(66% 0.28 280);
+  --color-card: oklch(12% 0.02 265);
+  --color-card-foreground: oklch(95% 0.005 260);
+
+  /* Marketing-only tokens */
+  --sv-amber: oklch(80% 0.18 75);
+  --sv-amber-soft: oklch(80% 0.18 75 / 0.15);
+  --sv-violet: oklch(66% 0.28 280);
+  --sv-violet-soft: oklch(66% 0.28 280 / 0.15);
+  --sv-violet-bright: oklch(72% 0.3 280);
+  --sv-cyan: oklch(70% 0.22 210);
+  --sv-cyan-soft: oklch(70% 0.22 210 / 0.12);
+  --sv-surface-elevated: oklch(15% 0.022 265);
+  --sv-surface-hover: oklch(18% 0.025 265);
+  --sv-glow-violet: 0 0 60px oklch(66% 0.28 280 / 0.35);
+  --sv-glow-amber: 0 0 40px oklch(80% 0.18 75 / 0.3);
+}
+
+/* ─── Marketing nav helpers ────────────────────────────── */
+.marketing-nav-link {
+  color: oklch(58% 0.018 260);
+  transition: color 0.15s ease;
+}
+.marketing-nav-link:hover {
+  color: oklch(95% 0.005 260);
+}
+.marketing-footer-link {
+  color: oklch(58% 0.018 260);
+  transition: color 0.15s ease;
+}
+.marketing-footer-link:hover {
+  color: oklch(88% 0.006 260);
 }
 
 @layer base {

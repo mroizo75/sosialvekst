@@ -46,8 +46,13 @@ export async function POST(request: Request) {
       fontStyle: body.fontStyle,
     });
 
+    const preferredLanguage =
+      body.preferredLanguage === "en-US" || body.preferredLanguage === "nb-NO"
+        ? body.preferredLanguage
+        : "nb-NO";
+
     const record = saveOnboardingState(userId, step, payload);
-    await persistOnboarding(userId, payload, workspaceId);
+    await persistOnboarding(userId, payload, workspaceId, preferredLanguage);
 
     return NextResponse.json(record);
   } catch (error) {

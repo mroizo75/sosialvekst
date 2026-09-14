@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/Button";
 import { ContentPlanDialog } from "@/components/dashboard/ContentPlanDialog";
 import type { GenerateConfig } from "@/components/dashboard/ContentPlanDialog";
-import { cn } from "@/lib/utils";
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { Button } from "@/components/ui/Button";
+import { localeToPreferredLanguage } from "@/lib/i18n/config";
 import type { MediaMode, SocialChannel } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 type OverviewResponse = {
   summary: {
@@ -46,45 +48,15 @@ type SocialAccountsResponse = {
   }>;
 };
 
-const SUBSCRIPTION_STATUS_LABEL_NO: Record<string, string> = {
-  active: "Aktiv",
-  trialing: "Prøveperiode",
-  past_due: "Forfalt",
-  canceled: "Avsluttet",
-  inactive: "Ikke aktiv",
-};
-
-const SOCIAL_CONNECT_MESSAGE_NO: Record<string, string> = {
-  meta_connected: "Facebook og Instagram er nå koblet til!",
-  meta_connected_no_instagram: "Facebook er koblet til! Instagram ble ikke funnet — sjekk at kontoen er en profesjonell konto koblet til Facebook-siden din.",
-  meta_invalid_state: "Noe gikk galt med Meta-innloggingen. Prøv igjen.",
-  meta_token_failed: "Kunne ikke koble til Meta. Prøv igjen.",
-  meta_no_pages: "Vi fant ingen Facebook-sider på kontoen din.",
-  meta_pages_fetch_failed: "Kunne ikke hente Facebook-sider fra Meta. Sjekk app-tillatelser og prøv på nytt.",
-  meta_page_token_missing: "Fant Facebook-side, men mangler sidetoken. Gi appen admin-tilgang til siden og koble til på nytt.",
-  meta_save_failed: "Fant kontoen, men kunne ikke lagre den. Prøv igjen.",
-  meta_callback_failed: "Noe gikk galt. Prøv igjen.",
-  linkedin_connected: "LinkedIn er nå koblet til!",
-  linkedin_invalid_state: "Noe gikk galt med LinkedIn-innloggingen. Prøv igjen.",
-  linkedin_token_failed: "Kunne ikke koble til LinkedIn. Prøv igjen.",
-  linkedin_profile_failed: "Kunne ikke hente LinkedIn-profil. Prøv igjen.",
-  linkedin_save_failed: "Fant kontoen, men kunne ikke lagre den. Prøv igjen.",
-  linkedin_callback_failed: "Noe gikk galt. Prøv igjen.",
-  tiktok_connected: "TikTok er nå koblet til!",
-  tiktok_auth_denied: "Du avbrøt TikTok-innloggingen. Prøv igjen.",
-  tiktok_invalid_state: "Noe gikk galt med TikTok-innloggingen. Prøv igjen.",
-  tiktok_token_failed: "Kunne ikke koble til TikTok. Prøv igjen.",
-  tiktok_save_failed: "Fant kontoen, men kunne ikke lagre den. Prøv igjen.",
-  tiktok_callback_failed: "Noe gikk galt. Prøv igjen.",
-};
-
 const POLL_INTERVAL_MS = 15_000;
+
+type ConnectKey = "facebook" | "instagram" | "linkedin" | "tiktok" | "linkedinCompany";
 
 const SOCIAL_PLATFORMS = [
   {
     channel: "facebook" as const,
     label: "Facebook",
-    connectLabel: "Koble Facebook + Instagram",
+    connectKey: "facebook" as const,
     href: "/dashboard/koble-meta",
     gradient: "from-[#1877F2] to-[#0C63D4]",
     bgLight: "bg-[#1877F2]/5",
@@ -99,7 +71,7 @@ const SOCIAL_PLATFORMS = [
   {
     channel: "instagram" as const,
     label: "Instagram",
-    connectLabel: "Inkludert med Facebook",
+    connectKey: "instagram" as const,
     href: null,
     gradient: "from-[#F58529] via-[#DD2A7B] to-[#8134AF]",
     bgLight: "bg-[#DD2A7B]/5",
@@ -114,7 +86,7 @@ const SOCIAL_PLATFORMS = [
   {
     channel: "linkedin" as const,
     label: "LinkedIn",
-    connectLabel: "Koble LinkedIn",
+    connectKey: "linkedin" as const,
     href: "/api/social/oauth/linkedin/start",
     gradient: "from-[#0A66C2] to-[#004182]",
     bgLight: "bg-[#0A66C2]/5",
@@ -126,13 +98,13 @@ const SOCIAL_PLATFORMS = [
       </svg>
     ),
     extraLinks: [
-      { label: "Koble LinkedIn Bedriftsside", href: "/api/social/oauth/linkedin/start?type=organization" },
+      { connectKey: "linkedinCompany" as const, href: "/api/social/oauth/linkedin/start?type=organization" },
     ],
   },
   {
     channel: "tiktok" as const,
     label: "TikTok",
-    connectLabel: "Koble TikTok",
+    connectKey: "tiktok" as const,
     href: "/api/social/oauth/tiktok/start",
     gradient: "from-[#000000] to-[#25F4EE]",
     bgLight: "bg-[#000000]/5",
@@ -147,17 +119,19 @@ const SOCIAL_PLATFORMS = [
 ] satisfies ReadonlyArray<{
   channel: "facebook" | "instagram" | "linkedin" | "tiktok";
   label: string;
-  connectLabel: string;
+  connectKey: ConnectKey;
   href: string | null;
   gradient: string;
   bgLight: string;
   borderLight: string;
   textColor: string;
   icon: React.ReactNode;
-  extraLinks?: ReadonlyArray<{ label: string; href: string }>;
+  extraLinks?: ReadonlyArray<{ connectKey: ConnectKey; href: string }>;
 }>;
 
 export const DashboardPanel = () => {
+  const { t, dictionary, locale } = useI18n();
+  const dateLocale = localeToPreferredLanguage[locale];
   const [overview, setOverview] = useState<OverviewResponse | null>(null);
   const [socialAccounts, setSocialAccounts] = useState<SocialAccountsResponse["connected"]>([]);
   const [recovery, setRecovery] = useState<RecoveryStatus | null>(null);
@@ -194,7 +168,7 @@ export const DashboardPanel = () => {
         fetch("/api/social/accounts"),
       ]);
       if (!overviewResponse.ok) {
-        setError("Kunne ikke hente data. Prøv igjen om litt.");
+        setError(t("dashboard.fetchError"));
         return;
       }
       const data = (await overviewResponse.json()) as OverviewResponse;
@@ -206,11 +180,11 @@ export const DashboardPanel = () => {
       setError("");
       await checkRecoveryStatus();
     } catch {
-      setError("Nettverksfeil. Sjekk tilkoblingen og prøv igjen.");
+      setError(t("dashboard.networkError"));
     } finally {
       setLoading(false);
     }
-  }, [checkRecoveryStatus]);
+  }, [checkRecoveryStatus, t]);
 
   useEffect(() => {
     if (window.location.hash === "#_=_") {
@@ -224,14 +198,18 @@ export const DashboardPanel = () => {
     const run = async () => {
       await refresh({ billingRequired: url.searchParams.get("billing") === "required" });
 
-      if (payment === "cancel") setStatus("Betaling ble avbrutt.");
+      if (payment === "cancel") setStatus(t("dashboard.paymentCancelled"));
 
-      if (socialConnectStatus && SOCIAL_CONNECT_MESSAGE_NO[socialConnectStatus]) {
-        setStatus(SOCIAL_CONNECT_MESSAGE_NO[socialConnectStatus]);
+      if (socialConnectStatus) {
+        const connectMessage =
+          dictionary.dashboard.socialConnect[
+            socialConnectStatus as keyof typeof dictionary.dashboard.socialConnect
+          ];
+        if (connectMessage) setStatus(connectMessage);
       }
 
       if (payment === "success" && sessionId) {
-        setStatus("Bekrefter betaling...");
+        setStatus(t("dashboard.confirmingPayment"));
         const confirmResponse = await fetch("/api/stripe/confirm", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -239,9 +217,9 @@ export const DashboardPanel = () => {
         });
         const confirmData = (await confirmResponse.json().catch(() => ({}))) as { message?: string };
         if (!confirmResponse.ok) {
-          setStatus(confirmData.message ?? "Betaling gjennomført, men noe gikk galt.");
+          setStatus(confirmData.message ?? t("dashboard.paymentDoneButFailed"));
         } else {
-          setStatus("Betaling bekreftet! Abonnementet er aktivt.");
+          setStatus(t("dashboard.paymentConfirmed"));
           await refresh({ quiet: true });
         }
       }
@@ -255,7 +233,7 @@ export const DashboardPanel = () => {
     };
 
     void run();
-  }, [refresh]);
+  }, [refresh, t, dictionary]);
 
   const autoRecoveryTriggered = useRef(false);
 
@@ -306,13 +284,14 @@ export const DashboardPanel = () => {
     [socialAccounts],
   );
   const subscriptionLabel = useMemo(() => {
-    if (!overview) return "Ukjent";
-    return SUBSCRIPTION_STATUS_LABEL_NO[overview.subscription.status] ?? overview.subscription.status;
-  }, [overview]);
+    if (!overview) return t("dashboard.unknownStatus");
+    const key = overview.subscription.status as keyof typeof dictionary.dashboard.subscriptionStatus;
+    return dictionary.dashboard.subscriptionStatus[key] ?? overview.subscription.status;
+  }, [overview, dictionary, t]);
 
   const createExtraPostsCheckout = async () => {
     try {
-      setStatus("Oppretter betaling...");
+      setStatus(t("dashboard.creatingPayment"));
       const response = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -320,19 +299,19 @@ export const DashboardPanel = () => {
       });
       const data = (await response.json()) as { url?: string; message?: string };
       if (!response.ok || !data.url) {
-        setStatus(data.message ?? "Kunne ikke opprette betaling.");
+        setStatus(data.message ?? t("dashboard.couldNotCreatePayment"));
         return;
       }
       setCheckoutUrl(data.url);
       setStatus("");
     } catch {
-      setStatus("Nettverksfeil.");
+      setStatus(t("dashboard.networkErrorShort"));
     }
   };
 
   const createBaseCheckout = async () => {
     try {
-      setStatus("Sender deg til betaling...");
+      setStatus(t("dashboard.sendingToPayment"));
       const response = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -340,20 +319,20 @@ export const DashboardPanel = () => {
       });
       const data = (await response.json()) as { url?: string; message?: string };
       if (!response.ok || !data.url) {
-        setStatus(data.message ?? "Kunne ikke opprette betaling.");
+        setStatus(data.message ?? t("dashboard.couldNotCreatePayment"));
         return;
       }
       setCheckoutUrl(data.url);
       setStatus("");
     } catch {
-      setStatus("Nettverksfeil.");
+      setStatus(t("dashboard.networkErrorShort"));
     }
   };
 
   const recoverPosts = async () => {
     try {
       setRecovering(true);
-      setStatus("Gjenoppretter feilede poster...");
+      setStatus(t("dashboard.recoveringPosts"));
       const response = await fetch("/api/posts/recover", { method: "POST" });
       const data = (await response.json().catch(() => ({}))) as {
         recovered?: number;
@@ -361,21 +340,21 @@ export const DashboardPanel = () => {
         message?: string;
       };
       if (!response.ok) {
-        setStatus(data.message ?? "Gjenoppretting feilet.");
+        setStatus(data.message ?? t("dashboard.recoveryFailed"));
         return;
       }
       const r = data.recovered ?? 0;
       const f = data.failed ?? 0;
       if (r > 0 && f === 0) {
-        setStatus(`${r} poster gjenopprettet!`);
+        setStatus(t("dashboard.postsRecovered", { count: r }));
       } else if (r > 0 && f > 0) {
-        setStatus(`${r} poster gjenopprettet, ${f} feilet fortsatt.`);
+        setStatus(t("dashboard.postsRecoveredPartial", { recovered: r, failed: f }));
       } else {
-        setStatus("Ingen poster kunne gjenopprettes akkurat nå. Prøv igjen om litt.");
+        setStatus(t("dashboard.noPostsRecovered"));
       }
       await refresh({ quiet: true });
     } catch {
-      setStatus("Nettverksfeil under gjenoppretting.");
+      setStatus(t("dashboard.recoveryNetworkError"));
     } finally {
       setRecovering(false);
     }
@@ -384,7 +363,7 @@ export const DashboardPanel = () => {
   const handlePlanGenerate = async (config: GenerateConfig) => {
     try {
       setPlanGenerating(true);
-      setStatus("Lager innhold — dette tar ca. 1–2 minutter...");
+      setStatus(t("dashboard.generatingContent"));
 
       const response = await fetch("/api/content/generate", {
         method: "POST",
@@ -403,14 +382,14 @@ export const DashboardPanel = () => {
       });
       const data = (await response.json().catch(() => ({}))) as { message?: string };
       if (!response.ok) {
-        setStatus(data.message ?? "Kunne ikke lage innhold for neste periode.");
+        setStatus(data.message ?? t("dashboard.couldNotGenerate"));
         return;
       }
       setPlanDialogOpen(false);
-      setStatus("Innholdsplan opprettet! Postene genereres i bakgrunnen.");
+      setStatus(t("dashboard.contentPlanCreated"));
       await refresh({ quiet: true });
     } catch {
-      setStatus("Nettverksfeil.");
+      setStatus(t("dashboard.networkErrorShort"));
     } finally {
       setPlanGenerating(false);
     }
@@ -418,7 +397,7 @@ export const DashboardPanel = () => {
 
   const queuePublishing = async () => {
     try {
-      setStatus("Legger poster i publiseringskø...");
+      setStatus(t("dashboard.queueingPosts"));
       const response = await fetch("/api/publish/queue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -431,25 +410,28 @@ export const DashboardPanel = () => {
         message?: string;
       };
       if (!response.ok) {
-        setStatus(data.message ?? "Noe gikk galt.");
+        setStatus(data.message ?? t("dashboard.somethingWentWrong"));
         return;
       }
-      const parts: string[] = [`${data.queued ?? 0} poster lagt i kø.`];
+      const parts: string[] = [t("dashboard.postsQueued", { count: data.queued ?? 0 })];
       if (data.skipped && data.skipped > 0 && data.skippedChannels) {
         parts.push(
-          `${data.skipped} poster hoppet over (${data.skippedChannels.join(", ")} er ikke koblet til).`,
+          t("dashboard.postsSkipped", {
+            count: data.skipped,
+            channels: data.skippedChannels.join(", "),
+          }),
         );
       }
       setStatus(parts.join(" "));
       await refresh({ quiet: true });
     } catch {
-      setStatus("Nettverksfeil.");
+      setStatus(t("dashboard.networkErrorShort"));
     }
   };
 
   const runPublishing = async () => {
     try {
-      setStatus("Publiserer...");
+      setStatus(t("dashboard.publishing"));
       const response = await fetch("/api/publish/run", { method: "POST" });
       const data = (await response.json().catch(() => ({}))) as {
         processed?: number;
@@ -458,15 +440,18 @@ export const DashboardPanel = () => {
         message?: string;
       };
       if (!response.ok) {
-        setStatus(data.message ?? "Noe gikk galt med publiseringen.");
+        setStatus(data.message ?? t("dashboard.publishFailed"));
         return;
       }
       setStatus(
-        `Ferdig! ${data.published ?? 0} publisert, ${data.failed ?? 0} feilet.`,
+        t("dashboard.publishDone", {
+          published: data.published ?? 0,
+          failed: data.failed ?? 0,
+        }),
       );
       await refresh({ quiet: true });
     } catch {
-      setStatus("Nettverksfeil.");
+      setStatus(t("dashboard.networkErrorShort"));
     }
   };
 
@@ -478,7 +463,7 @@ export const DashboardPanel = () => {
             <div className="absolute inset-0 rounded-full border-[3px] border-primary/20" />
             <div className="absolute inset-0 animate-spin rounded-full border-[3px] border-transparent border-t-primary" />
           </div>
-          <p className="text-sm font-medium text-muted-foreground">Laster oversikt...</p>
+          <p className="text-sm font-medium text-muted-foreground">{t("dashboard.loadingOverview")}</p>
         </div>
       </div>
     );
@@ -493,11 +478,11 @@ export const DashboardPanel = () => {
           </svg>
         </div>
         <div>
-          <p className="font-semibold text-foreground">Kunne ikke laste oversikt</p>
-          <p className="mt-1 text-sm text-muted-foreground">{error || "Noe gikk galt. Sjekk tilkoblingen og prøv igjen."}</p>
+          <p className="font-semibold text-foreground">{t("dashboard.loadFailedTitle")}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{error || t("dashboard.loadFailedBody")}</p>
         </div>
         <Button size="sm" variant="outline" onClick={() => void refresh()}>
-          Prøv igjen
+          {t("common.tryAgain")}
         </Button>
       </div>
     );
@@ -542,9 +527,9 @@ export const DashboardPanel = () => {
               </svg>
             </div>
             <div>
-              <p className="font-semibold text-foreground">Du trenger et aktivt abonnement</p>
+              <p className="font-semibold text-foreground">{t("dashboard.billingRequiredTitle")}</p>
               <p className="mt-0.5 text-sm text-muted-foreground">
-                Aktiver abonnement for å bruke AI-generering og automatisk publisering.
+                {t("dashboard.billingRequiredBody")}
               </p>
             </div>
           </div>
@@ -560,10 +545,10 @@ export const DashboardPanel = () => {
           </div>
           <div>
             <p className="font-semibold text-foreground">
-              Genererer {recovery?.activelyGeneratingCount} poster...
+              {t("dashboard.generatingPosts", { count: recovery?.activelyGeneratingCount ?? 0 })}
             </p>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Siden oppdateres automatisk når postene er klare.
+              {t("dashboard.generatingPostsHint")}
             </p>
           </div>
         </div>
@@ -580,17 +565,17 @@ export const DashboardPanel = () => {
             </div>
             <div>
               <p className="font-semibold text-foreground">
-                {recovery!.totalProblematic} poster trenger oppmerksomhet
+                {t("dashboard.postsNeedAttention", { count: recovery!.totalProblematic })}
               </p>
               <p className="mt-0.5 text-sm text-muted-foreground">
-                {recovery!.stuckCount > 0 && `${recovery!.stuckCount} fastlåst. `}
-                {recovery!.failedRecoverableCount > 0 && `${recovery!.failedRecoverableCount} kan prøves igjen.`}
-                {(recovery?.failedPermanentCount ?? 0) > 0 && ` ${recovery!.failedPermanentCount} feilet permanent.`}
+                {recovery!.stuckCount > 0 && `${t("dashboard.stuckCount", { count: recovery!.stuckCount })} `}
+                {recovery!.failedRecoverableCount > 0 && t("dashboard.recoverableCount", { count: recovery!.failedRecoverableCount })}
+                {(recovery?.failedPermanentCount ?? 0) > 0 && ` ${t("dashboard.permanentFailedCount", { count: recovery!.failedPermanentCount })}`}
               </p>
             </div>
           </div>
           <Button size="sm" variant="outline" onClick={() => void recoverPosts()} disabled={recovering}>
-            {recovering ? "Gjenoppretter..." : "Prøv igjen"}
+            {recovering ? t("dashboard.recovering") : t("common.tryAgain")}
           </Button>
         </div>
       )}
@@ -598,7 +583,7 @@ export const DashboardPanel = () => {
       {/* Stats grid */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
-          label="Totalt innhold"
+          label={t("dashboard.totalContent")}
           value={overview.summary.totalPosts}
           icon={
             <svg className="size-5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
@@ -608,7 +593,7 @@ export const DashboardPanel = () => {
           delay={0}
         />
         <StatCard
-          label="Godkjent"
+          label={t("dashboard.approved")}
           value={overview.summary.approvedPosts}
           accent="success"
           icon={
@@ -619,7 +604,7 @@ export const DashboardPanel = () => {
           delay={1}
         />
         <StatCard
-          label="I kø"
+          label={t("dashboard.queued")}
           value={overview.summary.queuedJobs}
           accent="primary"
           icon={
@@ -630,7 +615,7 @@ export const DashboardPanel = () => {
           delay={2}
         />
         <StatCard
-          label="Publisert"
+          label={t("dashboard.published")}
           value={overview.summary.publishedPosts}
           accent="success"
           icon={
@@ -646,7 +631,7 @@ export const DashboardPanel = () => {
       {totalContent > 0 && (
         <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
-            <span className="text-sm font-medium text-foreground">Publiseringsfremdrift</span>
+            <span className="text-sm font-medium text-foreground">{t("dashboard.publishProgress")}</span>
             <span className="text-sm font-bold tabular-nums text-primary">{publishedPercent}%</span>
           </div>
           <div className="h-2.5 w-full overflow-hidden rounded-full bg-secondary">
@@ -656,10 +641,10 @@ export const DashboardPanel = () => {
             />
           </div>
           <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-            <span>{overview.summary.publishedPosts} publisert</span>
-            <span>{overview.summary.queuedJobs} i kø</span>
-            <span>{overview.summary.approvedPosts} godkjent</span>
-            <span>{overview.summary.needsReviewPosts} trenger gjennomgang</span>
+            <span>{t("dashboard.publishedCount", { count: overview.summary.publishedPosts })}</span>
+            <span>{t("dashboard.queuedCount", { count: overview.summary.queuedJobs })}</span>
+            <span>{t("dashboard.approvedCount", { count: overview.summary.approvedPosts })}</span>
+            <span>{t("dashboard.needsReviewCount", { count: overview.summary.needsReviewPosts })}</span>
           </div>
         </div>
       )}
@@ -677,7 +662,7 @@ export const DashboardPanel = () => {
                 </svg>
               </div>
               <div>
-                <h2 className="text-base font-bold text-foreground">Abonnement</h2>
+                <h2 className="text-base font-bold text-foreground">{t("dashboard.subscription")}</h2>
                 <div className="flex items-center gap-2 mt-0.5">
                   <span className={cn(
                     "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold",
@@ -688,7 +673,7 @@ export const DashboardPanel = () => {
                     {subscriptionLabel}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {overview.subscription.postsPerWeekAllowance} poster/uke
+                    {t("dashboard.postsPerWeek", { count: overview.subscription.postsPerWeekAllowance })}
                   </span>
                 </div>
               </div>
@@ -696,11 +681,11 @@ export const DashboardPanel = () => {
             <div className="mt-4 flex flex-wrap gap-2">
               {!canPublish && (
                 <Button size="sm" onClick={() => void createBaseCheckout()}>
-                  Aktiver abonnement
+                  {t("dashboard.activateSubscription")}
                 </Button>
               )}
               <Button variant="outline" size="sm" onClick={() => void createExtraPostsCheckout()}>
-                Legg til flere poster
+                {t("dashboard.addMorePosts")}
               </Button>
               {checkoutUrl && (
                 <a
@@ -709,7 +694,7 @@ export const DashboardPanel = () => {
                   rel="noreferrer"
                   className="inline-flex h-8 items-center rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary-hover transition-colors"
                 >
-                  Gå til betaling &rarr;
+                  {t("dashboard.goToPayment")}
                 </a>
               )}
             </div>
@@ -727,30 +712,35 @@ export const DashboardPanel = () => {
                 </svg>
               </div>
               <div>
-                <h2 className="text-base font-bold text-foreground">Planlegg innhold</h2>
+                <h2 className="text-base font-bold text-foreground">{t("dashboard.planContent")}</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {overview.summary.latestScheduledAt
-                    ? `Sist planlagt: ${new Date(overview.summary.latestScheduledAt).toLocaleDateString("nb-NO", { day: "numeric", month: "long" })}`
-                    : "Lag AI-innhold for kommende uker"}
+                    ? t("dashboard.lastPlanned", {
+                        date: new Date(overview.summary.latestScheduledAt).toLocaleDateString(dateLocale, {
+                          day: "numeric",
+                          month: "long",
+                        }),
+                      })
+                    : t("dashboard.planForUpcoming")}
                 </p>
               </div>
             </div>
             <div className="mt-4">
               {!canPublish ? (
                 <p className="rounded-lg bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-                  Aktiver abonnement for å planlegge innhold.
+                  {t("dashboard.activateToPlan")}
                 </p>
               ) : connectedChannels.size === 0 ? (
                 <p className="rounded-lg bg-warning/5 px-3 py-2 text-xs text-muted-foreground">
-                  Koble til minst én sosial konto først.
+                  {t("dashboard.connectAccountFirst")}
                 </p>
               ) : (
                 <div className="flex items-center gap-3">
                   <Button size="sm" onClick={() => setPlanDialogOpen(true)}>
-                    Planlegg innhold
+                    {t("dashboard.planContent")}
                   </Button>
                   <span className="text-xs text-muted-foreground">
-                    {overview.subscription.postsPerWeekAllowance} poster/uke
+                    {t("dashboard.postsPerWeek", { count: overview.subscription.postsPerWeekAllowance })}
                   </span>
                 </div>
               )}
@@ -768,9 +758,9 @@ export const DashboardPanel = () => {
             </svg>
           </div>
           <div>
-            <h2 className="text-base font-bold text-foreground">Publisering</h2>
+            <h2 className="text-base font-bold text-foreground">{t("dashboard.publishingSection")}</h2>
             <p className="text-xs text-muted-foreground">
-              Poster publiseres automatisk til planlagt tidspunkt.
+              {t("dashboard.publishingHint")}
             </p>
           </div>
         </div>
@@ -780,7 +770,7 @@ export const DashboardPanel = () => {
             onClick={() => void queuePublishing()}
             disabled={!canPublish || overview.summary.approvedPosts === 0}
           >
-            Legg godkjente i kø
+            {t("dashboard.queueApproved")}
           </Button>
           <Button
             size="sm"
@@ -788,12 +778,12 @@ export const DashboardPanel = () => {
             onClick={() => void runPublishing()}
             disabled={!canPublish || overview.summary.queuedJobs === 0}
           >
-            Publiser forfalne nå
+            {t("dashboard.publishDueNow")}
           </Button>
           {overview.summary.queuedJobs > 0 && (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
               <span className="size-1.5 animate-pulse rounded-full bg-primary" />
-              {overview.summary.queuedJobs} i kø
+              {t("dashboard.queuedCount", { count: overview.summary.queuedJobs })}
             </span>
           )}
         </div>
@@ -811,9 +801,12 @@ export const DashboardPanel = () => {
             </svg>
           </div>
           <div>
-            <h2 className="text-base font-bold text-foreground">Sosiale kontoer</h2>
+            <h2 className="text-base font-bold text-foreground">{t("dashboard.socialAccounts")}</h2>
             <p className="text-xs text-muted-foreground">
-              {connectedChannels.size} av {SOCIAL_PLATFORMS.length} plattformer koblet til
+              {t("dashboard.platformsConnected", {
+                connected: connectedChannels.size,
+                total: SOCIAL_PLATFORMS.length,
+              })}
             </p>
           </div>
         </div>
@@ -825,6 +818,7 @@ export const DashboardPanel = () => {
             const isExpired = tokenStatus === "expired";
             const isMissing = tokenStatus === "missing";
             const hasIssue = isExpired || isMissing;
+            const connectLabel = dictionary.dashboard.connect[platform.connectKey];
             return (
               <div
                 key={platform.channel}
@@ -851,19 +845,19 @@ export const DashboardPanel = () => {
                     {isConnected && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-semibold text-success">
                         <span className="size-1 rounded-full bg-success" />
-                        Koblet
+                        {t("dashboard.connected")}
                       </span>
                     )}
                     {isExpired && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] font-semibold text-warning-foreground">
                         <span className="size-1 rounded-full bg-warning" />
-                        Utløpt
+                        {t("dashboard.expired")}
                       </span>
                     )}
                     {isMissing && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
                         <span className="size-1 rounded-full bg-destructive" />
-                        Ugyldig
+                        {t("dashboard.invalid")}
                       </span>
                     )}
                   </div>
@@ -880,7 +874,11 @@ export const DashboardPanel = () => {
                               : `${platform.bgLight} ${platform.textColor} hover:opacity-80`,
                         )}
                       >
-                        {hasIssue ? "Koble til på nytt" : isConnected ? "Koble på nytt" : platform.connectLabel}
+                        {hasIssue
+                          ? t("dashboard.reconnect")
+                          : isConnected
+                            ? t("dashboard.reconnectShort")
+                            : connectLabel}
                       </a>
                     )}
                     {platform.extraLinks?.map((link) => (
@@ -889,11 +887,11 @@ export const DashboardPanel = () => {
                         href={link.href}
                         className="inline-flex items-center rounded-md bg-secondary/80 px-2 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-secondary transition-colors"
                       >
-                        {link.label}
+                        {dictionary.dashboard.connect[link.connectKey]}
                       </a>
                     ))}
                     {!platform.href && !tokenStatus && (
-                      <span className="text-[11px] text-muted-foreground">{platform.connectLabel}</span>
+                      <span className="text-[11px] text-muted-foreground">{connectLabel}</span>
                     )}
                   </div>
                 </div>
@@ -925,6 +923,7 @@ type ProductImageItem = {
 };
 
 const ProductImageStatus = () => {
+  const { t, locale } = useI18n();
   const [items, setItems] = useState<ProductImageItem[]>([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -947,6 +946,9 @@ const ProductImageStatus = () => {
   if (!loaded) return null;
 
   const uniqueProducts = new Set(items.map((i) => i.productName));
+  const productsPlural =
+    uniqueProducts.size === 1 ? "" : locale === "en" ? "s" : "er";
+  const imagesPlural = items.length === 1 ? "" : locale === "en" ? "s" : "r";
 
   return (
     <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
@@ -957,11 +959,16 @@ const ProductImageStatus = () => {
           </svg>
         </div>
         <div>
-          <h2 className="text-base font-bold text-foreground">Produktbilder</h2>
+          <h2 className="text-base font-bold text-foreground">{t("dashboard.productImages")}</h2>
           <p className="text-xs text-muted-foreground">
             {items.length === 0
-              ? "Ingen bilder lastet opp — AI lager generiske bilder"
-              : `${uniqueProducts.size} produkt${uniqueProducts.size !== 1 ? "er" : ""}, ${items.length} referansebilde${items.length !== 1 ? "r" : ""}`}
+              ? t("dashboard.noProductImages")
+              : t("dashboard.productImageSummary", {
+                  products: uniqueProducts.size,
+                  productsPlural,
+                  images: items.length,
+                  imagesPlural,
+                })}
           </p>
         </div>
       </div>
@@ -991,7 +998,7 @@ const ProductImageStatus = () => {
         href="/onboarding"
         className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-foreground hover:bg-secondary transition-colors"
       >
-        {items.length === 0 ? "Last opp produktbilder" : "Administrer bilder"}
+        {items.length === 0 ? t("dashboard.uploadProductImages") : t("dashboard.manageImages")}
         <svg className="size-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
         </svg>

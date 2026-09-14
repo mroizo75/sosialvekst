@@ -3,11 +3,14 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
+import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Checkbox, Input, Textarea } from "@/components/ui/Input";
-import { cn } from "@/lib/utils";
+import { localeToPreferredLanguage } from "@/lib/i18n/config";
 import type { BrandColors, MediaMode, ProductImage, SocialChannel, TopicWindow } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 type WizardPayload = {
   companyName: string;
@@ -45,13 +48,6 @@ type ScrapeResult = {
   websiteTitle?: string;
 };
 
-const WIZARD_STEPS = [
-  { label: "Om bedriften", description: "Vi henter info fra nettsiden din" },
-  { label: "Stil og tone", description: "Hvordan skal innleggene se ut?" },
-  { label: "Oppsett", description: "Velg kanaler og medier" },
-  { label: "Lag innhold", description: "Vi lager poster for deg" },
-] as const;
-
 const CHANNEL_OPTIONS: Array<{ value: SocialChannel; label: string }> = [
   { value: "facebook", label: "Facebook" },
   { value: "instagram", label: "Instagram" },
@@ -59,23 +55,27 @@ const CHANNEL_OPTIONS: Array<{ value: SocialChannel; label: string }> = [
   { value: "tiktok", label: "TikTok" },
 ];
 
-const MEDIA_MODE_OPTIONS: Array<{ value: MediaMode; label: string; description: string }> = [
-  { value: "ai_only", label: "AI-bilder", description: "AI lager alle bilder for deg" },
-  { value: "hybrid", label: "Mine + AI-bilder", description: "Kombinasjon av dine bilder og AI" },
-  { value: "owned_only", label: "Mine egne", description: "Bare dine egne bilder og videoer" },
-];
+const MEDIA_MODE_VALUES: MediaMode[] = ["ai_only", "hybrid", "owned_only"];
 
 const TOPIC_WINDOWS_STORAGE_KEY = "onboarding_topic_windows_v1";
 
-const Stepper = ({ currentStep, totalSteps }: { currentStep: number; totalSteps: number }) => (
+const Stepper = ({
+  currentStep,
+  totalSteps,
+  steps,
+}: {
+  currentStep: number;
+  totalSteps: number;
+  steps: Array<{ label: string; description: string }>;
+}) => (
   <nav className="mb-8">
     <div className="flex items-center justify-center gap-0">
-      {WIZARD_STEPS.slice(0, totalSteps).map((step, index) => {
+      {steps.slice(0, totalSteps).map((step, index) => {
         const stepNumber = index + 1;
         const isActive = stepNumber === currentStep;
         const isCompleted = stepNumber < currentStep;
         return (
-          <div key={step.label} className="flex items-center">
+          <div key={`${step.label}-${index}`} className="flex items-center">
             {index > 0 && (
               <div
                 className={cn(
@@ -118,6 +118,7 @@ type ConnectedAccount = {
 };
 
 export const OnboardingWizard = () => {
+  const { t, dictionary, locale } = useI18n();
   const [step, setStep] = useState(1);
   const [mode, setMode] = useState<"loading" | "wizard" | "settings">("loading");
   const [status, setStatus] = useState("");
@@ -132,17 +133,30 @@ export const OnboardingWizard = () => {
   const [savedMessage, setSavedMessage] = useState("");
   const [connectedAccounts, setConnectedAccounts] = useState<ConnectedAccount[]>([]);
 
+  const wizardSteps = dictionary.onboarding.steps;
+  const mediaModeOptions = MEDIA_MODE_VALUES.map((value) => ({
+    value,
+    label: dictionary.onboarding.mediaModes[value].label,
+    description: dictionary.onboarding.mediaModes[value].description,
+  }));
+
   const accountStatusMap = new Map(connectedAccounts.map((a) => [a.channel, a.tokenStatus ?? "valid"]));
   const connectedChannels = new Set(
     connectedAccounts.filter((a) => !a.tokenStatus || a.tokenStatus === "valid").map((a) => a.channel),
   );
 
   const getChannelStatusLabel = (channel: SocialChannel): { text: string; className: string } => {
-    const status = accountStatusMap.get(channel);
-    if (!status) return { text: "Ikke koblet", className: "text-muted-foreground" };
-    if (status === "valid") return { text: "Koblet", className: "text-success" };
-    if (status === "expired") return { text: "Utløpt", className: "text-warning-foreground" };
-    return { text: "Ugyldig", className: "text-destructive" };
+    const channelStatus = accountStatusMap.get(channel);
+    if (!channelStatus) {
+      return { text: dictionary.onboarding.channelStatus.notConnected, className: "text-muted-foreground" };
+    }
+    if (channelStatus === "valid") {
+      return { text: dictionary.onboarding.channelStatus.connected, className: "text-success" };
+    }
+    if (channelStatus === "expired") {
+      return { text: dictionary.onboarding.channelStatus.expired, className: "text-warning-foreground" };
+    }
+    return { text: dictionary.onboarding.channelStatus.invalid, className: "text-destructive" };
   };
 
   const [websiteUrl, setWebsiteUrl] = useState("");
@@ -274,11 +288,11 @@ export const OnboardingWizard = () => {
 
   const uploadProductImage = async (file: File) => {
     if (!productImageName.trim()) {
-      setStatus("Skriv inn produktnavn først.");
+      setStatus(t("onboarding.enterProductName"));
       return;
     }
     setUploadingProductImage(true);
-    setStatus("Laster opp produktbilde...");
+    setStatus(t("onboarding.uploadingProductImage"));
 
     const payload = new FormData();
     payload.append("file", file);
@@ -290,7 +304,7 @@ export const OnboardingWizard = () => {
     });
 
     if (!uploadResponse.ok) {
-      setStatus("Kunne ikke laste opp bildet. Prøv igjen.");
+      setStatus(t("onboarding.uploadImageFailed"));
       setUploadingProductImage(false);
       return;
     }
@@ -308,12 +322,12 @@ export const OnboardingWizard = () => {
     });
 
     if (!saveResponse.ok) {
-      setStatus("Bildet ble lastet opp, men kunne ikke lagres som produktbilde.");
+      setStatus(t("onboarding.productImageSaveFailed"));
       setUploadingProductImage(false);
       return;
     }
 
-    setStatus("Produktbilde lagt til!");
+    setStatus(t("onboarding.productImageAdded"));
     setUploadingProductImage(false);
     await fetchProductImages();
   };
@@ -338,7 +352,7 @@ export const OnboardingWizard = () => {
 
     if (!response.ok) {
       setForm((prev) => ({ ...prev, channels: liveChannels }));
-      setStatus("Kunne ikke laste lagret data. Du kan fylle ut skjemaet på nytt.");
+      setStatus(t("onboarding.loadFailed"));
       setMode("wizard");
       return;
     }
@@ -418,7 +432,7 @@ export const OnboardingWizard = () => {
     } else {
       setMode("wizard");
     }
-  }, []);
+  }, [fetchConnectedAccounts, fetchProductImages, t]);
 
   useEffect(() => {
     const timer = setTimeout(() => void loadExistingData(), 0);
@@ -465,7 +479,7 @@ export const OnboardingWizard = () => {
 
     let cancelled = false;
     const confirmPayment = async () => {
-      setStatus("Bekrefter betaling...");
+      setStatus(t("onboarding.confirmingPayment"));
       const response = await fetch("/api/stripe/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -477,9 +491,9 @@ export const OnboardingWizard = () => {
       };
       if (cancelled) return;
       if (!response.ok) {
-        setStatus(data.message ?? data.details?.message ?? "Betaling fullført, men noe gikk galt.");
+        setStatus(data.message ?? data.details?.message ?? t("onboarding.paymentDoneButFailed"));
       } else {
-        setStatus("Abonnement aktivert! Du kan nå lage innhold.");
+        setStatus(t("onboarding.subscriptionActivated"));
       }
       await loadSubscriptionStatus();
       const url = new URL(window.location.href);
@@ -490,7 +504,7 @@ export const OnboardingWizard = () => {
 
     void confirmPayment();
     return () => { cancelled = true; };
-  }, [loadSubscriptionStatus]);
+  }, [loadSubscriptionStatus, t]);
 
   useEffect(() => {
     if (mode !== "wizard") return;
@@ -533,11 +547,11 @@ export const OnboardingWizard = () => {
   const addTopicWindow = () => {
     if (!newTopic.trim()) return;
     if (newStartWeek < 1 || newStartWeek > 4 || newEndWeek < 1 || newEndWeek > 4) {
-      setStatus("Uke må være mellom 1 og 4.");
+      setStatus(t("onboarding.weekRangeInvalid"));
       return;
     }
     if (newStartWeek > newEndWeek) {
-      setStatus("Fra-uke kan ikke være etter til-uke.");
+      setStatus(t("onboarding.weekOrderInvalid"));
       return;
     }
     setTopicWindows((prev) => [
@@ -557,16 +571,19 @@ export const OnboardingWizard = () => {
   const analyzeWebsite = async () => {
     if (!websiteUrl || !scrapeConsent) return;
     setLoading(true);
-    setStatus("Analyserer nettsiden din...");
+    setStatus(t("onboarding.analyzing"));
 
     const response = await fetch("/api/scrape", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: websiteUrl, companyName: form.companyName || "Bedrift" }),
+      body: JSON.stringify({
+        url: websiteUrl,
+        companyName: form.companyName || t("onboarding.companyFallback"),
+      }),
     });
 
     if (!response.ok) {
-      setStatus("Kunne ikke analysere nettsiden. Sjekk adressen og prøv igjen.");
+      setStatus(t("onboarding.analyzeFailed"));
       setLoading(false);
       return;
     }
@@ -576,7 +593,10 @@ export const OnboardingWizard = () => {
     setEditableDescription(data.companyDescription);
     setEditableProducts(data.products.join(", "));
     setEditableUsps(data.uniqueSellingPoints.join(", "));
-    setStatus("Ferdig! Se over resultatene og rett opp om noe ikke stemmer.");
+    if (data.websiteTitle && !form.companyName.trim()) {
+      update("companyName", data.websiteTitle);
+    }
+    setStatus(t("onboarding.analyzeDone"));
     setLoading(false);
   };
 
@@ -586,7 +606,7 @@ export const OnboardingWizard = () => {
 
   const save = async () => {
     setLoading(true);
-    setStatus("Lagrer...");
+    setStatus(t("onboarding.saving"));
     const parsedKeyMessages = parseKeyMessages(keyMessagesText);
     const parsedProducts = parseKeyMessages(editableProducts);
     const parsedUsps = parseKeyMessages(editableUsps);
@@ -610,11 +630,12 @@ export const OnboardingWizard = () => {
         slogan: form.slogan,
         brandColors: form.brandColors,
         fontStyle: form.fontStyle,
+        preferredLanguage: localeToPreferredLanguage[locale],
       }),
     });
 
     if (!response.ok) {
-      setStatus("Kunne ikke lagre. Prøv igjen.");
+      setStatus(t("onboarding.saveFailed"));
       setLoading(false);
       return;
     }
@@ -623,7 +644,7 @@ export const OnboardingWizard = () => {
     setLoading(false);
 
     if (mode === "settings") {
-      setSavedMessage("Endringene er lagret! Alt fremtidig innhold bruker den nye informasjonen.");
+      setSavedMessage(t("onboarding.savedMessage"));
       setTimeout(() => setSavedMessage(""), 4000);
     } else {
       setStep((v) => Math.min(v + 1, 4));
@@ -632,7 +653,7 @@ export const OnboardingWizard = () => {
 
   const uploadLogo = async (file: File) => {
     setUploadingLogo(true);
-    setStatus("Laster opp logo...");
+    setStatus(t("onboarding.uploadLogo"));
     const payload = new FormData();
     payload.append("file", file);
     payload.append("mediaKind", "logo");
@@ -643,31 +664,31 @@ export const OnboardingWizard = () => {
     });
 
     if (!uploadResponse.ok) {
-      setStatus("Kunne ikke laste opp logoen. Prøv igjen.");
+      setStatus(t("onboarding.uploadLogoFailed"));
       setUploadingLogo(false);
       return;
     }
 
     const data = (await uploadResponse.json()) as { publicUrl: string };
     update("logoUrl", data.publicUrl);
-    setStatus("Logo lastet opp!");
+    setStatus(t("onboarding.logoUploaded"));
     setUploadingLogo(false);
   };
 
   const generateContentPlan = async () => {
     if (!subscriptionActive) {
-      setStatus("Du må aktivere abonnement før du kan lage innhold.");
+      setStatus(t("onboarding.subscriptionRequired"));
       return;
     }
 
     const validChannels = form.channels.filter((ch) => connectedChannels.has(ch));
     if (validChannels.length === 0) {
-      setStatus("Koble til minst én sosial konto før du kan generere innhold.");
+      setStatus(t("onboarding.connectRequired"));
       return;
     }
 
     setLoading(true);
-    setStatus("Lager innholdsplan — dette tar ca. 1–2 minutter...");
+    setStatus(t("onboarding.generatingPlan"));
     const response = await fetch("/api/content/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -687,9 +708,9 @@ export const OnboardingWizard = () => {
       const subscriptionError =
         data?.code === "SUBSCRIPTION_REQUIRED" || data?.details?.code === "SUBSCRIPTION_REQUIRED";
       if (subscriptionError) {
-        setStatus("Du må aktivere abonnement først.");
+        setStatus(t("onboarding.activateFirst"));
       } else {
-        setStatus(data?.message ?? data?.details?.message ?? "Noe gikk galt. Prøv igjen.");
+        setStatus(data?.message ?? data?.details?.message ?? t("common.error"));
       }
       setLoading(false);
       return;
@@ -707,7 +728,7 @@ export const OnboardingWizard = () => {
   const startBaseCheckout = async () => {
     try {
       setCheckoutLoading(true);
-      setStatus("Sender deg til betaling...");
+      setStatus(t("onboarding.sendingToPayment"));
       const response = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -719,27 +740,25 @@ export const OnboardingWizard = () => {
         details?: { message?: string };
       };
       if (!response.ok || !data.url) {
-        setStatus(data.message ?? data.details?.message ?? "Kunne ikke starte betaling.");
+        setStatus(data.message ?? data.details?.message ?? t("onboarding.couldNotStartPayment"));
         return;
       }
       window.location.assign(data.url);
     } catch {
-      setStatus("Nettverksfeil. Sjekk tilkoblingen og prøv igjen.");
+      setStatus(t("onboarding.networkError"));
     } finally {
       setCheckoutLoading(false);
     }
   };
 
   const deleteAccount = async () => {
-    const confirmed = window.confirm(
-      "Er du sikker? Alt innhold og alle filer blir slettet permanent.",
-    );
+    const confirmed = window.confirm(t("onboarding.deleteConfirm"));
     if (!confirmed) return;
 
-    setStatus("Sletter konto...");
+    setStatus(t("onboarding.deletingAccount"));
     const response = await fetch("/api/account/delete", { method: "DELETE" });
     if (!response.ok) {
-      setStatus("Kunne ikke slette kontoen. Prøv igjen.");
+      setStatus(t("onboarding.couldNotDeleteAccount"));
       return;
     }
     window.location.href = "/register";
@@ -750,7 +769,7 @@ export const OnboardingWizard = () => {
       <div className="mx-auto max-w-2xl px-3 sm:px-4 py-8 sm:py-12">
         <div className="flex flex-col items-center justify-center gap-3 py-12 sm:py-20">
           <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-sm text-muted-foreground">Henter informasjonen din...</p>
+          <p className="text-sm text-muted-foreground">{t("onboarding.loading")}</p>
         </div>
       </div>
     );
@@ -760,10 +779,9 @@ export const OnboardingWizard = () => {
     return (
       <div className="mx-auto max-w-2xl px-3 sm:px-4 py-6 sm:py-8">
         <div className="mb-6 sm:mb-8">
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Min bedrift</h1>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">{t("onboarding.settingsTitle")}</h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
-            Jo mer AI-en vet om bedriften din, desto bedre innhold lager den.
-            Fyll ut det du kan — du kan alltid komme tilbake og legge til mer.
+            {t("onboarding.settingsSubtitle")}
           </p>
         </div>
 
@@ -775,67 +793,72 @@ export const OnboardingWizard = () => {
 
         <div className="space-y-6">
 
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-muted/20 px-4 py-3">
+            <span className="text-sm font-medium text-foreground">{t("common.language")}</span>
+            <LanguageSwitcher variant="app" />
+          </div>
+
           <Card>
             <CardHeader>
-              <CardTitle>Hvem er dere?</CardTitle>
+              <CardTitle>{t("onboarding.whoAreYou")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <Input
-                  label="Bedriftsnavn"
+                  label={t("onboarding.companyName")}
                   value={form.companyName}
                   onChange={(e) => update("companyName", e.target.value)}
-                  placeholder="Mitt Firma AS"
+                  placeholder={t("onboarding.companyNamePlaceholder")}
                 />
                 <Input
-                  label="Ditt navn"
+                  label={t("onboarding.yourName")}
                   value={form.fullName}
                   onChange={(e) => update("fullName", e.target.value)}
-                  placeholder="Ola Nordmann"
+                  placeholder={t("onboarding.yourNamePlaceholder")}
                 />
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Input
-                  label="Bransje"
+                  label={t("onboarding.industry")}
                   value={form.industry}
                   onChange={(e) => update("industry", e.target.value)}
-                  placeholder="F.eks. regnskap, restaurant, bygg..."
+                  placeholder={t("onboarding.industryPlaceholder")}
                 />
                 <Input
-                  label="Grunnlagt"
+                  label={t("onboarding.founded")}
                   value={form.foundedYear}
                   onChange={(e) => update("foundedYear", e.target.value)}
-                  placeholder="F.eks. 2018"
+                  placeholder={t("onboarding.foundedPlaceholder")}
                 />
               </div>
               <Input
-                label="Nettside"
+                label={t("onboarding.website")}
                 type="url"
                 value={websiteUrl}
                 onChange={(e) => setWebsiteUrl(e.target.value)}
-                placeholder="https://www.mittfirma.no"
+                placeholder={t("onboarding.websitePlaceholder")}
               />
               <Textarea
-                label="Kort beskrivelse av bedriften"
+                label={t("onboarding.shortDescription")}
                 value={editableDescription}
                 onChange={(e) => setEditableDescription(e.target.value)}
                 rows={3}
-                placeholder="Hva gjør bedriften din? Skriv det som om du forklarer til en ny kunde."
-                hint="AI bruker dette som grunnlag for alt innhold."
+                placeholder={t("onboarding.shortDescriptionPlaceholder")}
+                hint={t("onboarding.shortDescriptionHint")}
               />
               <Textarea
-                label="Om teamet"
+                label={t("onboarding.aboutTeam")}
                 value={form.teamDescription}
                 onChange={(e) => update("teamDescription", e.target.value)}
                 rows={2}
-                placeholder="F.eks. 5 ansatte med lang erfaring innen..."
-                hint="Valgfritt. Gjør innholdet mer personlig."
+                placeholder={t("onboarding.aboutTeamPlaceholder")}
+                hint={t("onboarding.aboutTeamHint")}
               />
 
               {!editableDescription && websiteUrl && (
                 <div className="flex gap-3 pt-1">
                   <Checkbox
-                    label="Hent informasjon fra nettsiden min"
+                    label={t("onboarding.scrapeConsent")}
                     checked={scrapeConsent}
                     onChange={(e) => setScrapeConsent(e.target.checked)}
                   />
@@ -845,7 +868,7 @@ export const OnboardingWizard = () => {
                     onClick={() => void analyzeWebsite()}
                     disabled={!websiteUrl || !scrapeConsent || loading}
                   >
-                    {loading ? "Henter..." : "Hent fra nettside"}
+                    {loading ? t("onboarding.scrapeLoading") : t("onboarding.scrapeFromWebsite")}
                   </Button>
                 </div>
               )}
@@ -854,56 +877,55 @@ export const OnboardingWizard = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle>Hva tilbyr dere?</CardTitle>
+              <CardTitle>{t("onboarding.whatYouOffer")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <Input
-                label="Produkter"
+                label={t("onboarding.products")}
                 value={editableProducts}
                 onChange={(e) => setEditableProducts(e.target.value)}
-                placeholder="F.eks. nettsider, regnskap, catering..."
-                hint="Skriv flere med komma mellom."
+                placeholder={t("onboarding.productsPlaceholder")}
+                hint={t("onboarding.commaHint")}
               />
               <Input
-                label="Tjenester"
+                label={t("onboarding.services")}
                 value={servicesText}
                 onChange={(e) => setServicesText(e.target.value)}
-                placeholder="F.eks. rådgivning, installasjon, support..."
-                hint="Skriv flere med komma mellom."
+                placeholder={t("onboarding.servicesPlaceholder")}
+                hint={t("onboarding.commaHint")}
               />
               <Input
-                label="Prisnivå"
+                label={t("onboarding.priceLevel")}
                 value={form.priceRange}
                 onChange={(e) => update("priceRange", e.target.value)}
-                placeholder="F.eks. fra 5 000 kr, gratis prøveperiode, fastpris..."
-                hint="Valgfritt. Hjelper AI å lage relevante CTA-er."
+                placeholder={t("onboarding.priceLevelPlaceholder")}
+                hint={t("onboarding.priceLevelHint")}
               />
               <Input
-                label="Det som gjør dere unike"
+                label={t("onboarding.uniqueSelling")}
                 value={editableUsps}
                 onChange={(e) => setEditableUsps(e.target.value)}
-                placeholder="F.eks. raskest levering, personlig oppfølging..."
-                hint="Hva skiller dere fra konkurrentene?"
+                placeholder={t("onboarding.uniqueSellingPlaceholder")}
+                hint={t("onboarding.uniqueSellingHint")}
               />
               <Textarea
-                label="Konkurransefortrinn"
+                label={t("onboarding.competitiveAdvantage")}
                 value={form.competitorDifferentiators}
                 onChange={(e) => update("competitorDifferentiators", e.target.value)}
                 rows={2}
-                placeholder="F.eks. Vi er de eneste i regionen som... Til forskjell fra store kjeder..."
-                hint="Valgfritt. Hjelper AI å posisjonere innholdet."
+                placeholder={t("onboarding.competitiveAdvantagePlaceholder")}
+                hint={t("onboarding.competitiveAdvantageHint")}
               />
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Produktbilder for AI</CardTitle>
+              <CardTitle>{t("onboarding.productImagesTitle")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Last opp bilder av produktene dine. AI bruker disse som referanse for å generere
-                innhold der produktet er synlig og gjenkjennelig.
+                {t("onboarding.productImagesBody")}
               </p>
 
               {productImages.length > 0 && (
@@ -944,11 +966,11 @@ export const OnboardingWizard = () => {
 
               <div className="space-y-3 rounded-xl border border-dashed border-border p-3">
                 <Input
-                  label="Produktnavn"
+                  label={t("onboarding.productImagesSection.productNameLabel")}
                   value={productImageName}
                   onChange={(e) => setProductImageName(e.target.value)}
-                  placeholder="F.eks. Glow Serum, Premium Kaffe..."
-                  hint="Skriv navnet på produktet bildet viser."
+                  placeholder={t("onboarding.productImagesSection.productNamePlaceholder")}
+                  hint={t("onboarding.productImagesSection.productNameHint")}
                 />
                 <input
                   type="file"
@@ -963,8 +985,7 @@ export const OnboardingWizard = () => {
                   className="block text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary-hover file:cursor-pointer disabled:opacity-50"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Last opp flere bilder fra ulike vinkler for best resultat. Bildet bør vise produktet tydelig
-                  mot en ren bakgrunn.
+                  {t("onboarding.productImagesBody")}
                 </p>
               </div>
             </CardContent>
@@ -972,17 +993,17 @@ export const OnboardingWizard = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle>Kundene deres</CardTitle>
+              <CardTitle>{t("onboarding.customerSection.targetAudienceLabel")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <Input
-                label="Hvem er kundene dine?"
+                label={t("onboarding.customerSection.targetAudienceLabel")}
                 value={form.targetAudience}
                 onChange={(e) => update("targetAudience", e.target.value)}
-                placeholder="F.eks. småbedrifter i Oslo, familier med barn..."
+                placeholder={t("onboarding.customerSection.targetAudiencePlaceholder")}
               />
               <Textarea
-                label="Typiske utfordringer hos kundene"
+                label={t("onboarding.customerSection.painPointsLabel")}
                 value={customerPainPointsText}
                 onChange={(e) => setCustomerPainPointsText(e.target.value)}
                 rows={3}
@@ -990,15 +1011,15 @@ export const OnboardingWizard = () => {
                 hint="Skriv én per linje. AI bruker dette til å lage innhold som treffer."
               />
               <Textarea
-                label="Vanlige spørsmål fra kunder"
+                label={t("onboarding.customerSection.questionsLabel")}
                 value={commonQuestionsText}
                 onChange={(e) => setCommonQuestionsText(e.target.value)}
                 rows={3}
                 placeholder={"F.eks.\nHva koster det?\nHvor lang tid tar leveransen?\nHar dere garanti?"}
-                hint="Skriv ett spørsmål per linje. AI kan lage poster som svarer på disse."
+                hint={t("onboarding.customerSection.questionsHint")}
               />
               <Textarea
-                label="Kundehistorier og referanser"
+                label={t("onboarding.customerSection.storiesLabel")}
                 value={customerSuccessStoriesText}
                 onChange={(e) => setCustomerSuccessStoriesText(e.target.value)}
                 rows={3}
@@ -1010,74 +1031,71 @@ export const OnboardingWizard = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle>Merkevare og stemme</CardTitle>
+              <CardTitle>{t("onboarding.brandSection.voiceLabel")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <Textarea
-                label="Skrivestil"
+                label={t("onboarding.brandSection.voiceLabel")}
                 value={form.brandVoice}
                 onChange={(e) => update("brandVoice", e.target.value)}
                 rows={3}
-                placeholder="F.eks. vennlig og uformell, korte setninger, konkrete tips. Unngå fagspråk."
-                hint="Beskriv hvordan innleggene skal høres ut. AI skriver i denne stemmen."
+                placeholder={t("onboarding.brandSection.voicePlaceholder")}
+                hint={t("onboarding.brandSection.voiceHint")}
               />
               <Textarea
-                label="Personlighet"
+                label={t("onboarding.brandSection.personalityLabel")}
                 value={form.brandPersonality}
                 onChange={(e) => update("brandPersonality", e.target.value)}
                 rows={2}
-                placeholder="F.eks. Som en hjelpsom nabo som tilfeldigvis er ekspert. Aldri arrogant."
-                hint="Valgfritt. Gir innholdet en tydelig karakter."
+                placeholder={t("onboarding.brandSection.personalityPlaceholder")}
+                hint={t("onboarding.brandSection.personalityHint")}
               />
               <Input
-                label="Tagline"
+                label={t("onboarding.brandSection.taglineLabel")}
                 value={form.tagline}
                 onChange={(e) => update("tagline", e.target.value)}
-                placeholder="F.eks. Vi bygger fremtiden, stein for stein"
-                hint="Kort setning som oppsummerer merkevaren. Brukes i alt innhold."
+                placeholder={t("onboarding.brandSection.taglinePlaceholder")}
+                hint={t("onboarding.brandSection.taglineHint")}
               />
               <Input
-                label="Slagord"
+                label={t("onboarding.brandSection.sloganLabel")}
                 value={form.slogan}
                 onChange={(e) => update("slogan", e.target.value)}
-                placeholder="F.eks. Kvalitet du kan stole på"
-                hint="Valgfritt. Kan brukes i tillegg til tagline."
+                placeholder={t("onboarding.brandSection.sloganPlaceholder")}
+                hint={t("onboarding.brandSection.sloganHint")}
               />
               <Textarea
-                label="Gjør og ikke gjør"
+                label={t("onboarding.brandSection.dosAndDontsLabel")}
                 value={form.brandDosAndDonts}
                 onChange={(e) => update("brandDosAndDonts", e.target.value)}
                 rows={3}
-                placeholder={"F.eks.\nGJØR: Bruk humor, del konkrete tall, nevn lokalmiljøet\nIKKE GJØR: Snakk negativt om konkurrenter, bruk engelske ord"}
-                hint="Valgfritt. Klare retningslinjer for hva AI bør og ikke bør gjøre."
+                placeholder={t("onboarding.brandSection.dosAndDontsPlaceholder")}
+                hint={t("onboarding.brandSection.dosAndDontsHint")}
               />
               <Input
-                label="Kjerneverdier"
+                label={t("onboarding.brandSection.coreValuesLabel")}
                 value={coreValuesText}
                 onChange={(e) => setCoreValuesText(e.target.value)}
-                placeholder="F.eks. kvalitet, ærlighet, bærekraft, lokal"
-                hint="Verdier som skal prege alt innhold. Skriv flere med komma."
+                placeholder={t("onboarding.brandSection.coreValuesPlaceholder")}
+                hint={t("onboarding.brandSection.coreValuesHint")}
               />
               <Input
-                label="Viktige budskap"
+                label={t("onboarding.brandSection.keyMessagesLabel")}
                 value={keyMessagesText}
                 onChange={(e) => setKeyMessagesText(e.target.value)}
-                placeholder="Kvalitet, lokal ekspertise, personlig service"
-                hint="Budskap som alltid bør komme frem. Skriv flere med komma."
+                placeholder={t("onboarding.brandSection.keyMessagesPlaceholder")}
+                hint={t("onboarding.brandSection.keyMessagesHint")}
               />
               <Input
-                label="Sesongfokus"
+                label={t("onboarding.brandSection.seasonalLabel")}
                 value={form.seasonalFocus}
                 onChange={(e) => update("seasonalFocus", e.target.value)}
-                placeholder="F.eks. jul-kampanje i desember, sommertilbud i juni..."
-                hint="Valgfritt. Brukes til å tilpasse innhold til sesongen."
+                placeholder={t("onboarding.brandSection.seasonalPlaceholder")}
+                hint={t("onboarding.brandSection.seasonalHint")}
               />
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Merkevarefarger</label>
-                <p className="text-xs text-muted-foreground">
-                  AI bruker disse fargene som referanse i bilder og visuelt innhold.
-                </p>
+                <label className="text-sm font-medium text-foreground">{t("onboarding.brandSection.colorsTitle")}</label>
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="flex items-center gap-2">
                     <input
@@ -1088,7 +1106,7 @@ export const OnboardingWizard = () => {
                     />
                     <div className="flex-1">
                       <Input
-                        label="Primær"
+                        label={t("onboarding.brandSection.colorPrimary")}
                         value={form.brandColors.primary ?? ""}
                         onChange={(e) => update("brandColors", { ...form.brandColors, primary: e.target.value })}
                         placeholder="#1a2b3c"
@@ -1104,7 +1122,7 @@ export const OnboardingWizard = () => {
                     />
                     <div className="flex-1">
                       <Input
-                        label="Sekundær"
+                        label={t("onboarding.brandSection.colorSecondary")}
                         value={form.brandColors.secondary ?? ""}
                         onChange={(e) => update("brandColors", { ...form.brandColors, secondary: e.target.value })}
                         placeholder="#4a5b6c"
@@ -1120,7 +1138,7 @@ export const OnboardingWizard = () => {
                     />
                     <div className="flex-1">
                       <Input
-                        label="Aksent"
+                        label={t("onboarding.brandSection.colorAccent")}
                         value={form.brandColors.accent ?? ""}
                         onChange={(e) => update("brandColors", { ...form.brandColors, accent: e.target.value })}
                         placeholder="#ff6b2d"
@@ -1131,11 +1149,11 @@ export const OnboardingWizard = () => {
               </div>
 
               <Input
-                label="Font-stil"
+                label={t("onboarding.brandSection.fontStyleLabel")}
                 value={form.fontStyle}
                 onChange={(e) => update("fontStyle", e.target.value)}
-                placeholder="F.eks. moderne og ren, klassisk serif, avrundet og vennlig"
-                hint="Valgfritt. Beskriv den visuelle stilen for tekst i bilder."
+                placeholder={t("onboarding.brandSection.fontStylePlaceholder")}
+                hint={t("onboarding.brandSection.fontStyleHint")}
               />
 
               <div className="space-y-2">
@@ -1145,10 +1163,10 @@ export const OnboardingWizard = () => {
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={form.logoUrl}
-                      alt="Logo"
+                      alt={t("onboarding.brandSection.logoAlt")}
                       className="size-14 rounded-xl border border-border object-contain"
                     />
-                    <span className="text-xs text-success font-medium">Lastet opp</span>
+                    <span className="text-xs text-success font-medium">{t("onboarding.logoUploaded")}</span>
                   </div>
                 ) : null}
                 <input
@@ -1169,13 +1187,13 @@ export const OnboardingWizard = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle>Kanaler og medier</CardTitle>
+              <CardTitle>{t("onboarding.step3Title")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Bilder i innlegg</label>
+                <label className="text-sm font-medium text-foreground">{t("contentPlan.imagesInPosts")}</label>
                 <div className="grid gap-2">
-                  {MEDIA_MODE_OPTIONS.map((option) => (
+                  {mediaModeOptions.map((option) => (
                     <button
                       key={option.value}
                       type="button"
@@ -1207,7 +1225,7 @@ export const OnboardingWizard = () => {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Publiseringskanaler</label>
+                <label className="text-sm font-medium text-foreground">{t("contentPlan.channels")}</label>
                 <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-4">
                   {CHANNEL_OPTIONS.map((option) => {
                     const isConnected = connectedChannels.has(option.value);
@@ -1229,8 +1247,8 @@ export const OnboardingWizard = () => {
                 </div>
                 {connectedChannels.size === 0 && (
                   <p className="text-xs text-warning-foreground">
-                    Ingen kontoer er koblet til. Koble til fra{" "}
-                    <Link href="/dashboard" className="font-semibold text-primary hover:underline">dashboardet</Link>.
+                    {t("dashboard.connectAccountFirst")}{" "}
+                    <Link href="/dashboard" className="font-semibold text-primary hover:underline">{t("nav.overview")}</Link>.
                   </p>
                 )}
               </div>
@@ -1239,14 +1257,13 @@ export const OnboardingWizard = () => {
 
           <div className="rounded-xl bg-primary-light border border-primary/20 px-5 py-4">
             <p className="text-sm text-foreground">
-              <strong>Tips:</strong> Jo mer du fyller ut, desto bedre blir innholdet.
-              Du kan alltid komme tilbake og legge til mer informasjon etter hvert.
+              {t("onboarding.settingsSubtitle")}
             </p>
           </div>
 
           <div className="flex items-center justify-between">
             <Button onClick={() => void save()} disabled={loading} size="lg">
-              {loading ? "Lagrer..." : "Lagre endringer"}
+              {loading ? t("onboarding.saving") : t("onboarding.saveChanges")}
             </Button>
             <Button
               variant="ghost"
@@ -1254,7 +1271,7 @@ export const OnboardingWizard = () => {
               onClick={() => void deleteAccount()}
               className="text-destructive hover:text-destructive hover:bg-destructive/10"
             >
-              Slett konto
+              {t("common.delete")}
             </Button>
           </div>
 
@@ -1268,45 +1285,45 @@ export const OnboardingWizard = () => {
     <div className="mx-auto max-w-2xl px-3 sm:px-4 py-6 sm:py-8">
       <div className="mb-5 sm:mb-6 text-center">
         <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
-          {step === 1 && "Fortell oss om bedriften din"}
-          {step === 2 && "Hvordan vil du bli oppfattet?"}
-          {step === 3 && "Velg kanaler og medier"}
-          {step === 4 && "Alt klart — lag innhold!"}
+          {step === 1 && t("onboarding.step1Title")}
+          {step === 2 && t("onboarding.step2Title")}
+          {step === 3 && t("onboarding.step3Title")}
+          {step === 4 && wizardSteps[3]?.label}
         </h1>
         <p className="mt-1.5 text-sm text-muted-foreground">
-          {step === 1 && "Vi bruker dette for å lage innhold som passer for deg."}
-          {step === 2 && "Beskriv stilen du ønsker, så tilpasser vi alt innhold."}
-          {step === 3 && "Velg hvor du vil publisere og hva slags bilder du vil bruke."}
-          {step === 4 && "Vi lager 4 uker med poster — klar til publisering."}
+          {step === 1 && t("onboarding.step1Desc")}
+          {step === 2 && t("onboarding.step2Desc")}
+          {step === 3 && t("onboarding.step3Desc")}
+          {step === 4 && wizardSteps[3]?.description}
         </p>
       </div>
 
-      <Stepper currentStep={step} totalSteps={4} />
+      <Stepper currentStep={step} totalSteps={4} steps={wizardSteps} />
 
       {step === 1 && (
         <Card>
           <CardHeader>
-            <CardTitle>Om bedriften</CardTitle>
+            <CardTitle>{wizardSteps[0]?.label}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <Input
-              label="Bedriftsnavn"
+              label={t("onboarding.companyName")}
               value={form.companyName}
               onChange={(e) => update("companyName", e.target.value)}
-              placeholder="Mitt Firma AS"
+              placeholder={t("onboarding.companyNamePlaceholder")}
             />
 
             <Input
-              label="Nettside"
+              label={t("onboarding.website")}
               type="url"
               value={websiteUrl}
               onChange={(e) => setWebsiteUrl(e.target.value)}
-              placeholder="https://www.mittfirma.no"
-              hint="Vi henter info om bedriften din herfra. Du kan redigere alt etterpå."
+              placeholder={t("onboarding.websitePlaceholder")}
+              hint={t("onboarding.websiteHint")}
             />
 
             <Checkbox
-              label="Ja, hent informasjon fra nettsiden min"
+              label={t("onboarding.scrapeConsent")}
               checked={scrapeConsent}
               onChange={(e) => setScrapeConsent(e.target.checked)}
             />
@@ -1316,10 +1333,10 @@ export const OnboardingWizard = () => {
                 onClick={() => void analyzeWebsite()}
                 disabled={!websiteUrl || !scrapeConsent || loading}
               >
-                {loading ? "Henter info..." : "Hent fra nettside"}
+                {loading ? t("onboarding.scrapeLoading") : t("onboarding.scrapeFromWebsite")}
               </Button>
               <Button variant="ghost" onClick={() => void save()} disabled={loading}>
-                {loading ? "Lagrer..." : "Hopp over"}
+                {loading ? t("onboarding.saving") : t("onboarding.skipButton")}
               </Button>
             </div>
 
@@ -1329,25 +1346,25 @@ export const OnboardingWizard = () => {
                   Her er det vi fant — rett opp om noe ikke stemmer:
                 </p>
                 <Textarea
-                  label="Beskrivelse av bedriften"
+                  label={t("onboarding.shortDescription")}
                   value={editableDescription}
                   onChange={(e) => setEditableDescription(e.target.value)}
                   rows={3}
                 />
                 <Input
-                  label="Produkter eller tjenester"
+                  label={t("onboarding.products")}
                   value={editableProducts}
                   onChange={(e) => setEditableProducts(e.target.value)}
-                  hint="Skriv flere med komma mellom."
+                  hint={t("onboarding.commaHint")}
                 />
                 <Input
-                  label="Det som gjør dere unike"
+                  label={t("onboarding.uniqueSelling")}
                   value={editableUsps}
                   onChange={(e) => setEditableUsps(e.target.value)}
-                  hint="Hva skiller dere fra konkurrentene?"
+                  hint={t("onboarding.uniqueSellingHint")}
                 />
                 <Button onClick={() => void save()} disabled={loading}>
-                  {loading ? "Lagrer..." : "Ser bra ut — gå videre"}
+                  {loading ? t("onboarding.saving") : t("onboarding.saveAndContinue")}
                 </Button>
               </div>
             )}
@@ -1360,47 +1377,47 @@ export const OnboardingWizard = () => {
       {step === 2 && (
         <Card>
           <CardHeader>
-            <CardTitle>Stil og tone</CardTitle>
+            <CardTitle>{wizardSteps[1]?.label}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <Input
-              label="Ditt navn"
+              label={t("onboarding.yourName")}
               value={form.fullName}
               onChange={(e) => update("fullName", e.target.value)}
-              placeholder="Ola Nordmann"
+              placeholder={t("onboarding.yourNamePlaceholder")}
             />
 
             {!form.companyName && (
               <Input
-                label="Bedriftsnavn"
+                label={t("onboarding.companyName")}
                 value={form.companyName}
                 onChange={(e) => update("companyName", e.target.value)}
-                placeholder="Mitt Firma AS"
+                placeholder={t("onboarding.companyNamePlaceholder")}
               />
             )}
 
             <Input
-              label="Hvem er kundene dine?"
+              label={t("onboarding.customerSection.targetAudienceLabel")}
               value={form.targetAudience}
               onChange={(e) => update("targetAudience", e.target.value)}
-              placeholder="F.eks. småbedrifter, privatpersoner, restauranter..."
+              placeholder={t("onboarding.targetAudiencePlaceholder")}
             />
 
             <Textarea
-              label="Hvordan skal innleggene høres ut?"
+              label={t("onboarding.brandSection.voiceLabel")}
               value={form.brandVoice}
               onChange={(e) => update("brandVoice", e.target.value)}
               rows={4}
-              placeholder="F.eks. vennlig og uformell, korte setninger, konkrete tips..."
-              hint="Beskriv tonen og stilen. AI bruker dette til å skrive i din stemme."
+              placeholder={t("onboarding.brandVoicePlaceholder")}
+              hint={t("onboarding.brandVoiceHint")}
             />
 
             <Input
-              label="Viktige budskap"
+              label={t("onboarding.keyMessagesLabel")}
               value={keyMessagesText}
               onChange={(e) => setKeyMessagesText(e.target.value)}
-              placeholder="Kvalitet, lokal ekspertise, personlig service"
-              hint="Ting som alltid bør komme frem i innleggene. Skriv flere med komma."
+              placeholder={t("onboarding.keyMessagesPlaceholder")}
+              hint={t("onboarding.keyMessagesHint")}
             />
 
             <div className="space-y-2">
@@ -1410,10 +1427,10 @@ export const OnboardingWizard = () => {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={form.logoUrl}
-                    alt="Logo"
+                    alt={t("onboarding.brandSection.logoAlt")}
                     className="size-14 rounded-xl border border-border object-contain"
                   />
-                  <span className="text-xs text-success font-medium">Lastet opp</span>
+                  <span className="text-xs text-success font-medium">{t("onboarding.logoUploaded")}</span>
                 </div>
               ) : null}
               <input
@@ -1432,10 +1449,10 @@ export const OnboardingWizard = () => {
 
             <div className="flex gap-3 pt-2">
               <Button variant="outline" onClick={() => setStep(1)}>
-                Tilbake
+                {t("common.back")}
               </Button>
               <Button onClick={() => void save()} disabled={loading}>
-                {loading ? "Lagrer..." : "Lagre og gå videre"}
+                {loading ? t("onboarding.saving") : t("onboarding.saveAndContinue")}
               </Button>
             </div>
 
@@ -1447,13 +1464,13 @@ export const OnboardingWizard = () => {
       {step === 3 && (
         <Card>
           <CardHeader>
-            <CardTitle>Kanaler og medier</CardTitle>
+            <CardTitle>{wizardSteps[2]?.label}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Bilder i innlegg</label>
+              <label className="text-sm font-medium text-foreground">{t("contentPlan.imagesInPosts")}</label>
               <div className="grid gap-2">
-                {MEDIA_MODE_OPTIONS.map((option) => (
+                {mediaModeOptions.map((option) => (
                   <button
                     key={option.value}
                     type="button"
@@ -1482,37 +1499,34 @@ export const OnboardingWizard = () => {
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-muted-foreground">
-                Du kan alltid endre bilder på enkeltposter etterpå.
-              </p>
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Hvor vil du publisere?</label>
+              <label className="text-sm font-medium text-foreground">{t("contentPlan.channels")}</label>
               {connectedChannels.size === 0 ? (
                 <div className="rounded-xl border border-warning/30 bg-warning/5 p-4 space-y-3">
-                  <p className="text-sm font-medium text-foreground">Ingen kontoer er koblet til ennå</p>
+                  <p className="text-sm font-medium text-foreground">{t("dashboard.connectAccountFirst")}</p>
                   <p className="text-xs text-muted-foreground">
-                    Koble til minst én konto for å generere innhold. Du kan koble til kontoer fra dashboardet.
+                    {t("onboarding.connectRequired")}
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <a
                       href="/dashboard/koble-meta"
                       className="inline-flex h-8 items-center rounded-lg border border-border bg-card px-3 text-xs font-medium hover:bg-secondary transition-colors"
                     >
-                      Koble Facebook + Instagram
+                      {t("dashboard.connect.facebook")}
                     </a>
                     <a
                       href={`/api/social/oauth/linkedin/start?returnTo=${encodeURIComponent("/onboarding?step=3")}`}
                       className="inline-flex h-8 items-center rounded-lg border border-border bg-card px-3 text-xs font-medium hover:bg-secondary transition-colors"
                     >
-                      Koble LinkedIn
+                      {t("dashboard.connect.linkedin")}
                     </a>
                     <a
                       href={`/api/social/oauth/tiktok/start?returnTo=${encodeURIComponent("/onboarding?step=3")}`}
                       className="inline-flex h-8 items-center rounded-lg border border-border bg-card px-3 text-xs font-medium hover:bg-secondary transition-colors"
                     >
-                      Koble TikTok
+                      {t("dashboard.connect.tiktok")}
                     </a>
                   </div>
                 </div>
@@ -1543,7 +1557,7 @@ export const OnboardingWizard = () => {
               <p className="text-sm text-foreground">
                 Du kan laste opp egne bilder og videoer i{" "}
                 <Link href="/media" className="font-semibold text-primary hover:underline">
-                  Bilder og video
+                  {t("nav.media")}
                 </Link>{" "}
                 når som helst.
               </p>
@@ -1551,10 +1565,10 @@ export const OnboardingWizard = () => {
 
             <div className="flex gap-3 pt-2">
               <Button variant="outline" onClick={() => setStep(2)}>
-                Tilbake
+                {t("common.back")}
               </Button>
               <Button onClick={() => void save()} disabled={loading || form.channels.length === 0}>
-                {loading ? "Lagrer..." : "Lagre og gå videre"}
+                {loading ? t("onboarding.saving") : t("onboarding.saveAndContinue")}
               </Button>
             </div>
           </CardContent>
@@ -1564,7 +1578,7 @@ export const OnboardingWizard = () => {
       {step === 4 && (
         <Card>
           <CardHeader>
-            <CardTitle>Lag din første innholdsplan</CardTitle>
+            <CardTitle>{wizardSteps[3]?.label}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
             <div
@@ -1576,54 +1590,52 @@ export const OnboardingWizard = () => {
               )}
             >
               {subscriptionLoading ? (
-                <p className="text-sm text-muted-foreground">Sjekker abonnement...</p>
+                <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
               ) : subscriptionActive ? (
                 <div className="flex items-center gap-2">
                   <span className="flex size-5 items-center justify-center rounded-full bg-success text-xs text-white font-bold">
                     ✓
                   </span>
-                  <p className="text-sm font-medium text-success">Abonnement er aktivt</p>
+                  <p className="text-sm font-medium text-success">{t("onboarding.subscriptionActivated")}</p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   <p className="text-sm font-medium text-foreground">
-                    Aktiver abonnement for å lage innhold
+                    {t("onboarding.activateSubscription")}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Aktiver abonnement for å lage innhold for dine kanaler.
+                    {t("onboarding.subscriptionRequired")}
                   </p>
                   <Button onClick={() => void startBaseCheckout()} disabled={checkoutLoading}>
-                    {checkoutLoading ? "Sender til betaling..." : "Aktiver abonnement"}
+                    {checkoutLoading ? t("onboarding.sendingToPayment") : t("onboarding.activateSubscription")}
                   </Button>
                 </div>
               )}
             </div>
 
             <div className="rounded-xl border border-border bg-muted/20 p-4">
-              <h4 className="text-sm font-semibold text-foreground">Oppsummering</h4>
+              <h4 className="text-sm font-semibold text-foreground">{wizardSteps[3]?.label}</h4>
               <dl className="mt-3 space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Bedrift</dt>
-                  <dd className="font-medium">{form.companyName || "Ikke oppgitt"}</dd>
+                  <dt className="text-muted-foreground">{t("onboarding.companyFallback")}</dt>
+                  <dd className="font-medium">{form.companyName || t("onboarding.notSpecified")}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Kunder</dt>
-                  <dd className="font-medium">{form.targetAudience || "Ikke oppgitt"}</dd>
+                  <dt className="text-muted-foreground">{t("onboarding.customerSection.targetAudienceLabel")}</dt>
+                  <dd className="font-medium">{form.targetAudience || t("onboarding.notSpecified")}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Kanaler</dt>
+                  <dt className="text-muted-foreground">{t("contentPlan.channels")}</dt>
                   <dd className="font-medium capitalize">{form.channels.join(", ")}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Bilder</dt>
+                  <dt className="text-muted-foreground">{t("contentPlan.imagesInPosts")}</dt>
                   <dd className="font-medium">
-                    {form.mediaMode === "ai_only" && "AI-bilder"}
-                    {form.mediaMode === "hybrid" && "Egne + AI"}
-                    {form.mediaMode === "owned_only" && "Egne bilder"}
+                    {dictionary.onboarding.mediaModes[form.mediaMode].label}
                   </dd>
                 </div>
                 <div className="flex items-center justify-between">
-                  <dt className="text-muted-foreground">Poster per uke</dt>
+                  <dt className="text-muted-foreground">{t("dashboard.postsPerWeek", { count: postsPerWeek })}</dt>
                   <dd>
                     <select
                       value={postsPerWeek}
@@ -1643,10 +1655,9 @@ export const OnboardingWizard = () => {
             </div>
 
             <div className="space-y-3">
-              <h4 className="text-sm font-semibold">Fokusemner (valgfritt)</h4>
+              <h4 className="text-sm font-semibold">{t("contentPlan.focusTopic")}</h4>
               <p className="text-xs text-muted-foreground">
-                Vil du at postene skal handle om noe spesielt i visse uker?
-                Uker uten emne får automatisk innhold om bedriften din.
+                {t("contentPlan.focusTopicHint")}
               </p>
 
               {topicWindows.length > 0 && (
@@ -1659,7 +1670,7 @@ export const OnboardingWizard = () => {
                       <div className="text-sm">
                         <span className="font-medium">{tw.topic}</span>
                         <span className="ml-2 text-muted-foreground">
-                          Uke {tw.startWeek}{tw.startWeek !== tw.endWeek ? `–${tw.endWeek}` : ""}
+                          {t("calendar.weekLabel", { week: tw.startWeek !== tw.endWeek ? `${tw.startWeek}–${tw.endWeek}` : String(tw.startWeek) })}
                         </span>
                       </div>
                       <Button
@@ -1668,7 +1679,7 @@ export const OnboardingWizard = () => {
                         onClick={() => removeTopicWindow(index)}
                         className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
                       >
-                        Fjern
+                        {t("common.delete")}
                       </Button>
                     </div>
                   ))}
@@ -1678,15 +1689,15 @@ export const OnboardingWizard = () => {
               <div className="flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-border p-3">
                 <div className="flex-1 min-w-[140px]">
                   <Input
-                    label="Emne"
+                    label={t("onboarding.topicLabel")}
                     value={newTopic}
                     onChange={(e) => setNewTopic(e.target.value)}
-                    placeholder="F.eks. juletilbud, nytt produkt..."
+                    placeholder={t("onboarding.topicPlaceholder")}
                   />
                 </div>
                 <div className="w-20">
                   <Input
-                    label="Fra uke"
+                    label={t("onboarding.fromWeek")}
                     type="number"
                     min={1}
                     max={4}
@@ -1696,7 +1707,7 @@ export const OnboardingWizard = () => {
                 </div>
                 <div className="w-20">
                   <Input
-                    label="Til uke"
+                    label={t("onboarding.toWeek")}
                     type="number"
                     min={1}
                     max={4}
@@ -1711,7 +1722,7 @@ export const OnboardingWizard = () => {
                   disabled={!newTopic.trim()}
                   className="h-10"
                 >
-                  Legg til
+                  {t("common.create")}
                 </Button>
               </div>
             </div>
@@ -1727,14 +1738,14 @@ export const OnboardingWizard = () => {
 
             <div className="flex gap-3 pt-2">
               <Button variant="outline" onClick={() => setStep(3)}>
-                Tilbake
+                {t("common.back")}
               </Button>
               <Button
                 size="lg"
                 onClick={() => void generateContentPlan()}
                 disabled={loading || subscriptionLoading || !subscriptionActive || form.channels.length === 0}
               >
-                {loading ? "Lager innhold..." : "Lag 4 ukers innholdsplan"}
+                {loading ? t("onboarding.generatingPlan") : t("onboarding.generateContent")}
               </Button>
             </div>
 
@@ -1748,7 +1759,7 @@ export const OnboardingWizard = () => {
           href={`/media?returnTo=${encodeURIComponent(`/onboarding?step=${step}`)}`}
           className="text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
-          Bilder og video
+          {t("nav.media")}
         </Link>
         <Button
           variant="ghost"
@@ -1756,7 +1767,7 @@ export const OnboardingWizard = () => {
           onClick={() => void deleteAccount()}
           className="text-destructive hover:text-destructive hover:bg-destructive/10"
         >
-          Slett konto
+          {t("common.delete")}
         </Button>
       </div>
     </div>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +35,7 @@ const formatBytes = (bytes: number): string => {
 };
 
 export const MediaManager = () => {
+  const { t } = useI18n();
   const [files, setFiles] = useState<MediaFile[]>([]);
   const [status, setStatus] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -43,7 +45,7 @@ export const MediaManager = () => {
   const fetchFiles = useCallback(async () => {
     const response = await fetch("/api/media/files");
     if (!response.ok) {
-      setStatus("Kunne ikke hente filer");
+      setStatus(t("media.couldNotFetchFiles"));
       return;
     }
     const data = (await response.json()) as { files: MediaFile[] };
@@ -57,7 +59,7 @@ export const MediaManager = () => {
 
   const uploadFile = async (file: File) => {
     setUploading(true);
-    setStatus("Laster opp...");
+    setStatus(t("media.uploading"));
     const mediaKind = getMediaKindFromFile(file);
     const payload = new FormData();
     payload.append("file", file);
@@ -69,12 +71,12 @@ export const MediaManager = () => {
     });
 
     if (!response.ok) {
-      setStatus("Opplasting feilet. Prøv igjen.");
+      setStatus(t("media.uploadFailed"));
       setUploading(false);
       return;
     }
 
-    setStatus("Lastet opp!");
+    setStatus(t("media.uploaded"));
     setUploading(false);
     await fetchFiles();
   };
@@ -106,17 +108,17 @@ export const MediaManager = () => {
   };
 
   const deleteFile = async (key: string) => {
-    setStatus("Sletter...");
+    setStatus(t("media.deleting"));
     const response = await fetch("/api/media/files", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key }),
     });
     if (!response.ok) {
-      setStatus("Kunne ikke slette filen.");
+      setStatus(t("media.couldNotDelete"));
       return;
     }
-    setStatus("Slettet!");
+    setStatus(t("media.deleted"));
     await fetchFiles();
   };
 
@@ -146,10 +148,10 @@ export const MediaManager = () => {
           +
         </div>
         <p className="mt-3 text-sm font-medium text-foreground">
-          {uploading ? "Laster opp..." : "Dra filer hit eller klikk for å velge"}
+          {uploading ? t("media.uploading") : t("media.uploadDropzone")}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Bilder, videoer og logoer (maks 50 MB)
+          {t("media.uploadDropzoneHint")}
         </p>
         <input
           ref={fileInputRef}
@@ -169,7 +171,7 @@ export const MediaManager = () => {
 
       {files.length === 0 ? (
         <p className="py-12 text-center text-sm text-muted-foreground">
-          Du har ikke lastet opp noen filer enda.
+          {t("media.noFiles")}
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
@@ -183,7 +185,7 @@ export const MediaManager = () => {
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img
                     src={file.url}
-                    alt={file.key.split("/").pop() ?? "Fil"}
+                    alt={file.key.split("/").pop() ?? t("media.file")}
                     className="size-full object-cover"
                   />
                 ) : isVideoUrl(file.key) ? (
@@ -217,7 +219,7 @@ export const MediaManager = () => {
                   rel="noreferrer"
                   className="rounded-lg bg-white/20 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur-sm hover:bg-white/30"
                 >
-                  Åpne
+                  {t("media.open")}
                 </a>
                 <Button
                   variant="destructive"
@@ -225,7 +227,7 @@ export const MediaManager = () => {
                   onClick={() => void deleteFile(file.key)}
                   className="h-6 px-2 text-[10px]"
                 >
-                  Slett
+                  {t("media.delete")}
                 </Button>
               </div>
             </div>

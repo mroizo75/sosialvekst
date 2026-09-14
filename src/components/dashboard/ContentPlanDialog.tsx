@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
+import { useI18n } from "@/components/i18n/I18nProvider";
 import { Checkbox } from "@/components/ui/Input";
 import { cn } from "@/lib/utils";
 import type { MediaMode, SocialChannel, TopicWindow } from "@/lib/types";
@@ -49,13 +50,13 @@ const RECOMMENDED_HOURS: Record<number, number> = {
 };
 
 const INITIAL_DAYS: DayConfig[] = [
-  { dayOffset: 0, label: "Mandag", shortLabel: "Man", enabled: true, hour: 8, minute: 0 },
-  { dayOffset: 1, label: "Tirsdag", shortLabel: "Tir", enabled: false, hour: 11, minute: 0 },
-  { dayOffset: 2, label: "Onsdag", shortLabel: "Ons", enabled: true, hour: 14, minute: 0 },
-  { dayOffset: 3, label: "Torsdag", shortLabel: "Tor", enabled: false, hour: 11, minute: 0 },
-  { dayOffset: 4, label: "Fredag", shortLabel: "Fre", enabled: true, hour: 17, minute: 0 },
-  { dayOffset: 5, label: "Lørdag", shortLabel: "Lør", enabled: false, hour: 10, minute: 0 },
-  { dayOffset: 6, label: "Søndag", shortLabel: "Søn", enabled: false, hour: 12, minute: 0 },
+  { dayOffset: 0, label: "", shortLabel: "", enabled: true, hour: 8, minute: 0 },
+  { dayOffset: 1, label: "", shortLabel: "", enabled: false, hour: 11, minute: 0 },
+  { dayOffset: 2, label: "", shortLabel: "", enabled: true, hour: 14, minute: 0 },
+  { dayOffset: 3, label: "", shortLabel: "", enabled: false, hour: 11, minute: 0 },
+  { dayOffset: 4, label: "", shortLabel: "", enabled: true, hour: 17, minute: 0 },
+  { dayOffset: 5, label: "", shortLabel: "", enabled: false, hour: 10, minute: 0 },
+  { dayOffset: 6, label: "", shortLabel: "", enabled: false, hour: 12, minute: 0 },
 ];
 
 const dayAfterDate = (isoDate: string): string => {
@@ -101,12 +102,6 @@ const parseTimeString = (value: string): { hour: number; minute: number } => {
   return { hour: h ?? 8, minute: m ?? 0 };
 };
 
-const MEDIA_MODE_LABELS: Record<MediaMode, string> = {
-  ai_only: "La AI lage alle bilder",
-  hybrid: "Egne + AI-bilder",
-  owned_only: "Kun egne bilder",
-};
-
 export const ContentPlanDialog = ({
   open,
   onClose,
@@ -117,6 +112,15 @@ export const ContentPlanDialog = ({
   latestScheduledAt,
   savedMediaMode,
 }: ContentPlanDialogProps) => {
+  const { dictionary } = useI18n();
+  const cp = dictionary.contentPlan;
+
+  const mediaModeLabels: Record<MediaMode, string> = {
+    ai_only: cp.mediaAiOnly,
+    hybrid: cp.mediaHybrid,
+    owned_only: cp.mediaOwnedOnly,
+  };
+
   const hasExistingPlan = !!latestScheduledAt;
   const defaultFill = hasExistingPlan && postsPerWeekAllowance > 3;
   const [fillMode, setFillMode] = useState<"new" | "fill">(defaultFill ? "fill" : "new");
@@ -277,9 +281,9 @@ export const ContentPlanDialog = ({
       <div className="fixed inset-0 bg-black/50" onClick={onClose} />
       <div className="relative z-10 flex max-h-[90vh] w-full max-w-md flex-col rounded-t-2xl sm:rounded-2xl border border-border bg-card shadow-xl sm:mx-4">
         <div className="shrink-0 border-b border-border px-4 py-3">
-          <h2 className="text-base font-bold">Planlegg innhold</h2>
+          <h2 className="text-base font-bold">{cp.title}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {postsPerWeekAllowance} poster/uke tilgjengelig
+            {cp.postsPerWeekAvailable.replace("{count}", String(postsPerWeekAllowance))}
           </p>
         </div>
 
@@ -296,8 +300,8 @@ export const ContentPlanDialog = ({
                     : "border-border hover:bg-muted/40",
                 )}
               >
-                <span className="block text-xs font-medium text-foreground">Fyll opp nå</span>
-                <span className="block text-[10px] text-muted-foreground">Ekstra poster denne perioden</span>
+                <span className="block text-xs font-medium text-foreground">{cp.fillNow}</span>
+                <span className="block text-[10px] text-muted-foreground">{cp.fillNowDesc}</span>
               </button>
               <button
                 type="button"
@@ -309,8 +313,8 @@ export const ContentPlanDialog = ({
                     : "border-border hover:bg-muted/40",
                 )}
               >
-                <span className="block text-xs font-medium text-foreground">Ny periode</span>
-                <span className="block text-[10px] text-muted-foreground">{postsPerWeekAllowance} poster/uke fremover</span>
+                <span className="block text-xs font-medium text-foreground">{cp.newPeriod}</span>
+                <span className="block text-[10px] text-muted-foreground">{cp.newPeriodDesc.replace("{count}", String(postsPerWeekAllowance))}</span>
               </button>
             </div>
           )}
@@ -318,16 +322,17 @@ export const ContentPlanDialog = ({
           {fillMode === "fill" && (
             <div className="rounded-lg bg-primary-light border border-primary/20 px-3 py-2">
               <p className="text-xs text-foreground">
-                Du har oppgradert til {postsPerWeekAllowance} poster/uke.
-                Legg til de ekstra postene i inneværende periode ({fillWeeks} {fillWeeks === 1 ? "uke" : "uker"} igjen).
-                Velg dager som ikke allerede har innhold.
+                {cp.fillUpgradeInfo
+                  .replace("{count}", String(postsPerWeekAllowance))
+                  .replace("{weeks}", String(fillWeeks))
+                  .replace("{weekUnit}", fillWeeks === 1 ? cp.weekSingular : cp.weekPlural)}
               </p>
             </div>
           )}
 
           {(availableProducts.length > 0 || availableServices.length > 0) && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground">Produkt / tjeneste</label>
+              <label className="text-xs font-medium text-foreground">{cp.productService}</label>
               <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"
@@ -339,7 +344,7 @@ export const ContentPlanDialog = ({
                       : "border-border text-muted-foreground hover:bg-muted/40",
                   )}
                 >
-                  Alle
+                  {cp.all}
                 </button>
                 {[...availableProducts, ...availableServices].map((item) => (
                   <button
@@ -361,21 +366,21 @@ export const ContentPlanDialog = ({
           )}
 
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-foreground">Fokusemne</label>
+            <label className="text-xs font-medium text-foreground">{cp.focusTopic}</label>
             <input
               type="text"
               value={focusTopic}
               onChange={(e) => setFocusTopic(e.target.value)}
-              placeholder="F.eks. Sommerkampanje, Nyttårssalg, Kundeopplevelser..."
+              placeholder={cp.focusTopicPlaceholder}
               className="flex h-8 w-full rounded-lg border border-border bg-background px-3 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
             <p className="text-[10px] text-muted-foreground">
-              Valgfritt. La stå tomt for variert innhold basert på brandprofilen.
+              {cp.focusTopicHint}
             </p>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-foreground">Bilder i innlegg</label>
+            <label className="text-xs font-medium text-foreground">{cp.imagesInPosts}</label>
             <div className="flex flex-wrap gap-1.5">
               {(["ai_only", "hybrid", "owned_only"] as const).map((mode) => (
                 <button
@@ -389,7 +394,7 @@ export const ContentPlanDialog = ({
                       : "border-border text-muted-foreground hover:bg-muted/40",
                   )}
                 >
-                  {MEDIA_MODE_LABELS[mode]}
+                  {mediaModeLabels[mode]}
                 </button>
               ))}
             </div>
@@ -397,7 +402,7 @@ export const ContentPlanDialog = ({
 
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-foreground">
-              Dager ({postsPerWeek}/{postsPerWeekAllowance})
+              {cp.days} ({postsPerWeek}/{postsPerWeekAllowance})
             </label>
             <div className="grid grid-cols-7 gap-1">
               {days.map((day) => (
@@ -412,7 +417,7 @@ export const ContentPlanDialog = ({
                       : "border-border text-muted-foreground hover:bg-muted/40",
                   )}
                 >
-                  {day.shortLabel}
+                  {cp.dayShortLabels[day.dayOffset]}
                 </button>
               ))}
             </div>
@@ -420,19 +425,19 @@ export const ContentPlanDialog = ({
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-foreground">Klokkeslett</label>
+              <label className="text-xs font-medium text-foreground">{cp.time}</label>
               <button
                 type="button"
                 onClick={resetToRecommended}
                 className="text-[11px] text-primary hover:underline"
               >
-                Nullstill
+                {cp.reset}
               </button>
             </div>
             <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
               {days.filter((d) => d.enabled).map((day) => (
                 <div key={day.dayOffset} className="flex items-center gap-1.5 rounded-lg border border-border px-2 py-1.5">
-                  <span className="text-xs font-medium text-foreground w-7">{day.shortLabel}</span>
+                  <span className="text-xs font-medium text-foreground w-7">{cp.dayShortLabels[day.dayOffset]}</span>
                   <input
                     type="time"
                     value={formatHourMinute(day.hour, day.minute)}
@@ -443,13 +448,13 @@ export const ContentPlanDialog = ({
               ))}
             </div>
             <p className="text-[10px] text-muted-foreground">
-              Anbefalt: {enabledDays.map((d) => `${d.shortLabel} ${formatHourMinute(RECOMMENDED_HOURS[d.dayOffset] ?? 11, 0)}`).join(", ")}
+              {cp.recommended}: {enabledDays.map((d) => `${cp.dayShortLabels[d.dayOffset]} ${formatHourMinute(RECOMMENDED_HOURS[d.dayOffset] ?? 11, 0)}`).join(", ")}
             </p>
           </div>
 
           {connectedChannels.length > 1 && (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground">Kanaler</label>
+              <label className="text-xs font-medium text-foreground">{cp.channels}</label>
               <div className="flex flex-wrap gap-2">
                 {connectedChannels.map((ch) => (
                   <Checkbox
@@ -466,30 +471,32 @@ export const ContentPlanDialog = ({
           <div className="flex items-center gap-3">
             {fillMode === "new" ? (
               <div className="flex-1">
-                <label className="text-xs font-medium text-foreground">Uker</label>
+                <label className="text-xs font-medium text-foreground">{cp.weeks}</label>
                 <select
                   value={totalWeeks}
                   onChange={(e) => setTotalWeeks(Number(e.target.value))}
                   className="mt-1 flex h-8 w-full rounded-lg border border-border bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <option value={1}>1 uke</option>
-                  <option value={2}>2 uker</option>
-                  <option value={4}>4 uker</option>
-                  <option value={8}>8 uker</option>
-                  <option value={12}>12 uker</option>
+                  {[1, 2, 4, 8, 12].map((n) => (
+                    <option key={n} value={n}>
+                      {n} {n === 1 ? cp.weekSingular : cp.weekPlural}
+                    </option>
+                  ))}
                 </select>
               </div>
             ) : (
               <div className="flex-1">
-                <label className="text-xs font-medium text-foreground">Uker</label>
+                <label className="text-xs font-medium text-foreground">{cp.weeks}</label>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {fillWeeks} {fillWeeks === 1 ? "uke" : "uker"} (automatisk)
+                  {fillWeeks} {fillWeeks === 1 ? cp.weekSingular : cp.weekPlural} ({cp.automatic})
                 </p>
               </div>
             )}
             <div className="flex-1 rounded-lg bg-muted/30 px-3 py-2 mt-4">
               <p className="text-xs text-muted-foreground">
-                Totalt <strong className="text-foreground">{totalPosts}</strong> poster
+                {cp.totalPosts.split("{count}")[0]}
+                <strong className="text-foreground">{totalPosts}</strong>
+                {cp.totalPosts.split("{count}")[1]}
               </p>
             </div>
           </div>
@@ -497,14 +504,14 @@ export const ContentPlanDialog = ({
 
         <div className="shrink-0 flex items-center justify-between gap-3 border-t border-border px-4 py-3">
           <Button variant="outline" size="sm" onClick={onClose} disabled={loading}>
-            Avbryt
+            {cp.cancel}
           </Button>
           <Button
             size="sm"
             onClick={handleGenerate}
             disabled={loading || postsPerWeek === 0 || selectedChannels.length === 0}
           >
-            {loading ? "Lager innhold..." : fillMode === "fill" ? "Fyll opp perioden" : "Start generering"}
+            {loading ? cp.generating : fillMode === "fill" ? cp.fillPeriod : cp.startGeneration}
           </Button>
         </div>
       </div>

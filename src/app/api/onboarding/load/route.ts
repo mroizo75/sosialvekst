@@ -23,6 +23,10 @@ export async function GET() {
     const workspaceId = await requireWorkspaceId(userId);
     const supabase = await createSupabaseServerClient();
 
+    const { data: { user } } = await supabase.auth.getUser();
+    const userMeta = (user?.user_metadata ?? {}) as Record<string, unknown>;
+    const pendingWebsiteUrl = typeof userMeta.pendingWebsiteUrl === "string" ? userMeta.pendingWebsiteUrl : "";
+
     const [profileResult, brandResult, planResult, workspaceResult] = await Promise.all([
       supabase
         .from("profiles")
@@ -91,13 +95,13 @@ export async function GET() {
       hasContentPlan,
       workspaceName: wsName,
       companyName: hasBrandProfile ? (profile?.company_name ?? "") : wsName,
-      fullName: profile?.full_name ?? "",
+      fullName: profile?.full_name || (typeof userMeta.fullName === "string" ? userMeta.fullName : "") || "",
       countryCode: profile?.country_code ?? "NO",
       targetAudience: brand?.target_audience ?? "",
       brandVoice: brand?.brand_voice ?? "",
       keyMessages: (brand?.key_messages as string[] | null) ?? [],
       logoUrl: normalizeR2Url(brand?.logo_url ?? null),
-      websiteUrl: brand?.website_url ?? "",
+      websiteUrl: brand?.website_url || pendingWebsiteUrl,
       companyDescription: brand?.company_description ?? "",
       products: (brand?.products as string[] | null) ?? [],
       uniqueSellingPoints: (brand?.unique_selling_points as string[] | null) ?? [],

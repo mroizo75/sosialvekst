@@ -96,7 +96,7 @@ export type OnboardingInput = {
   logoUrl?: string;
   mediaMode: MediaMode;
   channels: SocialChannel[];
-  preferredLanguage: "nb-NO";
+  preferredLanguage: "nb-NO" | "en-US";
 };
 
 export type PostDraft = {
