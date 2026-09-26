@@ -162,8 +162,8 @@ export const assignPostStrategy = (slot: PostSlot): PostStrategyResult => {
   const contentPillar = PILLAR_CYCLE[feedIndex % PILLAR_CYCLE.length];
   const visualMotif = MOTIF_CYCLE[(feedIndex + channelOffset(slot.channel)) % MOTIF_CYCLE.length];
   const ctaOptions = PILLAR_CTA[contentPillar];
-  const reelScript = (slot.channel === "instagram" || slot.channel === "tiktok")
-    && (contentPillar === "useful" || contentPillar === "inspiration");
+  const reelScript = slot.channel === "tiktok"
+    || (slot.channel === "instagram" && contentPillar === "inspiration");
 
   const imageDirection = [
     MOTIF_DIRECTION[visualMotif],

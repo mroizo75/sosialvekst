@@ -4,15 +4,17 @@ import { generateImageToVideo, isFalAvailable } from "@/lib/ai/falClient";
 import { generateProfessionalImage, overlayCoverText, overlayLogoOnImage } from "@/lib/ai/imageGeneration";
 import { generateProductImage } from "@/lib/ai/imageEngine";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
-import { buildCarouselVariantPrompt, buildCoverLines, buildVisualBrief } from "@/lib/ai/visualDirection";
+import { composeDesignedSlide, resolveSlideLayout } from "@/lib/ai/slideComposer";
+import { buildCarouselVariantPrompt, buildCoverLines, buildVisualBrief, type VisualBrief } from "@/lib/ai/visualDirection";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import type { ContentPillar, VisualMotif } from "@/lib/ai/postStrategy";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
 import {
-  buildBoardPrompt,
-  buildSlidePrompt,
+  buildPhotoPrompt,
+  composeGuideCaption,
   createSocialDesign,
-  imageSizeForDesign,
+  headlineFromCaption,
+  resolveDesignMode,
   type SocialDesign,
 } from "@/lib/ai/slideDesign";
 import { uploadUserFile, listUserFiles } from "@/lib/cloudflare/r2";
@@ -276,9 +278,67 @@ const createText = async (input: GeneratePostInput): Promise<string> => {
   return response.output_text || fallbackText(input.topic);
 };
 
+const loadBuffer = async (url?: string): Promise<Buffer | undefined> => {
+  if (!url) return undefined;
+  const response = await fetch(url);
+  if (!response.ok) return undefined;
+  return Buffer.from(await response.arrayBuffer());
+};
+
+const renderDesignedSlide = async (
+  input: GeneratePostInput,
+  design: SocialDesign,
+  brief: VisualBrief,
+  slideIndex: number,
+): Promise<string | undefined> => {
+  const layout = resolveSlideLayout(input.channel, design.mode, slideIndex);
+  const photoUrl = await generateProfessionalImage({
+    userId: input.userId,
+    prompt: buildPhotoPrompt(
+      design,
+      brief,
+      layout === "board" ? 0 : slideIndex,
+      layout === "single" ? "single" : "slide",
+    ),
+    profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
+    size: "1024x1536",
+  });
+  if (!photoUrl) return undefined;
+  const photo = await loadBuffer(photoUrl);
+  if (!photo) return undefined;
+  const logo = await loadBuffer(input.brandContext?.logoUrl);
+  const jpeg = await composeDesignedSlide({
+    photo,
+    design,
+    slideIndex,
+    layout,
+    logo,
+    primaryColor: input.brandContext?.brandColors?.primary,
+  });
+  const uploaded = await uploadUserFile({
+    userId: input.userId,
+    fileName: `ai-slide-${crypto.randomUUID()}.jpg`,
+    contentType: "image/jpeg",
+    mediaKind: "image",
+    body: new Uint8Array(jpeg),
+  });
+  return uploaded.publicUrl;
+};
+
 const createImageUrl = async (input: GeneratePostInput): Promise<string | undefined> => {
   if (input.mediaMode === "owned_only") {
     return pickOwnedImageUrl(input);
+  }
+
+  if (input.socialDesign) {
+    const brief = buildVisualBrief({
+      topic: input.topic,
+      brandContext: input.brandContext,
+      format: input.format,
+      motif: input.visualMotif,
+      feedIndex: input.feedIndex,
+    });
+    return renderDesignedSlide(input, input.socialDesign, brief, 0);
   }
 
   const productImages = input.brandContext?.productImages ?? [];
@@ -320,32 +380,26 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     motif: input.visualMotif,
     feedIndex: input.feedIndex,
   });
-  const designed = input.socialDesign;
-  const imagePrompt = designed
-    ? input.channel === "facebook" && designed.mode === "guide"
-      ? buildBoardPrompt(designed, brief)
-      : buildSlidePrompt(designed, brief, 0)
-    : buildImagePrompt({
-        topic: input.topic,
-        channel: input.channel,
-        mediaMode: input.mediaMode,
-        brandRules,
-        brandContext: input.brandContext,
-        imageDirection: input.imageDirection,
-        format: input.format,
-        visualMotif: input.visualMotif,
-        feedIndex: input.feedIndex,
-        reelScript: input.reelScript,
-      });
+  const imagePrompt = buildImagePrompt({
+    topic: input.topic,
+    channel: input.channel,
+    mediaMode: input.mediaMode,
+    brandRules,
+    brandContext: input.brandContext,
+    imageDirection: input.imageDirection,
+    format: input.format,
+    visualMotif: input.visualMotif,
+    feedIndex: input.feedIndex,
+    reelScript: input.reelScript,
+  });
 
   let imageUrl = await generateProfessionalImage({
     userId: input.userId,
     prompt: imagePrompt,
     profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
-    size: designed ? imageSizeForDesign(input.channel, designed, input.reelScript) : undefined,
   });
 
-  if (imageUrl && !designed) {
+  if (imageUrl) {
     const cover = buildCoverLines({
       motif: input.visualMotif,
       placeName: brief.placeName,
@@ -549,23 +603,12 @@ const generateDesignedSlides = async (
     motif: input.visualMotif,
     feedIndex: input.feedIndex,
   });
-  const logoUrl = input.brandContext?.logoUrl;
-  const profile = getImageQualityPolicy(input.channel, input.imageProfile).imageProfile;
   const used = new Set<string>(primaryImageUrl ? [primaryImageUrl] : []);
   const urls: string[] = [];
 
   for (let slideIndex = 1; slideIndex <= design.cards.length; slideIndex += 1) {
     try {
-      let url = await generateProfessionalImage({
-        userId: input.userId,
-        prompt: buildSlidePrompt(design, brief, slideIndex),
-        profile,
-        size: "1024x1024",
-      });
-      if (url && logoUrl) {
-        const branded = await overlayLogoOnImage(url, logoUrl, input.userId);
-        if (branded) url = branded;
-      }
+      const url = await renderDesignedSlide(input, design, brief, slideIndex);
       if (url && !used.has(url)) {
         used.add(url);
         urls.push(url);
@@ -651,16 +694,20 @@ const createVideoFromImage = async (
 };
 
 export const generatePost = async (input: GeneratePostInput): Promise<PostDraft> => {
+  const instagramCarousel = input.channel === "instagram" && !input.reelScript && input.mediaMode !== "owned_only";
+
   let rawText = fallbackText(input.topic);
-  try {
-    rawText = await createText(input);
-  } catch (error) {
-    logger.warn("AI text generation failed, using fallback text", {
-      userId: input.userId,
-      channel: input.channel,
-      topic: input.topic,
-      error: error instanceof Error ? error.message : "unknown",
-    });
+  if (!instagramCarousel) {
+    try {
+      rawText = await createText(input);
+    } catch (error) {
+      logger.warn("AI text generation failed, using fallback text", {
+        userId: input.userId,
+        channel: input.channel,
+        topic: input.topic,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+    }
   }
 
   let socialDesign: SocialDesign | undefined;
@@ -672,14 +719,39 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       motif: input.visualMotif,
       feedIndex: input.feedIndex,
     });
-    socialDesign = await createSocialDesign({
-      topic: input.topic,
-      channel: input.channel,
-      brandContext: input.brandContext,
-      contentPillar: input.contentPillar,
-      visualMotif: input.visualMotif,
-      brief,
-    });
+    const forceGuide = instagramCarousel || input.contentPillar === "useful";
+    const mode = forceGuide ? "guide" : resolveDesignMode(input.contentPillar, input.visualMotif);
+    if (mode === "guide") {
+      socialDesign = await createSocialDesign({
+        topic: input.topic,
+        channel: input.channel,
+        brandContext: input.brandContext,
+        contentPillar: input.contentPillar,
+        visualMotif: input.visualMotif,
+        brief,
+        forceGuide: true,
+      });
+    } else {
+      const lines = headlineFromCaption(rawText);
+      socialDesign = {
+        mode: "headline",
+        coverTitle: lines.coverTitle,
+        coverSubline: lines.coverSubline,
+        question: lines.coverTitle,
+        cards: [],
+        cta: "",
+      };
+    }
+  }
+
+  if (socialDesign?.mode === "guide") {
+    const websiteUrl = input.includeWebsiteLink && input.channel !== "tiktok"
+      ? input.brandContext?.websiteUrl?.trim()
+      : undefined;
+    rawText = composeGuideCaption(socialDesign, websiteUrl);
+  } else if (socialDesign) {
+    const lines = headlineFromCaption(rawText);
+    socialDesign = { ...socialDesign, ...lines, question: lines.coverTitle };
   }
 
   const imageInput: GeneratePostInput = { ...input, socialDesign };
@@ -702,14 +774,9 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   }
 
   let additionalImageUrls: string[] | undefined;
-  if (
-    imageUrl
-    && socialDesign?.mode === "guide"
-    && input.channel === "instagram"
-    && !input.reelScript
-  ) {
+  if (imageUrl && socialDesign?.mode === "guide" && input.channel === "instagram") {
     additionalImageUrls = await generateDesignedSlides(imageInput, socialDesign, imageUrl);
-  } else if (imageUrl && !socialDesign && shouldGenerateCarousel(input.channel, input.format, input.reelScript)) {
+  } else if (imageUrl && input.mediaMode === "owned_only" && shouldGenerateCarousel(input.channel, input.format, input.reelScript)) {
     const carouselBrandRules = mergeBrandRules({
       targetAudience: input.brandContext?.targetAudience,
       brandVoice: input.brandContext?.brandVoice,

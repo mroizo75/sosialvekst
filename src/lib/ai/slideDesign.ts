@@ -26,6 +26,7 @@ type DesignInput = {
   contentPillar?: ContentPillar;
   visualMotif?: VisualMotif;
   brief: VisualBrief;
+  forceGuide?: boolean;
 };
 
 const clampWords = (value: string, maxWords: number, maxChars: number): string => {
@@ -104,8 +105,42 @@ export const parseSocialDesign = (raw: string, mode: "guide" | "headline"): Soci
   };
 };
 
+export const headlineFromCaption = (caption: string): { coverTitle: string; coverSubline: string } => {
+  const cleaned = caption
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[#@]\S+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const blocks = caption
+    .replace(/https?:\/\/\S+/g, "")
+    .split(/\n+/)
+    .map((line) => line.replace(/[#@]\S+/g, "").trim())
+    .filter(Boolean);
+  const firstBlock = blocks[0] ?? cleaned;
+  const sentences = firstBlock.split(/(?<=[.!?])\s+/).map((sentence) => sentence.trim()).filter(Boolean);
+  const coverTitle = clampWords(sentences[0] ?? firstBlock, 8, 46);
+  const second = sentences[1] ?? blocks[1] ?? "";
+  return {
+    coverTitle: coverTitle || "Se dette",
+    coverSubline: clampWords(second, 12, 64),
+  };
+};
+
+export const composeGuideCaption = (design: SocialDesign, websiteUrl?: string): string => {
+  const lines = [
+    design.question,
+    "",
+    ...design.cards.flatMap((card) => [card.title, card.summary, ""]),
+    design.cta.endsWith("?") ? design.cta : `${design.cta}.`,
+  ];
+  if (websiteUrl) {
+    lines.push("", websiteUrl);
+  }
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+};
+
 export const createSocialDesign = async (input: DesignInput): Promise<SocialDesign> => {
-  const mode = resolveDesignMode(input.contentPillar, input.visualMotif);
+  const mode = input.forceGuide ? "guide" : resolveDesignMode(input.contentPillar, input.visualMotif);
   const client = getOpenAiClient();
   if (!client) return fallbackSocialDesign(input);
 
@@ -155,78 +190,30 @@ export const createSocialDesign = async (input: DesignInput): Promise<SocialDesi
   }
 };
 
-const sceneLine = (brief: VisualBrief): string =>
+const placeLock = (brief: VisualBrief): string =>
   brief.placeName
-    ? `The photo is from ${brief.placeName}. ${brief.subjectDirection}`
-    : brief.subjectDirection;
+    ? `Stay in ${brief.placeName}. Do not switch to another country.`
+    : "Stay in the customer's real world for this brand. Do not invent a beach resort.";
 
-const sharedDesignRules = [
-  "This is a finished social media graphic, like a magazine carousel slide. Not a plain photograph.",
-  "One clear scene. Do not collage a building, a pool, luggage and sunbathers into the same frame.",
-  "Photorealistic background, natural people, correct anatomy, no plastic skin.",
-  "Render the supplied words exactly, in Norwegian, with correct spelling. Bold modern sans-serif.",
-  "Put a simple colored shape or brush behind short text so it stays readable.",
-  "Do not add any other words, letters, prices, URLs, watermarks or a logo.",
-  "Keep the bottom-left corner visually empty and simple. A small logo is added later.",
-].join(" ");
-
-export const buildSlidePrompt = (
+export const buildPhotoPrompt = (
   design: SocialDesign,
   brief: VisualBrief,
   slideIndex: number,
+  kind: "single" | "slide" = "slide",
 ): string => {
-  const total = design.mode === "guide" ? 4 : 1;
-  if (slideIndex <= 0 || design.mode === "headline") {
-    return [
-      `Square 1:1 cover graphic, slide 1/${total}.`,
-      sceneLine(brief),
-      sharedDesignRules,
-      `Exact text, and nothing else:`,
-      `"${design.coverTitle}"`,
-      `"${design.coverSubline}"`,
-      total > 1 ? `Small corner mark: "1/${total}".` : "",
-    ].filter(Boolean).join("\n");
-  }
-
-  const card = design.cards[slideIndex - 1];
-  if (!card) return buildSlidePrompt({ ...design, mode: "headline" }, brief, 0);
-  const indexLabel = `${slideIndex + 1}/${total}`;
+  const card = slideIndex > 0 ? design.cards[slideIndex - 1] : undefined;
+  const subject = card
+    ? `Photograph only this subject: "${card.title}". ${card.summary}`
+    : `Photograph this idea: "${design.coverTitle}". ${design.coverSubline}`;
   return [
-    `Square 1:1 carousel graphic, slide ${indexLabel}.`,
-    `Show only this subject: ${card.title}. ${sceneLine(brief)}`,
-    sharedDesignRules,
-    "Exact text:",
-    `Title: "${card.title}"`,
-    `Sentence: "${card.summary}"`,
-    "Three short labels with simple flat icons:",
-    ...card.bullets.map((bullet) => `- "${bullet}"`),
-    `Small corner mark: "${indexLabel}".`,
-  ].join("\n");
-};
-
-export const buildBoardPrompt = (design: SocialDesign, brief: VisualBrief): string => {
-  const cards = design.cards.slice(0, 3);
-  return [
-    "Landscape 16:9 social graphic, one single image, not a collage of unrelated places.",
-    sceneLine(brief),
-    sharedDesignRules,
-    `Top headline, exact text: "${design.question}"`,
-    "Under it, three vertical photo columns. Each column has a title, one sentence and three short icon labels.",
-    ...cards.flatMap((card, index) => [
-      `Column ${index + 1} title: "${card.title}"`,
-      `Column ${index + 1} sentence: "${card.summary}"`,
-      ...card.bullets.map((bullet) => `Column ${index + 1} label: "${bullet}"`),
-    ]),
-    `Bottom button, exact text: "${design.cta}". No URL.`,
-  ].join("\n");
-};
-
-export const imageSizeForDesign = (
-  channel: SocialChannel,
-  design: SocialDesign,
-  reelScript?: boolean,
-): "1024x1024" | "1536x1024" | "1024x1536" => {
-  if (reelScript) return "1024x1536";
-  if (channel === "facebook" && design.mode === "guide") return "1536x1024";
-  return "1024x1024";
+    kind === "single"
+      ? "Editorial photograph for one social post. Place the subject in the upper half of the frame. No design, no poster, no collage."
+      : "Editorial photograph for a social carousel background. No design, no poster, no collage.",
+    subject,
+    placeLock(brief),
+    "One clear scene, natural light, real people when they belong in the subject, correct anatomy.",
+    "Do not repeat a hotel pool, a logo, luggage and sunbathers in the same frame.",
+    "ABSOLUTELY NO text, letters, numbers, watermarks, logos or captions anywhere in the image.",
+    "Keep the lower third visually calm. Type and the logo are added later, outside the photograph.",
+  ].join(" ");
 };
