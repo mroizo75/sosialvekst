@@ -10,9 +10,8 @@ export const resolveSlideLayout = (
   mode: SocialDesign["mode"],
   slideIndex: number,
 ): SlideLayout => {
-  if (channel === "tiktok" || mode === "headline") return "single";
-  if (slideIndex > 0) return "card";
-  return "cover";
+  if (slideIndex > 0 && mode === "guide" && channel !== "tiktok") return "card";
+  return "single";
 };
 
 type ComposeInput = {

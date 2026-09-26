@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 
 import { buildSlideSvg, composeDesignedSlide, resolveSlideLayout } from "@/lib/ai/slideComposer";
-import { buildPhotoPrompt, composeGuideCaption, headlineFromCaption, parseSocialDesign, resolveDesignMode } from "@/lib/ai/slideDesign";
+import { buildPhotoPrompt, composeGuideCaption, headlineFromCaption, parseSocialDesign, placeGuideCopy, resolveDesignMode } from "@/lib/ai/slideDesign";
 import type { VisualBrief } from "@/lib/ai/visualDirection";
 
 const brief: VisualBrief = {
@@ -135,9 +135,9 @@ describe("slideDesign", () => {
     expect(photo.toLowerCase()).toContain("upper half");
     expect(photo.toLowerCase()).toContain("no text");
     expect(resolveSlideLayout("facebook", "headline", 0)).toBe("single");
-    expect(resolveSlideLayout("linkedin", "guide", 0)).toBe("cover");
-    expect(resolveSlideLayout("facebook", "guide", 0)).toBe("cover");
-    expect(resolveSlideLayout("instagram", "guide", 0)).toBe("cover");
+    expect(resolveSlideLayout("linkedin", "guide", 0)).toBe("single");
+    expect(resolveSlideLayout("facebook", "guide", 0)).toBe("single");
+    expect(resolveSlideLayout("instagram", "guide", 0)).toBe("single");
     expect(resolveSlideLayout("instagram", "guide", 1)).toBe("card");
   });
 
@@ -166,6 +166,25 @@ describe("slideDesign", () => {
     expect(photo).toContain("orange clay roof tiles");
     expect(photo.toLowerCase()).toContain("do not invent a hotel");
     expect(photo.toLowerCase()).toContain("no text");
+  });
+
+  it("lar karusellforsiden være stedet, ikke en hotellannonse", () => {
+    const copy = placeGuideCopy(
+      {
+        mode: "guide",
+        coverTitle: "Hotell i Dubrovnik",
+        coverSubline: "Sammenlign priser og bestill",
+        question: "Hvor vil du bo i Dubrovnik?",
+        cta: "Sammenlign priser",
+        cards: guide.cards,
+      },
+      "Dubrovnik",
+    );
+
+    expect(copy.coverTitle).toBe("Dubrovnik");
+    expect(copy.coverSubline).toBe("Hvor vil du bo i Dubrovnik?");
+    expect(copy.cta).toBe("Hvilken ville du valgt?");
+    expect(copy.coverTitle.toLowerCase()).not.toContain("hotell");
   });
 
   it("dropper lenke når innlegget ikke har en setning", () => {

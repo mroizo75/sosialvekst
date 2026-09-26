@@ -15,6 +15,7 @@ import {
   composeGuideCaption,
   createSocialDesign,
   headlineFromCaption,
+  placeGuideCopy,
   resolveDesignMode,
   type SocialDesign,
 } from "@/lib/ai/slideDesign";
@@ -753,6 +754,9 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
         brief,
         forceGuide: true,
       });
+      if (brief.placeName) {
+        socialDesign = placeGuideCopy(socialDesign, brief.placeName);
+      }
     } else {
       const lines = headlineFromCaption(rawText);
       socialDesign = {

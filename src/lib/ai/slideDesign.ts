@@ -126,6 +126,20 @@ export const headlineFromCaption = (caption: string): { coverTitle: string; cove
   };
 };
 
+export const placeGuideCopy = (design: SocialDesign, placeName: string): SocialDesign => {
+  const sales = /hotell|pris|bestill|booking|rabatt/i;
+  const question = design.question && !sales.test(design.question)
+    ? design.question
+    : `Hvor vil du bo i ${placeName}?`;
+  return {
+    ...design,
+    coverTitle: placeName,
+    coverSubline: question,
+    question,
+    cta: design.cta && !sales.test(design.cta) ? design.cta : "Hvilken ville du valgt?",
+  };
+};
+
 export const composeGuideCaption = (design: SocialDesign, websiteUrl?: string): string => {
   const lines = [
     design.question,
@@ -171,7 +185,9 @@ export const createSocialDesign = async (input: DesignInput): Promise<SocialDesi
             `Modus: ${mode}.`,
             "JSON-form:",
             '{"coverTitle":"","coverSubline":"","question":"","cta":"","cards":[{"title":"","summary":"","bullets":["","",""]}]}',
-            "coverTitle maks 3 ord. coverSubline maks 6 ord. question er et ekte valg. cta maks 5 ord, uten nettadresse.",
+            "coverTitle er stedsnavnet når det finnes et sted, ellers maks 3 ord. Aldri ordet hotell.",
+            "coverSubline er det samme spørsmålet som question. Ingen pris, bestilling eller rabatt.",
+            "question er et ekte valg mellom områdene. cta maks 5 ord, uten nettadresse.",
             mode === "guide"
               ? "cards skal ha nøyaktig 3 ekte alternativer fra dette temaet. Hvert bullet maks 3 ord. Hvis det er et reisemål, bruk ekte områder der. Hvis det er en annen bransje, bruk ekte valg kunden står overfor."
               : "cards skal være en tom liste.",
