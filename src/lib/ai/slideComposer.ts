@@ -3,17 +3,16 @@ import sharp from "sharp";
 import type { SocialDesign } from "@/lib/ai/slideDesign";
 import type { SocialChannel } from "@/lib/types";
 
-export type SlideLayout = "cover" | "card" | "board" | "single";
+export type SlideLayout = "cover" | "card" | "single";
 
 export const resolveSlideLayout = (
   channel: SocialChannel,
   mode: SocialDesign["mode"],
   slideIndex: number,
 ): SlideLayout => {
+  if (channel === "tiktok" || mode === "headline") return "single";
   if (slideIndex > 0) return "card";
-  if (mode === "guide" && channel === "instagram") return "cover";
-  if (mode === "guide") return "board";
-  return "single";
+  return "cover";
 };
 
 type ComposeInput = {
@@ -90,20 +89,6 @@ export const buildSlideSvg = (input: ComposeInput): string => {
       <text x="64" y="860" fill="${colors.ink}" font-family="${font}" font-size="64" font-weight="700">${title}</text>
       ${summarySvg}
       ${bulletRows}
-    </svg>`;
-  }
-
-  if (input.layout === "board") {
-    const title = escapeXml(input.design.question);
-    const rows = input.design.cards.slice(0, 3).map((card, index) => {
-      const y = 820 + index * 150;
-      return `<text x="64" y="${y}" fill="${colors.ink}" font-family="${font}" font-size="40" font-weight="700">${escapeXml(card.title)}</text>
-        <text x="64" y="${y + 48}" fill="${colors.muted}" font-family="${font}" font-size="28">${escapeXml(wrap(card.summary, 42, 1)[0] ?? "")}</text>`;
-    }).join("");
-    return `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="0" y="700" width="${WIDTH}" height="${HEIGHT - 700}" fill="${colors.panel}"/>
-      <text x="64" y="790" fill="${colors.ink}" font-family="${font}" font-size="48" font-weight="700">${title}</text>
-      ${rows}
     </svg>`;
   }
 

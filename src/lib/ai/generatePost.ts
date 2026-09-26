@@ -9,6 +9,7 @@ import { buildCarouselVariantPrompt, buildCoverLines, buildVisualBrief, type Vis
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import type { ContentPillar, VisualMotif } from "@/lib/ai/postStrategy";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
+import { findPlacePhoto } from "@/lib/ai/placePhoto";
 import {
   buildPhotoPrompt,
   composeGuideCaption,
@@ -50,6 +51,8 @@ type GeneratePostInput = {
   includeWebsiteLink?: boolean;
   feedIndex?: number;
   socialDesign?: SocialDesign;
+  photoCredits?: string[];
+  placePhotoUsed?: Set<string>;
 };
 
 type ImageQualityPolicy = {
@@ -292,19 +295,35 @@ const renderDesignedSlide = async (
   slideIndex: number,
 ): Promise<string | undefined> => {
   const layout = resolveSlideLayout(input.channel, design.mode, slideIndex);
-  const photoUrl = await generateProfessionalImage({
-    userId: input.userId,
-    prompt: buildPhotoPrompt(
-      design,
-      brief,
-      layout === "board" ? 0 : slideIndex,
-      layout === "single" ? "single" : "slide",
-    ),
-    profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
-    size: "1024x1536",
-  });
-  if (!photoUrl) return undefined;
-  const photo = await loadBuffer(photoUrl);
+  let photo: Buffer | undefined;
+  let credit: string | undefined;
+  if (brief.placeName) {
+    const subject = slideIndex > 0 ? design.cards[slideIndex - 1]?.title : undefined;
+    const found = await findPlacePhoto(brief.placeName, subject, input.placePhotoUsed ?? new Set());
+    if (!found) {
+      logger.warn("Fant ikke ekte foto av stedet", {
+        place: brief.placeName,
+        subject,
+      });
+      return undefined;
+    }
+    photo = found.bytes;
+    credit = found.credit;
+  } else {
+    const photoUrl = await generateProfessionalImage({
+      userId: input.userId,
+      prompt: buildPhotoPrompt(
+        design,
+        brief,
+        slideIndex,
+        layout === "single" ? "single" : "slide",
+      ),
+      profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
+      size: "1024x1536",
+    });
+    if (!photoUrl) return undefined;
+    photo = await loadBuffer(photoUrl);
+  }
   if (!photo) return undefined;
   const logo = await loadBuffer(input.brandContext?.logoUrl);
   const jpeg = await composeDesignedSlide({
@@ -322,6 +341,9 @@ const renderDesignedSlide = async (
     mediaKind: "image",
     body: new Uint8Array(jpeg),
   });
+  if (credit && input.photoCredits && !input.photoCredits.includes(credit)) {
+    input.photoCredits.push(credit);
+  }
   return uploaded.publicUrl;
 };
 
@@ -754,7 +776,12 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     socialDesign = { ...socialDesign, ...lines, question: lines.coverTitle };
   }
 
-  const imageInput: GeneratePostInput = { ...input, socialDesign };
+  const imageInput: GeneratePostInput = {
+    ...input,
+    socialDesign,
+    photoCredits: [],
+    placePhotoUsed: new Set<string>(),
+  };
 
   let imageUrl: string | undefined;
   if (input.channel === "tiktok") {
@@ -774,7 +801,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   }
 
   let additionalImageUrls: string[] | undefined;
-  if (imageUrl && socialDesign?.mode === "guide" && input.channel === "instagram") {
+  if (imageUrl && socialDesign?.mode === "guide" && input.channel !== "tiktok") {
     additionalImageUrls = await generateDesignedSlides(imageInput, socialDesign, imageUrl);
   } else if (imageUrl && input.mediaMode === "owned_only" && shouldGenerateCarousel(input.channel, input.format, input.reelScript)) {
     const carouselBrandRules = mergeBrandRules({
@@ -824,8 +851,11 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       input.contentPillar,
     ),
   );
+  const creditedText = imageInput.photoCredits?.length
+    ? `${normalizedText}\n\n${imageInput.photoCredits.join("\n")}`
+    : normalizedText;
   const decision = evaluatePolicy({
-    text: normalizedText,
+    text: creditedText,
     imageUrl,
     companyName,
   });
@@ -834,7 +864,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     id: crypto.randomUUID(),
     channel: input.channel,
     scheduledAt: input.scheduledAt,
-    text: normalizedText,
+    text: creditedText,
     imageUrl,
     additionalImageUrls: additionalImageUrls?.length ? additionalImageUrls : undefined,
     videoUrl,

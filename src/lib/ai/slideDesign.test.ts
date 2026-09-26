@@ -135,9 +135,37 @@ describe("slideDesign", () => {
     expect(photo.toLowerCase()).toContain("upper half");
     expect(photo.toLowerCase()).toContain("no text");
     expect(resolveSlideLayout("facebook", "headline", 0)).toBe("single");
-    expect(resolveSlideLayout("linkedin", "guide", 0)).toBe("board");
+    expect(resolveSlideLayout("linkedin", "guide", 0)).toBe("cover");
+    expect(resolveSlideLayout("facebook", "guide", 0)).toBe("cover");
     expect(resolveSlideLayout("instagram", "guide", 0)).toBe("cover");
     expect(resolveSlideLayout("instagram", "guide", 1)).toBe("card");
+  });
+
+  it("ber om stedet, ikke et oppdiktet hotell", () => {
+    const photo = buildPhotoPrompt(
+      {
+        mode: "guide",
+        coverTitle: "DUBROVNIK",
+        coverSubline: "Her bør du bo",
+        question: "Hvor vil du bo i Dubrovnik?",
+        cta: "Se utvalget",
+        cards: [
+          {
+            title: "Gamlebyen",
+            summary: "Bo midt i historien",
+            bullets: ["Byporten", "Steingater", "Utsikt"],
+          },
+        ],
+      },
+      { ...brief, placeName: "Dubrovnik", sceneLock: "Dubrovnik" },
+      1,
+    );
+
+    expect(photo).toContain("Gamlebyen");
+    expect(photo).toContain("Dubrovnik");
+    expect(photo).toContain("orange clay roof tiles");
+    expect(photo.toLowerCase()).toContain("do not invent a hotel");
+    expect(photo.toLowerCase()).toContain("no text");
   });
 
   it("dropper lenke når innlegget ikke har en setning", () => {

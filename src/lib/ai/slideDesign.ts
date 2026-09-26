@@ -190,9 +190,24 @@ export const createSocialDesign = async (input: DesignInput): Promise<SocialDesi
   }
 };
 
+const PLACE_LOOK: Record<string, string> = {
+  Dubrovnik: "limestone houses, orange clay roof tiles, medieval city walls and the Adriatic",
+  Split: "Diocletian's palace stone, the Riva promenade and the Adriatic",
+  Rhodos: "the medieval stone old town, or the named beach if the subject is a beach",
+  Santorini: "whitewashed buildings, blue domes and the caldera cliff",
+  "Gran Canaria": "the named coast, with dunes, palms and Atlantic light",
+  Kreta: "Cretan stone, olive landscape, or the named beach",
+};
+
+const placeLook = (placeName: string | null): string | null => {
+  if (!placeName) return null;
+  const key = Object.keys(PLACE_LOOK).find((name) => name.toLowerCase() === placeName.toLowerCase());
+  return key ? PLACE_LOOK[key] ?? null : null;
+};
+
 const placeLock = (brief: VisualBrief): string =>
   brief.placeName
-    ? `Stay in ${brief.placeName}. Do not switch to another country.`
+    ? `Stay in ${brief.placeName}. Do not switch to another country or city.`
     : "Stay in the customer's real world for this brand. Do not invent a beach resort.";
 
 export const buildPhotoPrompt = (
@@ -202,17 +217,25 @@ export const buildPhotoPrompt = (
   kind: "single" | "slide" = "slide",
 ): string => {
   const card = slideIndex > 0 ? design.cards[slideIndex - 1] : undefined;
+  const place = brief.placeName;
+  const look = placeLook(place);
   const subject = card
-    ? `Photograph only this subject: "${card.title}". ${card.summary}`
-    : `Photograph this idea: "${design.coverTitle}". ${design.coverSubline}`;
+    ? `Photograph the public character of "${card.title}"${place ? ` in ${place}` : ""}. ${card.summary}`
+    : `Photograph a recognizable public view of ${place ?? design.coverTitle}. ${design.coverSubline}`;
   return [
     kind === "single"
       ? "Editorial photograph for one social post. Place the subject in the upper half of the frame. No design, no poster, no collage."
       : "Editorial photograph for a social carousel background. No design, no poster, no collage.",
     subject,
     placeLock(brief),
-    "One clear scene, natural light, real people when they belong in the subject, correct anatomy.",
-    "Do not repeat a hotel pool, a logo, luggage and sunbathers in the same frame.",
+    look
+      ? `The picture must be recognizable as that place: ${look}.`
+      : place
+        ? `Match the real architecture and landscape of ${place}. Do not substitute a generic Mediterranean hotel.`
+        : "Match the customer's real setting. Do not invent a holiday resort.",
+    "Show streets, coast, square or landscape with people in the scene.",
+    "Do not invent a hotel, a hotel name, or center the frame on one made-up hotel facade.",
+    "One clear scene, natural light, correct anatomy.",
     "ABSOLUTELY NO text, letters, numbers, watermarks, logos or captions anywhere in the image.",
     "Keep the lower third visually calm. Type and the logo are added later, outside the photograph.",
   ].join(" ");
