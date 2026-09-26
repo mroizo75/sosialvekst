@@ -8,6 +8,13 @@ import { buildCarouselVariantPrompt, buildCoverLines, buildVisualBrief } from "@
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import type { ContentPillar, VisualMotif } from "@/lib/ai/postStrategy";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
+import {
+  buildBoardPrompt,
+  buildSlidePrompt,
+  createSocialDesign,
+  imageSizeForDesign,
+  type SocialDesign,
+} from "@/lib/ai/slideDesign";
 import { uploadUserFile, listUserFiles } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
@@ -40,6 +47,7 @@ type GeneratePostInput = {
   reelScript?: boolean;
   includeWebsiteLink?: boolean;
   feedIndex?: number;
+  socialDesign?: SocialDesign;
 };
 
 type ImageQualityPolicy = {
@@ -305,33 +313,39 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     prohibitedTerms: input.brandContext?.prohibitedTerms,
   });
 
-  const imagePrompt = buildImagePrompt({
+  const brief = buildVisualBrief({
     topic: input.topic,
-    channel: input.channel,
-    mediaMode: input.mediaMode,
-    brandRules,
     brandContext: input.brandContext,
-    imageDirection: input.imageDirection,
     format: input.format,
-    visualMotif: input.visualMotif,
+    motif: input.visualMotif,
     feedIndex: input.feedIndex,
-    reelScript: input.reelScript,
   });
+  const designed = input.socialDesign;
+  const imagePrompt = designed
+    ? input.channel === "facebook" && designed.mode === "guide"
+      ? buildBoardPrompt(designed, brief)
+      : buildSlidePrompt(designed, brief, 0)
+    : buildImagePrompt({
+        topic: input.topic,
+        channel: input.channel,
+        mediaMode: input.mediaMode,
+        brandRules,
+        brandContext: input.brandContext,
+        imageDirection: input.imageDirection,
+        format: input.format,
+        visualMotif: input.visualMotif,
+        feedIndex: input.feedIndex,
+        reelScript: input.reelScript,
+      });
 
   let imageUrl = await generateProfessionalImage({
     userId: input.userId,
     prompt: imagePrompt,
     profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
+    size: designed ? imageSizeForDesign(input.channel, designed, input.reelScript) : undefined,
   });
 
-  if (imageUrl) {
-    const brief = buildVisualBrief({
-      topic: input.topic,
-      brandContext: input.brandContext,
-      format: input.format,
-      motif: input.visualMotif,
-      feedIndex: input.feedIndex,
-    });
+  if (imageUrl && !designed) {
     const cover = buildCoverLines({
       motif: input.visualMotif,
       placeName: brief.placeName,
@@ -523,6 +537,51 @@ const generateCarouselImages = async (
   return urls;
 };
 
+const generateDesignedSlides = async (
+  input: GeneratePostInput,
+  design: SocialDesign,
+  primaryImageUrl?: string,
+): Promise<string[]> => {
+  const brief = buildVisualBrief({
+    topic: input.topic,
+    brandContext: input.brandContext,
+    format: input.format,
+    motif: input.visualMotif,
+    feedIndex: input.feedIndex,
+  });
+  const logoUrl = input.brandContext?.logoUrl;
+  const profile = getImageQualityPolicy(input.channel, input.imageProfile).imageProfile;
+  const used = new Set<string>(primaryImageUrl ? [primaryImageUrl] : []);
+  const urls: string[] = [];
+
+  for (let slideIndex = 1; slideIndex <= design.cards.length; slideIndex += 1) {
+    try {
+      let url = await generateProfessionalImage({
+        userId: input.userId,
+        prompt: buildSlidePrompt(design, brief, slideIndex),
+        profile,
+        size: "1024x1024",
+      });
+      if (url && logoUrl) {
+        const branded = await overlayLogoOnImage(url, logoUrl, input.userId);
+        if (branded) url = branded;
+      }
+      if (url && !used.has(url)) {
+        used.add(url);
+        urls.push(url);
+      }
+    } catch (error) {
+      logger.warn("Designslide feilet", {
+        userId: input.userId,
+        slideIndex,
+        error: error instanceof Error ? error.message : "ukjent",
+      });
+    }
+  }
+
+  return urls;
+};
+
 const buildVideoMotionPrompt = (input: GeneratePostInput): string => {
   const productName = input.brandContext?.productImages?.[0]?.productName;
   const companyName = input.brandContext?.companyName ?? "bedriften";
@@ -604,12 +663,33 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     });
   }
 
+  let socialDesign: SocialDesign | undefined;
+  if (input.channel !== "tiktok" && input.mediaMode !== "owned_only") {
+    const brief = buildVisualBrief({
+      topic: input.topic,
+      brandContext: input.brandContext,
+      format: input.format,
+      motif: input.visualMotif,
+      feedIndex: input.feedIndex,
+    });
+    socialDesign = await createSocialDesign({
+      topic: input.topic,
+      channel: input.channel,
+      brandContext: input.brandContext,
+      contentPillar: input.contentPillar,
+      visualMotif: input.visualMotif,
+      brief,
+    });
+  }
+
+  const imageInput: GeneratePostInput = { ...input, socialDesign };
+
   let imageUrl: string | undefined;
   if (input.channel === "tiktok") {
     imageUrl = undefined;
   } else {
     try {
-      imageUrl = await createImageUrlWithRetry(input);
+      imageUrl = await createImageUrlWithRetry(imageInput);
     } catch (error) {
       logger.warn("AI image generation failed, continuing without image", {
         userId: input.userId,
@@ -622,7 +702,14 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   }
 
   let additionalImageUrls: string[] | undefined;
-  if (imageUrl && shouldGenerateCarousel(input.channel, input.format, input.reelScript)) {
+  if (
+    imageUrl
+    && socialDesign?.mode === "guide"
+    && input.channel === "instagram"
+    && !input.reelScript
+  ) {
+    additionalImageUrls = await generateDesignedSlides(imageInput, socialDesign, imageUrl);
+  } else if (imageUrl && !socialDesign && shouldGenerateCarousel(input.channel, input.format, input.reelScript)) {
     const carouselBrandRules = mergeBrandRules({
       targetAudience: input.brandContext?.targetAudience,
       brandVoice: input.brandContext?.brandVoice,

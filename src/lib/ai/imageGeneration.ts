@@ -12,6 +12,7 @@ type GenerateImageInput = {
   userId: string;
   prompt: string;
   profile?: ImageProfile;
+  size?: "1024x1024" | "1536x1024" | "1024x1536";
 };
 
 const execFileAsync = promisify(execFile);
@@ -210,10 +211,10 @@ export const generateProfessionalImage = async (
   }
 
   const profile = input.profile ?? "final";
-  const imageSize = "1024x1024" as const;
+  const imageSize = input.size ?? "1024x1024";
   const imageQuality = profile === "preview" ? ("medium" as const) : ("high" as const);
 
-  type ImageVariant = { size: string; quality: string };
+  type ImageVariant = { size: "1024x1024" | "1536x1024" | "1024x1536"; quality: "low" | "medium" | "high" };
   const variants: ImageVariant[] = [
     { size: imageSize, quality: imageQuality },
     { size: "1024x1024", quality: "medium" },
@@ -228,7 +229,7 @@ export const generateProfessionalImage = async (
       const response = await client.images.generate({
         model: "gpt-image-1",
         prompt: input.prompt,
-        size: variant.size as "1024x1024",
+        size: variant.size,
         quality: variant.quality as "low" | "medium" | "high",
       });
 
@@ -288,8 +289,8 @@ export const generateProfessionalImage = async (
   return uploaded.publicUrl;
 };
 
-const LOGO_MAX_WIDTH_RATIO = 0.27;
-const LOGO_PADDING_RATIO = 0.03;
+const LOGO_MAX_WIDTH_RATIO = 0.14;
+const LOGO_PADDING_RATIO = 0.045;
 
 export const overlayLogoOnImage = async (
   imageUrl: string,
@@ -331,12 +332,21 @@ export const overlayLogoOnImage = async (
     const logoW = logoMeta.width ?? maxLogoWidth;
     const logoH = logoMeta.height ?? maxLogoWidth;
 
+    const platePad = Math.round(width * 0.012);
+    const plate = Buffer.from(
+      `<svg width="${logoW + platePad * 2}" height="${logoH + platePad * 2}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" rx="${platePad}" fill="rgba(255,255,255,0.94)"/></svg>`,
+    );
+    const plateH = logoH + platePad * 2;
+    const left = padding;
+    const top = height - plateH - padding;
+
     const composited = await baseImage
       .composite([
+        { input: plate, top, left },
         {
           input: resizedLogo,
-          top: height - logoH - padding,
-          left: width - logoW - padding,
+          top: top + platePad,
+          left: left + platePad,
         },
       ])
       .flatten({ background: { r: 255, g: 255, b: 255 } })
