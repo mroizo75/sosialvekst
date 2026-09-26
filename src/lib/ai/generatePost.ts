@@ -1,11 +1,11 @@
 import { buildNorwegianCopyPrompt } from "@/lib/ai/copyPromptBuilderNo";
 import { mergeBrandRules } from "@/lib/ai/brandRules";
 import { generateImageToVideo, isFalAvailable } from "@/lib/ai/falClient";
-import { generateProfessionalImage, overlayCoverText, overlayLogoOnImage } from "@/lib/ai/imageGeneration";
+import { generateProfessionalImage, overlayLogoOnImage } from "@/lib/ai/imageGeneration";
 import { generateProductImage } from "@/lib/ai/imageEngine";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
 import { composeDesignedSlide, resolveSlideLayout } from "@/lib/ai/slideComposer";
-import { buildCarouselVariantPrompt, buildCoverLines, buildVisualBrief, type VisualBrief } from "@/lib/ai/visualDirection";
+import { buildCarouselVariantPrompt, buildVisualBrief, type VisualBrief } from "@/lib/ai/visualDirection";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import type { ContentPillar, VisualMotif } from "@/lib/ai/postStrategy";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
@@ -396,13 +396,6 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     prohibitedTerms: input.brandContext?.prohibitedTerms,
   });
 
-  const brief = buildVisualBrief({
-    topic: input.topic,
-    brandContext: input.brandContext,
-    format: input.format,
-    motif: input.visualMotif,
-    feedIndex: input.feedIndex,
-  });
   const imagePrompt = buildImagePrompt({
     topic: input.topic,
     channel: input.channel,
@@ -421,18 +414,6 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     prompt: imagePrompt,
     profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
   });
-
-  if (imageUrl) {
-    const cover = buildCoverLines({
-      motif: input.visualMotif,
-      placeName: brief.placeName,
-      topic: input.topic,
-    });
-    if (cover) {
-      const withCover = await overlayCoverText(imageUrl, cover, input.userId);
-      if (withCover) imageUrl = withCover;
-    }
-  }
 
   if (imageUrl && logoUrl) {
     const branded = await overlayLogoOnImage(imageUrl, logoUrl, input.userId);

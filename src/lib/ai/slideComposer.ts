@@ -3,7 +3,7 @@ import sharp from "sharp";
 import type { SocialDesign } from "@/lib/ai/slideDesign";
 import type { SocialChannel } from "@/lib/types";
 
-export type SlideLayout = "cover" | "card" | "single";
+export type SlideLayout = "card" | "single";
 
 export const resolveSlideLayout = (
   channel: SocialChannel,
@@ -91,38 +91,19 @@ export const buildSlideSvg = (input: ComposeInput): string => {
     </svg>`;
   }
 
-  if (input.layout === "single") {
-    const titleLines = wrap(input.design.coverTitle, 22, 2).map(escapeXml);
-    const sublines = wrap(input.design.coverSubline, 34, 2).map(escapeXml);
-    const panelY = 900;
-    const titleSvg = titleLines.map((line, index) =>
-      `<text x="64" y="${1020 + index * 72}" fill="${colors.ink}" font-family="${font}" font-size="56" font-weight="700">${line}</text>`,
-    ).join("");
-    const sublineSvg = sublines.map((line, index) =>
-      `<text x="64" y="${1188 + index * 42}" fill="${colors.muted}" font-family="${font}" font-size="30">${line}</text>`,
-    ).join("");
-    return `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="0" y="${panelY}" width="${WIDTH}" height="${HEIGHT - panelY}" fill="${colors.panel}"/>
-      ${titleSvg}
-      ${sublineSvg}
-    </svg>`;
-  }
-
-  const titleLines = wrap(input.design.coverTitle, 16, 2).map(escapeXml);
-  const subline = escapeXml(wrap(input.design.coverSubline, 28, 1)[0] ?? "");
+  const titleLines = wrap(input.design.coverTitle, 24, 2).map(escapeXml);
+  const sublines = wrap(input.design.coverSubline, 32, 2).map(escapeXml);
+  const panelY = 760;
   const titleSvg = titleLines.map((line, index) =>
-    `<text x="64" y="${980 + index * 84}" fill="#FFFFFF" font-family="${font}" font-size="72" font-weight="700">${line}</text>`,
+    `<text x="64" y="${860 + index * 72}" fill="${colors.ink}" font-family="${font}" font-size="56" font-weight="700">${line}</text>`,
+  ).join("");
+  const sublineSvg = sublines.map((line, index) =>
+    `<text x="64" y="${1040 + index * 44}" fill="${colors.muted}" font-family="${font}" font-size="32">${line}</text>`,
   ).join("");
   return `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0.42" stop-color="rgba(0,0,0,0)"/>
-        <stop offset="1" stop-color="rgba(8,18,28,0.88)"/>
-      </linearGradient>
-    </defs>
-    <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#fade)"/>
+    <rect x="0" y="${panelY}" width="${WIDTH}" height="${HEIGHT - panelY}" fill="${colors.panel}"/>
     ${titleSvg}
-    <text x="64" y="1180" fill="#F6E27A" font-family="${font}" font-size="40" font-weight="600">${subline}</text>
+    ${sublineSvg}
   </svg>`;
 };
 
@@ -131,9 +112,12 @@ const fitLogo = async (logo: Buffer): Promise<Buffer> =>
 
 export const composeDesignedSlide = async (input: ComposeInput): Promise<Buffer> => {
   const photo = await sharp(input.photo)
-    .resize(WIDTH, HEIGHT, { fit: "cover", position: input.layout === "cover" ? "centre" : "attention" })
+    .resize(WIDTH, 760, { fit: "cover", position: "attention" })
     .png()
     .toBuffer();
+  const base = await sharp({
+    create: { width: WIDTH, height: HEIGHT, channels: 3, background: palette(input.primaryColor).panel },
+  }).png().composite([{ input: photo, top: 0, left: 0 }]).png().toBuffer();
   const overlay = Buffer.from(buildSlideSvg(input));
   const layers: sharp.OverlayOptions[] = [{ input: overlay, top: 0, left: 0 }];
 
@@ -142,9 +126,8 @@ export const composeDesignedSlide = async (input: ComposeInput): Promise<Buffer>
     const meta = await sharp(logo).metadata();
     const logoW = meta.width ?? 168;
     const logoH = meta.height ?? 168;
-    const onPanel = input.layout !== "cover";
-    const left = onPanel ? WIDTH - logoW - 48 : 48;
-    const top = input.layout === "single" ? 928 : onPanel ? 792 : 48;
+    const left = WIDTH - logoW - 48;
+    const top = 792;
     const platePad = 14;
     const plate = Buffer.from(
       `<svg width="${logoW + platePad * 2}" height="${logoH + platePad * 2}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" rx="22" fill="rgba(255,255,255,0.96)"/></svg>`,
@@ -153,5 +136,5 @@ export const composeDesignedSlide = async (input: ComposeInput): Promise<Buffer>
     layers.push({ input: logo, left, top });
   }
 
-  return sharp(photo).composite(layers).jpeg({ quality: 92 }).toBuffer();
+  return sharp(base).composite(layers).jpeg({ quality: 92 }).toBuffer();
 };

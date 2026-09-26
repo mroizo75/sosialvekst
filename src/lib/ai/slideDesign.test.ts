@@ -72,7 +72,7 @@ describe("slideDesign", () => {
       photo,
       design: guide,
       slideIndex: 0,
-      layout: "cover",
+      layout: "single",
       primaryColor: "#0E4D6C",
     });
 
