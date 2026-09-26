@@ -295,7 +295,8 @@ const renderDesignedSlide = async (
   brief: VisualBrief,
   slideIndex: number,
 ): Promise<string | undefined> => {
-  const layout = resolveSlideLayout(input.channel, design.mode, slideIndex);
+  const onPhoto = design.mode === "guide" || Boolean(brief.placeName) || brief.world === "travel";
+  const layout = resolveSlideLayout(input.channel, design.mode, slideIndex, onPhoto);
   let photo: Buffer | undefined;
   let credit: string | undefined;
   if (brief.placeName) {
@@ -334,6 +335,8 @@ const renderDesignedSlide = async (
     layout,
     logo,
     primaryColor: input.brandContext?.brandColors?.primary,
+    secondaryColor: input.brandContext?.brandColors?.secondary,
+    accentColor: input.brandContext?.brandColors?.accent,
   });
   const uploaded = await uploadUserFile({
     userId: input.userId,

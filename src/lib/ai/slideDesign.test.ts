@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import sharp from "sharp";
 
-import { buildSlideSvg, composeDesignedSlide, resolveSlideLayout } from "@/lib/ai/slideComposer";
+import { buildSlideSvg, composeDesignedSlide, photoTextColors, resolveSlideLayout } from "@/lib/ai/slideComposer";
 import { buildPhotoPrompt, composeGuideCaption, headlineFromCaption, parseSocialDesign, placeGuideCopy, resolveDesignMode } from "@/lib/ai/slideDesign";
 import type { VisualBrief } from "@/lib/ai/visualDirection";
 
@@ -62,6 +62,32 @@ describe("slideDesign", () => {
     expect(svg).toContain("Maspalomas");
     expect(svg).toContain("Lange strender");
     expect(svg).toContain("#0E4D6C");
+  });
+
+  it("legger reisetekst på bildet, ikke på et fargefelt", () => {
+    const svg = buildSlideSvg({
+      photo: Buffer.alloc(0),
+      design: guide,
+      slideIndex: 1,
+      layout: "photo",
+      primaryColor: "#0E4D6C",
+      accentColor: "#F6E27A",
+    });
+
+    expect(svg).toContain("Maspalomas");
+    expect(svg).toContain("fade");
+    expect(svg).toContain("#F6E27A");
+    expect(svg).not.toContain("Lange strender");
+  });
+
+  it("bruker bedriftens egen aksent, ikke Sydenklar-gul", () => {
+    const sydenklar = photoTextColors({ primary: "#0E4D6C", accent: "#F6E27A" });
+    const other = photoTextColors({ primary: "#1F3A2E", accent: "#E07A3D" });
+
+    expect(sydenklar).toEqual({ title: "#FFFFFF", accent: "#F6E27A" });
+    expect(other.title).toBe("#FFFFFF");
+    expect(other.accent).not.toBe("#F6E27A");
+    expect(other.accent).toBe("#E07A3D");
   });
 
   it("komponerer et ferdig slide med ekte tekstlag", async () => {
@@ -134,10 +160,9 @@ describe("slideDesign", () => {
     expect(svg).not.toContain("fade");
     expect(photo.toLowerCase()).toContain("upper half");
     expect(photo.toLowerCase()).toContain("no text");
+    expect(resolveSlideLayout("facebook", "headline", 0, true)).toBe("photo");
+    expect(resolveSlideLayout("instagram", "guide", 1, true)).toBe("photo");
     expect(resolveSlideLayout("facebook", "headline", 0)).toBe("single");
-    expect(resolveSlideLayout("linkedin", "guide", 0)).toBe("single");
-    expect(resolveSlideLayout("facebook", "guide", 0)).toBe("single");
-    expect(resolveSlideLayout("instagram", "guide", 0)).toBe("single");
     expect(resolveSlideLayout("instagram", "guide", 1)).toBe("card");
   });
 
