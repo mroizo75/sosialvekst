@@ -185,11 +185,16 @@ export const createSocialDesign = async (input: DesignInput): Promise<SocialDesi
             `Modus: ${mode}.`,
             "JSON-form:",
             '{"coverTitle":"","coverSubline":"","question":"","cta":"","cards":[{"title":"","summary":"","bullets":["","",""]}]}',
-            "coverTitle er stedsnavnet når det finnes et sted, ellers maks 3 ord. Aldri ordet hotell.",
-            "coverSubline er det samme spørsmålet som question. Ingen pris, bestilling eller rabatt.",
-            "question er et ekte valg mellom områdene. cta maks 5 ord, uten nettadresse.",
+            "coverTitle er kun stedsnavnet. Aldri hotell, downtown, pris eller bestill.",
+            "question er et valg mellom områder i det låste stedet. cta maks 5 ord, uten nettadresse.",
             mode === "guide"
-              ? "cards skal ha nøyaktig 3 ekte alternativer fra dette temaet. Hvert bullet maks 3 ord. Hvis det er et reisemål, bruk ekte områder der. Hvis det er en annen bransje, bruk ekte valg kunden står overfor."
+              ? [
+                "cards skal ha nøyaktig 3 ekte områder i det låste stedet. Ikke finn på bydeler og ikke bruk en annen by.",
+                "title er det lokale navnet, uoversatt. summary er én konkret setning om stedet, uten reklamespråk.",
+                "Hvert bullet maks 3 ord.",
+                "Eksempel for Rhodos: Lindos, Faliraki, Rhodos by. Ikke Downtown Rhodos, Magisk strand eller Hotellområdet.",
+                "Samme regel for Kos, Hurghada og alle andre steder: kjente områder, ellers sentrum, strand og havn.",
+              ].join(" ")
               : "cards skal være en tom liste.",
           ].join("\n"),
         },

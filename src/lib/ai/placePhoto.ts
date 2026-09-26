@@ -18,12 +18,24 @@ type OpenverseResult = {
 };
 
 const PLACE_EN: Record<string, string> = {
-  Rhodos: "Rhodes",
-  Kreta: "Crete",
+  Rhodos: "Rhodes Greece",
+  Kreta: "Crete Greece",
   Kypros: "Cyprus",
-  Sicilia: "Sicily",
+  Sicilia: "Sicily Italy",
+  Korfu: "Corfu Greece",
+  Kos: "Kos Greece",
+  Santorini: "Santorini Greece",
+  Mykonos: "Mykonos Greece",
+  Hurghada: "Hurghada Egypt",
+  "Sharm el-Sheikh": "Sharm el-Sheikh Egypt",
+  Antalya: "Antalya Turkey",
+  Alanya: "Alanya Turkey",
+  Phuket: "Phuket Thailand",
+  Bali: "Bali Indonesia",
   "Kap Verde": "Cape Verde",
   Amalfikysten: "Amalfi Coast",
+  "Costa del Sol": "Costa del Sol Spain",
+  Algarve: "Algarve Portugal",
 };
 
 const SUBJECT_EN: Record<string, string> = {
@@ -33,7 +45,10 @@ const SUBJECT_EN: Record<string, string> = {
   strand: "beach",
   havnen: "harbour",
   havn: "harbour",
+  sentrum: "city centre",
 };
+
+const GENERIC_SUBJECT = /^(downtown|down town|sentrum|centrum|center|centre|city)$/i;
 
 const BLOCKED_TITLE = /hotel|resort|pool|logo|flag|diagram|icon|coat of arms|\bmap\b|\bplan\b|wedding|tram|candle|butterfly|souvenir|portrait|selfie/i;
 const MIN_WIDTH = 800;
@@ -44,13 +59,36 @@ const cache = new Map<string, PlacePhotoPick[]>();
 const fold = (value: string): string =>
   value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
-export const buildPlaceQuery = (place: string, subject?: string): string => {
-  const placeEn = PLACE_EN[place] ?? place;
+const placeLabel = (place: string): string => PLACE_EN[place] ?? place;
+
+const specificSubject = (place: string, subject?: string): string | null => {
   const raw = subject?.trim() ?? "";
-  const subjectEn = SUBJECT_EN[fold(raw)] ?? raw;
-  if (!subjectEn) return `${placeEn} cityscape`;
-  return `${placeEn} ${subjectEn}`;
+  if (!raw) return null;
+  const withoutPlace = raw.replace(new RegExp(place, "ig"), " ").replace(/\s+/g, " ").trim();
+  const mapped = SUBJECT_EN[fold(withoutPlace)] ?? withoutPlace;
+  if (!mapped || GENERIC_SUBJECT.test(mapped) || GENERIC_SUBJECT.test(fold(mapped))) return null;
+  return mapped;
 };
+
+export const placeSearchQueries = (place: string, subject?: string): { query: string; subject?: string }[] => {
+  const placeEn = placeLabel(place);
+  const specific = specificSubject(place, subject);
+  if (!specific) {
+    return [
+      { query: `${placeEn} cityscape` },
+      { query: `${placeEn} beach` },
+      { query: placeEn },
+    ];
+  }
+  return [
+    { query: `${placeEn} ${specific}`, subject: specific },
+    { query: `${placeEn} cityscape` },
+    { query: `${placeEn} beach` },
+  ];
+};
+
+export const buildPlaceQuery = (place: string, subject?: string): string =>
+  placeSearchQueries(place, subject)[0]?.query ?? placeLabel(place);
 
 const haystack = (result: OpenverseResult): string => {
   const tags = (result.tags ?? []).map((tag) => tag.name ?? "").join(" ");
@@ -123,36 +161,38 @@ export const findPlacePhoto = async (
   subject: string | undefined,
   used: Set<string>,
 ): Promise<{ bytes: Buffer; credit: string } | null> => {
-  const query = buildPlaceQuery(place, subject);
-  let photos = cache.get(query);
-  if (!photos) {
-    const url = new URL("https://api.openverse.org/v1/images/");
-    url.searchParams.set("q", query);
-    url.searchParams.set("license", "by,cc0,pdm");
-    url.searchParams.set("page_size", "20");
-    try {
-      const response = await fetch(url, {
-        headers: { "User-Agent": "SosialVekst/1.0 (ekte stedsfoto)", Accept: "application/json" },
-        signal: AbortSignal.timeout(12000),
-      });
-      if (!response.ok) return null;
-      photos = rankPlacePhotos(await response.json(), place, subject);
-      cache.set(query, photos);
-    } catch (error) {
-      logger.warn("Søk etter stedsfoto feilet", {
-        query,
-        error: error instanceof Error ? error.message : "ukjent",
-      });
-      return null;
+  for (const attempt of placeSearchQueries(place, subject)) {
+    const cacheKey = `${attempt.query}|${attempt.subject ?? ""}`;
+    let photos = cache.get(cacheKey);
+    if (!photos) {
+      const url = new URL("https://api.openverse.org/v1/images/");
+      url.searchParams.set("q", attempt.query);
+      url.searchParams.set("license", "by,cc0,pdm");
+      url.searchParams.set("page_size", "20");
+      try {
+        const response = await fetch(url, {
+          headers: { "User-Agent": "SosialVekst/1.0 (ekte stedsfoto)", Accept: "application/json" },
+          signal: AbortSignal.timeout(12000),
+        });
+        if (!response.ok) continue;
+        photos = rankPlacePhotos(await response.json(), place, attempt.subject);
+        cache.set(cacheKey, photos);
+      } catch (error) {
+        logger.warn("Søk etter stedsfoto feilet", {
+          query: attempt.query,
+          error: error instanceof Error ? error.message : "ukjent",
+        });
+        continue;
+      }
     }
-  }
 
-  for (const photo of photos) {
-    if (used.has(photo.imageUrl)) continue;
-    const bytes = await downloadPhoto(photo.imageUrl);
-    if (!bytes) continue;
-    used.add(photo.imageUrl);
-    return { bytes, credit: photo.credit };
+    for (const photo of photos) {
+      if (used.has(photo.imageUrl)) continue;
+      const bytes = await downloadPhoto(photo.imageUrl);
+      if (!bytes) continue;
+      used.add(photo.imageUrl);
+      return { bytes, credit: photo.credit };
+    }
   }
   return null;
 };

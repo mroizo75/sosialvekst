@@ -311,6 +311,11 @@ const renderDesignedSlide = async (
     }
     photo = found.bytes;
     credit = found.credit;
+  } else if (brief.world === "travel") {
+    logger.warn("Reiseinnlegg uten stedsnavn, hopper over oppdiktet bilde", {
+      topic: input.topic,
+    });
+    return undefined;
   } else {
     const photoUrl = await generateProfessionalImage({
       userId: input.userId,

@@ -93,4 +93,10 @@ describe("visualDirection", () => {
     expect(first.placeName).not.toBe(second.placeName);
     expect(second.subjectDirection.toLowerCase()).toContain("restaurant");
   });
+
+  it("kjenner Kos og Hurghada uten å treffe inni andre ord", () => {
+    expect(extractDestination(travelBrand, "Downtown Hurghada")).toBe("Hurghada");
+    expect(extractDestination(travelBrand, "En uke på Kos")).toBe("Kos");
+    expect(extractDestination({ companyName: "Test" }, "Dette koster for mye")).toBeNull();
+  });
 });

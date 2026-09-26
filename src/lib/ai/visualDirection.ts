@@ -211,8 +211,12 @@ const hashString = (value: string): number => {
 };
 
 export const extractDestination = (brandContext?: BrandContext, topic = ""): string | null => {
+  const places = [...DESTINATIONS].sort((left, right) => right.length - left.length);
   const searchIn = (text: string): string | null => {
-    const found = DESTINATIONS.find((place) => text.toLowerCase().includes(place.toLowerCase()));
+    const found = places.find((place) => {
+      const escaped = place.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(?:^|[^a-zæøå])${escaped}(?:[^a-zæøå]|$)`, "i").test(text);
+    });
     return found ?? null;
   };
 

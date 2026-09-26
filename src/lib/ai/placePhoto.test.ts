@@ -44,7 +44,9 @@ describe("placePhoto", () => {
   it("søker på stedet og det norske områdenavnet", () => {
     expect(buildPlaceQuery("Dubrovnik", "Gamlebyen")).toBe("Dubrovnik old town");
     expect(buildPlaceQuery("Dubrovnik", "Lapad")).toBe("Dubrovnik Lapad");
-    expect(buildPlaceQuery("Rhodos")).toBe("Rhodes cityscape");
+    expect(buildPlaceQuery("Rhodos")).toBe("Rhodes Greece cityscape");
+    expect(buildPlaceQuery("Hurghada", "Downtown Hurghada")).toBe("Hurghada Egypt cityscape");
+    expect(buildPlaceQuery("Kos", "Kardamena")).toBe("Kos Greece Kardamena");
   });
 
   it("velger et ekte bybilde og hopper over hotell og for små filer", () => {
