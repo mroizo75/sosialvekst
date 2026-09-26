@@ -283,10 +283,15 @@ export async function PATCH(request: Request, context: RouteContext) {
           ? "owned_only"
           : "ai_only";
       const imageProfile = regenAction === "regenerate_image" ? "final" : "preview";
+      const scheduled = new Date(post.scheduledAt);
       const strategy = assignPostStrategy({
-        weekIndex: action === "reject_and_regenerate" ? Date.now() % 40 : 0,
-        dayIndex: new Date(post.scheduledAt).getUTCDay() % 3,
+        weekIndex: 0,
+        dayIndex: 0,
         channel: post.channel,
+        feedIndex: action === "reject_and_regenerate"
+          ? Date.now() % 20
+          : scheduled.getUTCDate() + scheduled.getUTCMonth() * 3,
+        hasCustomerStories: (brandContext?.customerSuccessStories?.length ?? 0) > 0,
       });
 
       logger.info("[post/patch] Starter generatePost", {
@@ -307,6 +312,11 @@ export async function PATCH(request: Request, context: RouteContext) {
           format: strategy.format,
           ctaType: strategy.ctaType,
           imageDirection: strategy.imageDirection,
+          contentPillar: strategy.contentPillar,
+          visualMotif: strategy.visualMotif,
+          reelScript: strategy.reelScript,
+          includeWebsiteLink: strategy.includeWebsiteLink,
+          feedIndex: strategy.feedIndex,
         }),
         REGENERATE_TIMEOUT_MS,
         `${regenAction}/${post.channel}`,

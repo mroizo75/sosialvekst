@@ -34,6 +34,8 @@ describe("visualDirection", () => {
     expect(extractDestination(travelBrand, "Sommertilbud på Rhodos")).toBe("Rhodos");
     expect(brief.placeName).toBe("Rhodos");
     expect(brief.sceneLock).toContain("Rhodos");
+    expect(brief.subjectDirection.toLowerCase()).toContain("mennesker");
+    expect(brief.subjectDirection.toLowerCase()).not.toContain("i det fjerne");
     expect(brief.carouselAngles.every((angle) => angle.includes("Rhodos"))).toBe(true);
     expect(brief.bans.some((ban) => ban.includes("laptop"))).toBe(true);
 
@@ -56,11 +58,39 @@ describe("visualDirection", () => {
     const brief = buildVisualBrief({
       topic: "Slik gjennomfører du vernerunde",
       brandContext: hmsBrand,
+      motif: "beach",
     });
 
     expect(brief.world).not.toBe("travel");
     expect(brief.subjectDirection.toLowerCase()).not.toContain("laptop");
     expect(brief.bans.some((ban) => ban.includes("datamaskin"))).toBe(true);
     expect(brief.sceneLock).toContain("HMS Nova");
+    expect(brief.subjectDirection.toLowerCase()).not.toContain("strand");
+    expect(brief.subjectDirection.toLowerCase()).not.toContain("basseng");
+    expect(brief.subjectDirection.toLowerCase()).not.toContain("ferie");
+  });
+
+  it("roterer destinasjon når temaet ikke navngir et sted", () => {
+    const unnamed: BrandContext = {
+      companyName: "Sydenklar",
+      industry: "Reise og ferie",
+      companyDescription: "Hotell og ferie",
+    };
+    const first = buildVisualBrief({
+      topic: "Varm ferie",
+      brandContext: unnamed,
+      feedIndex: 0,
+      motif: "people",
+    });
+    const second = buildVisualBrief({
+      topic: "Varm ferie",
+      brandContext: unnamed,
+      feedIndex: 1,
+      motif: "restaurant",
+    });
+
+    expect(first.world).toBe("travel");
+    expect(first.placeName).not.toBe(second.placeName);
+    expect(second.subjectDirection.toLowerCase()).toContain("restaurant");
   });
 });

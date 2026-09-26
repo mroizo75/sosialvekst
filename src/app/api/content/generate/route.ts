@@ -84,6 +84,7 @@ type PlaceholderSlot = {
   scheduledAt: string;
   weekIndex: number;
   dayIndex: number;
+  postsPerWeek: number;
   topic: string;
 };
 
@@ -132,6 +133,7 @@ const buildSlots = (
           scheduledAt: scheduled,
           weekIndex: logicalWeek,
           dayIndex,
+          postsPerWeek: dayOffsets.length,
           topic: weekTopic,
         });
       }
@@ -319,6 +321,8 @@ async function generateSingleSlot(
       weekIndex: slot.weekIndex,
       dayIndex: slot.dayIndex,
       channel: slot.channel,
+      postsPerWeek: slot.postsPerWeek,
+      hasCustomerStories: (brandContext?.customerSuccessStories?.length ?? 0) > 0,
     });
 
     const timeoutMs = getTimeoutMs(slot.channel);
@@ -336,6 +340,11 @@ async function generateSingleSlot(
         format: strategy.format,
         ctaType: strategy.ctaType,
         imageDirection: strategy.imageDirection,
+        contentPillar: strategy.contentPillar,
+        visualMotif: strategy.visualMotif,
+        reelScript: strategy.reelScript,
+        includeWebsiteLink: strategy.includeWebsiteLink,
+        feedIndex: strategy.feedIndex,
       }),
       timeoutMs,
       `${slot.channel}/${slot.id.slice(0, 8)}`,

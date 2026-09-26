@@ -1,5 +1,5 @@
 import type { BrandRules } from "@/lib/ai/brandRules";
-import { calculateQualityScore } from "@/lib/ai/qualityScore";
+import { calculateQualityScore, hasUndocumentedClaim } from "@/lib/ai/qualityScore";
 import type { QualityScore } from "@/lib/types";
 
 type ValidationInput = {
@@ -16,8 +16,8 @@ type ValidationResult = {
 };
 
 const MIN_QUALITY_THRESHOLD = 65;
-const MIN_TEXT_LENGTH = 50;
-const MAX_TEXT_LENGTH = 3000;
+const MIN_TEXT_LENGTH = 20;
+const MAX_TEXT_LENGTH = 1800;
 
 export const validateAiOutput = (input: ValidationInput): ValidationResult => {
   const normalized = input.text.toLowerCase();
@@ -26,6 +26,7 @@ export const validateAiOutput = (input: ValidationInput): ValidationResult => {
   const containsForbiddenTerm = input.brandRules.prohibitedTerms.some((term) =>
     normalized.includes(term.toLowerCase()),
   );
+  const undocumentedClaim = hasUndocumentedClaim(input.text);
 
   const hasBrandMatch = input.brandRules.keyMessages.some((message) =>
     normalized.includes(message.toLowerCase().slice(0, 12)),
@@ -35,7 +36,7 @@ export const validateAiOutput = (input: ValidationInput): ValidationResult => {
     text: input.text,
     imageUrl: input.imageUrl,
     hasBrandMatch,
-    hasForbiddenTerms: containsForbiddenTerm,
+    hasForbiddenTerms: containsForbiddenTerm || undocumentedClaim,
     companyName: input.companyName,
   });
 
@@ -43,8 +44,8 @@ export const validateAiOutput = (input: ValidationInput): ValidationResult => {
     reasons.push("Inneholder forbudte uttrykk");
   }
 
-  if (!quality.companyMentioned && input.companyName) {
-    reasons.push(`Bedriftsnavnet "${input.companyName}" er ikke nevnt i teksten`);
+  if (undocumentedClaim) {
+    reasons.push("Inneholder udokumentert påstand eller oppdiktet kundehistorie");
   }
 
   if (!quality.ctaPresent) {
@@ -52,7 +53,7 @@ export const validateAiOutput = (input: ValidationInput): ValidationResult => {
   }
 
   if (input.text.length < MIN_TEXT_LENGTH) {
-    reasons.push("Teksten er for kort til a gi faglig verdi");
+    reasons.push("Teksten er for kort");
   }
 
   if (input.text.length > MAX_TEXT_LENGTH) {

@@ -1,4 +1,5 @@
 import type { BrandRules } from "@/lib/ai/brandRules";
+import type { VisualMotif } from "@/lib/ai/postStrategy";
 import { buildVisualBrief } from "@/lib/ai/visualDirection";
 import type { BrandContext, MediaMode, PostFormat } from "@/lib/types";
 
@@ -10,12 +11,15 @@ type ImagePromptInput = {
   brandContext?: BrandContext;
   imageDirection?: string;
   format?: PostFormat;
+  visualMotif?: VisualMotif;
+  feedIndex?: number;
+  reelScript?: boolean;
 };
 
 const CHANNEL_SPEC: Record<ImagePromptInput["channel"], { format: string; style: string }> = {
   instagram: {
     format: "Kvadratisk (1:1) eller portrett (4:5). Tett motiv med tydelig fokuspunkt.",
-    style: "Visuelt sterkt, moderne og engasjerende. Hovedmotiv skal stoppe scroll.",
+    style: "Visuelt sterkt og variert. Mennesker og situasjon skal stoppe scroll. Ikke samme motiv om igjen.",
   },
   facebook: {
     format: "Landskap (16:9 eller 1.91:1). Romslig komposisjon med luft rundt motivet.",
@@ -76,8 +80,15 @@ export const buildImagePrompt = (input: ImagePromptInput): string => {
     topic: input.topic,
     brandContext: ctx,
     format: input.format,
+    motif: input.visualMotif,
+    feedIndex: input.feedIndex,
   });
-  const channelSpec = CHANNEL_SPEC[input.channel];
+  const channelSpec = input.reelScript
+    ? {
+        format: "Portrett 9:16 reel. Vertikalt mobilformat. Motivet skal fungere som åpning uten logo.",
+        style: "Rask, tydelig og menneskelig. Første bilde er hooken.",
+      }
+    : CHANNEL_SPEC[input.channel];
   const toneKey = input.brandRules.toneOfVoice.toLowerCase().replaceAll("æ", "ae").replaceAll("ø", "o").replaceAll("å", "a");
   const visualTone = TONE_TO_VISUAL[toneKey] ?? `Visuell stil skal folge tonen: ${input.brandRules.toneOfVoice}.`;
   const mediaModeSpec = MEDIA_MODE_SPEC[input.mediaMode];
@@ -140,7 +151,9 @@ export const buildImagePrompt = (input: ImagePromptInput): string => {
     [
       "OBLIGATORISKE KRAV:",
       `- Temaet "${input.topic}" skal vaere eksplisitt og tydelig i motivet, ikke et tilgrensende konsept.`,
-      `- Motivet skal kommunisere direkte hva ${companyName} driver med. Ingen generiske stockbilder.`,
+      "- Motivet skal vise kundens opplevelse eller situasjon. Ikke en annonse for bedriften.",
+      "- Mennesker skal være tydelige når motivretningen ber om det. Ikke bare tom arkitektur.",
+      "- Varier uttrykket. Ikke et generisk stockbilde som kunne vært for en hvilken som helst bedrift.",
       "- Profesjonell kvalitet: naturlig lys, ren komposisjon, realistiske proporsjoner.",
       "- Ingen AI-artefakter: ingen deformerte hender/ansikter eller unaturlige proporsjoner.",
       "- Ingen overmettet farge, neon, fantasy eller kitsch.",

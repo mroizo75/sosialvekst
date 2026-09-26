@@ -33,11 +33,13 @@ const buildBrandBlock = (ctx: BrandContext): string => {
 
 const SHARED_RULES = [
   "NO text overlays, NO subtitles, NO floating text, NO captions, NO written words anywhere in the frame.",
+  "Do NOT open on a logo, title card, or company name. The first frame is the hook.",
+  "Show real people in the situation. Do not film empty architecture, empty pools, or product-only shots unless the scene is explicitly a product detail.",
   "Company name or logo ONLY visible when naturally part of the scene: printed on uniforms, signage, vehicles, product packaging, or building facades.",
   "Cinematic quality with smooth, professional camera movements.",
   "Professional, natural lighting that matches the setting.",
   "Background music and ambient sound effects only. NO speech, NO voiceover, NO narration, NO dialogue.",
-  "Modern, clean visual aesthetic suitable for social media marketing.",
+  "Do not invent customer quotes or testimonials.",
 ].join("\n");
 
 const buildSceneByType = (
@@ -66,7 +68,7 @@ const buildSceneByType = (
       const desc = ctx.companyDescription ?? `a ${industry} company`;
       const values = ctx.coreValues?.join(", ") ?? "";
       return {
-        scene: `A professional brand introduction video for ${name} — ${desc}. ${userDescription}. The video conveys trust, expertise, and quality. Show the team at work, the workplace or operations in action, and satisfied interactions.${values ? ` The company's core values (${values}) are reflected through the visuals.` : ""}${usps ? ` Key strengths: ${usps}.` : ""}`,
+        scene: `A short social video for ${name} — ${desc}. ${userDescription}. Open on people in the real situation, not on a logo. Show the experience the audience wants, then the work behind it.${values ? ` The company's core values (${values}) can show through the visuals.` : ""}`,
         camera: "Cinematic dolly and crane shots. Smooth tracking following people at work. Wide establishing shots transitioning to medium and close-up.",
         lighting: "Warm, natural lighting. Golden hour feel for outdoor shots. Clean, bright lighting for indoor workspace shots.",
         audio: "Uplifting, inspiring corporate music with a confident feel. Ambient workplace sounds subtly mixed in.",
@@ -76,7 +78,7 @@ const buildSceneByType = (
     case "service": {
       const serviceList = services || products || "their professional services";
       return {
-        scene: `A service demonstration video for ${name} (${industry}). Showcasing: ${serviceList}. ${userDescription}. The video shows the service being performed professionally — from arrival or preparation, through the work itself, to the impressive end result. A satisfied customer reacts positively. The transformation or value delivered is clearly visible.`,
+        scene: `A service scene for ${name} (${industry}). Show the work in real life: ${serviceList}. ${userDescription}. Open on people in the situation, not on a logo. Show the work and the result. Do not stage a scripted testimonial.`,
         camera: "Dynamic tracking shots following the service in progress. Before-and-after reveals with smooth transitions. Over-the-shoulder shots showing the professional at work.",
         lighting: "Natural, realistic lighting matching the work environment. Clean and bright to emphasize professionalism.",
         audio: "Motivating, upbeat background music. Natural ambient sounds from the work environment mixed subtly.",
@@ -95,7 +97,7 @@ const buildSceneByType = (
     case "testimonial": {
       const audience = ctx.targetAudience ?? "customers";
       return {
-        scene: `An authentic testimonial-style video for ${name} (${industry}). ${userDescription}. The video shows a real-feeling scenario where ${audience} experience the value of ${name}. A person is visibly satisfied, relieved, or impressed after using the product or service. The setting feels genuine and relatable — in their home, office, or relevant environment.`,
+        scene: `A documentary-style scene for ${name} (${industry}). ${userDescription}. Show ${audience} in the real situation. Do not stage a fake testimonial or invent a customer quote. Only reflect a customer story if the description already contains one. The setting should feel lived-in, not like an office ad.`,
         camera: "Intimate medium shots and close-ups. Steady, documentary-style framing. Gentle rack focus between subject and environment.",
         lighting: "Soft, natural window light. Warm and authentic. No harsh studio feel — it should look real and trustworthy.",
         audio: "Gentle, warm acoustic or piano background music. Subtle ambient sounds from the environment.",

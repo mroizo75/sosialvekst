@@ -1,6 +1,7 @@
 import type { BrandRules } from "@/lib/ai/brandRules";
 import { buildBrandSkill } from "@/lib/ai/brandSkillBuilder";
 import { norwegianStyleGuide } from "@/lib/ai/norwegianStyleGuide";
+import type { ContentPillar } from "@/lib/ai/postStrategy";
 import { buildSystemContext } from "@/lib/ai/systemPrompt";
 import type { BrandContext, PostFormat, PostIntent, SocialChannel } from "@/lib/types";
 
@@ -12,6 +13,8 @@ type CopyPromptInput = {
   intent?: PostIntent;
   format?: PostFormat;
   ctaType?: string;
+  contentPillar?: ContentPillar;
+  reelScript?: boolean;
 };
 
 type StructuredPrompt = {
@@ -19,53 +22,68 @@ type StructuredPrompt = {
   user: string;
 };
 
+const PILLAR_INSTRUCTIONS: Record<ContentPillar, string> = {
+  inspiration: "Søyle: inspirasjon. Skap lyst, stemning eller gjenkjennelse. Produktet kan komme etter hooken, eller droppes.",
+  useful: "Søyle: nyttig. Hjelp leseren å velge. Guide, sammenligning, sesong eller konkrete tips. Merkevaren er ikke poenget.",
+  commercial: "Søyle: kommersielt. Vis en konkret mulighet, et sted, et tilbud eller hva man faktisk får. Selg utfallet, ikke funksjonene.",
+  trust: "Søyle: tillit. Forklar hvem som står bak eller hvordan det fungerer, kort og uten brosjyrespråk. Merkenavn kan brukes her, aldri som åpning.",
+};
+
 const INTENT_INSTRUCTIONS: Record<PostIntent, string> = {
-  brand_awareness: "Målet er å styrke merkevaren. Vis hva bedriften står for og hvorfor det betyr noe for målgruppen.",
-  traffic: "Målet er å drive trafikk til nettsiden. Gi nok verdi til at leseren vil vite mer, og referer til nettsiden.",
-  engagement: "Målet er å skape engasjement. Still spørsmål, inviter til diskusjon, og gjør innholdet delbart.",
-  lead_generation: "Målet er å generere henvendelser. Vis konkret verdi og gjør det enkelt å ta kontakt.",
-  authority: "Målet er å vise faglig autoritet. Del unik innsikt, data eller erfaring som posisjonerer bedriften som ekspert.",
-  community: "Målet er å bygge fellesskap. Snakk til og med målgruppen, ikke til dem.",
+  brand_awareness: "Bygg gjenkjennelse gjennom noe leseren har nytte av, ikke gjennom å forklare selskapet.",
+  traffic: "Gi en grunn til å se nærmere. Lenken kommer til slutt, etter verdien.",
+  engagement: "Be om et valg, en lagring eller en deling som passer innholdet.",
+  lead_generation: "Gjør neste steg tydelig, men bare etter at innlegget har gitt noe.",
+  authority: "Lær bort noe konkret leseren kan bruke i en beslutning.",
+  community: "Snakk med leseren. Inviter til et svar, ikke til en kampanje.",
 };
 
 const FORMAT_INSTRUCTIONS: Record<PostFormat, string> = {
-  insight: "Format: Del en overraskende eller viktig innsikt fra bransjen, koblet til bedriftens erfaring.",
-  tip: "Format: Gi et konkret, handlingsorientert tips som leseren kan bruke med en gang.",
-  question: "Format: Still et tankevekkende spørsmål som inviterer til refleksjon og diskusjon.",
-  case_study: "Format: Fortell kort om et konkret resultat, prosjekt eller kundehistorie (anonymiser om nødvendig).",
-  how_to: "Format: Forklar steg-for-steg hvordan man løser et konkret problem.",
-  fact: "Format: Del en interessant fakta eller statistikk, og forklar hva det betyr for målgruppen.",
-  behind_the_scenes: "Format: Vis noe fra den daglige driften, teamet eller prosessen bak produktet/tjenesten.",
-  myth_busting: "Format: Ta tak i en vanlig misforståelse i bransjen og forklar hva som faktisk stemmer.",
-  opinion: "Format: Del et tydelig standpunkt om noe relevant i bransjen. Vær modig, men faglig fundamentert.",
+  insight: "Format: Én konkret observasjon leseren ikke får fra en annonse.",
+  tip: "Format: Ett tips som kan brukes med en gang.",
+  question: "Format: Et ekte valg eller spørsmål, ikke et retorisk salgsspørsmål.",
+  case_study: "Format: Bruk bare en kundehistorie som står i bedriftskonteksten. Hvis ingen finnes, skriv et tips i stedet. Ikke dikte.",
+  how_to: "Format: 2–3 korte punkter som hjelper et valg. Ikke en lang bruksanvisning for tjenesten.",
+  fact: "Format: Ett konkret faktum eller eksempel, og hva det betyr for leseren.",
+  behind_the_scenes: "Format: Vis hvordan det faktisk fungerer, kort. Ikke en firmapresentasjon.",
+  myth_busting: "Format: En vanlig misforståelse, og det som faktisk stemmer. Uten udokumenterte tall.",
+  opinion: "Format: Et tydelig standpunkt leseren kan være enig eller uenig i.",
 };
 
-const buildStandardSystemRules = (companyName: string, websiteUrl: string | undefined, prohibitedTerms: string[]): string[] => [
+const buildStandardSystemRules = (
+  companyName: string,
+  prohibitedTerms: string[],
+  includeWebsite: boolean,
+  websiteUrl: string | undefined,
+): string[] => [
   "UFRAVIKELIGE REGLER:",
-  `1. Alt innhold SKAL handle om ${companyName} og deres virksomhet. Ingen unntak.`,
-  `2. Bedriftsnavnet "${companyName}" SKAL nevnes minst én gang, naturlig integrert.`,
-  "3. Innholdet SKAL referere til bedriftens konkrete produkter, tjenester eller bransjeekspertise.",
-  "4. Skriv ALLTID på korrekt bokmål.",
-  "5. ALDRI generer innhold som kunne passet en hvilken som helst bedrift.",
-  "6. Hver post SKAL ha en tydelig, kontekstuell CTA — ikke generisk «kontakt oss».",
-  "7. Vær SPESIFIKK. Bruk tall, eksempler og konkrete referanser.",
+  "1. Skriv for noen som ikke kjenner merkevaren. Første 1–2 linjer skal stoppe scrolling.",
+  "2. Start med kundens situasjon, sted, valg eller følelse. Ikke med bedriften, produktet eller en funksjon.",
+  `3. «${companyName}» kan nevnes etter at interessen er skapt, bare når det faller naturlig. Aldri i åpningen, og ikke i hvert innlegg.`,
+  "4. Selg utfallet kunden vil ha. Ikke søk, plattform, utvalg, kundeservice eller bookingfunksjoner.",
+  "5. Skriv ALLTID på korrekt bokmål. Menneskelig, direkte, varmt og konkret.",
+  "6. Ikke bruk annonsespråk som kunne stått hos hvem som helst i bransjen.",
+  "7. CTA skal passe akkurat dette innlegget. Ikke «kontakt oss», «les mer» eller «gjør det enklere».",
   `8. Forbudte uttrykk: ${prohibitedTerms.join(", ")}.`,
-  websiteUrl
-    ? `9. Nettsidelinken SKAL inkluderes én gang i posten: ${websiteUrl}`
-    : "9. Hvis nettside finnes i konteksten, inkluder nettsidelink én gang i CTA.",
-  "10. Posten MÅ avsluttes med en komplett setning. Ingen avkapping eller ufullstendige setninger.",
+  "9. Ikke finn på kundehistorier, sitater, prosenter, «best pris» eller «billigere enn andre». Bruk bare historier som står i bedriftskonteksten.",
+  includeWebsite && websiteUrl
+    ? `10. Ta med denne lenken én gang til slutt, uten å skrive «Les mer»: ${websiteUrl}`
+    : "10. Ikke ta med nettadresse. Avslutt med spørsmål, lagring eller deling.",
+  "11. Hashtags er ikke strategien. Maks 3 konkrete tags, eller ingen.",
+  "12. Avslutt med en komplett setning.",
+  "13. Et merkenavn som signatur («Er du …?») bare når det høres naturlig ut. Aldri som første linje.",
 ];
 
 const buildTikTokSystemRules = (companyName: string, prohibitedTerms: string[]): string[] => [
-  "TIKTOK-REGLER (dette er en videocaption, IKKE et blogginnlegg):",
-  `1. Alt innhold SKAL handle om ${companyName}. Bedriftsnavnet KAN nevnes, men er ikke påkrevd.`,
-  "2. Skriv ALLTID på korrekt bokmål.",
-  "3. MAKS 2–3 korte setninger + hashtags. Totalt 10–40 ord. ALDRI mer.",
-  "4. ALDRI inkluder nettadresser eller lenker. TikTok støtter ikke klikkbare lenker i caption.",
-  "5. INGEN formell CTA. Bruk «Følg for mer» eller lignende om det passer, ellers dropp det.",
-  "6. Teksten er en CAPTION til en kort video. Hold det fengende og kort.",
-  `7. Forbudte uttrykk: ${prohibitedTerms.join(", ")}.`,
-  "8. Avslutt med 3–5 relevante hashtags.",
+  "TIKTOK-REGLER (caption til kort video, ikke et innlegg):",
+  "1. Hook i første setning. Ingen logo og ingen intro.",
+  `2. ${companyName} kan nevnes hvis det faller naturlig. Det er ikke påkrevd.`,
+  "3. Skriv ALLTID på korrekt bokmål. 8–30 ord før eventuelle hashtags.",
+  "4. ALDRI nettadresser.",
+  "5. Ingen salgs-CTA. Spørsmål, «lagre» eller «følg for mer» bare hvis det passer.",
+  `6. Forbudte uttrykk: ${prohibitedTerms.join(", ")}.`,
+  "7. Ikke finn på kundehistorier eller udokumenterte påstander.",
+  "8. 0–3 hashtags. Ikke fyll captionen med tags.",
 ];
 
 const buildStandardUserPrompt = (
@@ -74,45 +92,70 @@ const buildStandardUserPrompt = (
   websiteUrl: string | undefined,
   intent: PostIntent,
   format: PostFormat,
-): string[] => [
-  `Skriv en SoMe-post for ${input.channel}.`,
-  `Tema: ${input.topic}.`,
-  "",
-  "STRATEGISK INTENSJON:",
-  INTENT_INSTRUCTIONS[intent],
-  "",
-  "POSTFORMAT:",
-  FORMAT_INSTRUCTIONS[format],
-  "",
-  `Målgruppe: ${input.brandRules.targetAudience}.`,
-  `Skrivestil: ${input.brandRules.toneOfVoice}.`,
-  `Nøkkelbudskap: ${input.brandRules.keyMessages.join(", ")}.`,
-  "",
-  `ANBEFALT CTA-RETNING: ${input.ctaType ?? "Tydelig og kontekstuell oppfordring til handling."}`,
-  "",
-  "KRAV TIL OUTPUT:",
-  `- Posten SKAL være direkte knyttet til ${companyName} og deres virksomhet.`,
-  `- Nevn minst ett spesifikt produkt, tjeneste eller kompetanseområde fra ${companyName}.`,
-  "- Hook: Første setning skal fange oppmerksomhet — innsikt, påstand eller spørsmål.",
-  "- Verdi: Gi leseren noe konkret og nyttig de kan ta med seg.",
-  "- CTA: Avslutt med oppfordring til handling som passer postens strategiske mål.",
-  websiteUrl
-    ? `- Inkluder denne lenken én gang, naturlig i CTA: ${websiteUrl}`
-    : "- Hvis nettside finnes i kontekst, inkluder én konkret lenke i CTA.",
-  "- Ingen hashtagspam (maks 3 relevante hashtags).",
-  "- Avslutt med fullstendig setning og god tegnsetting.",
-  "- Lever KUN selve postteksten. Ingen forklaringer, overskrifter eller metadata.",
-];
+  pillar: ContentPillar,
+): string[] => {
+  const includeWebsite = pillar === "commercial" || pillar === "trust";
+  const lines = [
+    `Skriv en organisk SoMe-post for ${input.channel}.`,
+    `Tema: ${input.topic}.`,
+    `Bedrift i bakgrunnen: ${companyName}. Innlegget skal ikke høres ut som en annonse for dem.`,
+    "",
+    "SØYLE:",
+    PILLAR_INSTRUCTIONS[pillar],
+    "",
+    "INTENSJON:",
+    INTENT_INSTRUCTIONS[intent],
+    "",
+    "FORMAT:",
+    FORMAT_INSTRUCTIONS[format],
+    "",
+    `Målgruppe: ${input.brandRules.targetAudience}.`,
+    `Skrivestil: menneskelig, direkte og varm. Utgangspunkt: ${input.brandRules.toneOfVoice}.`,
+    "",
+    `CTA-RETNING: ${input.ctaType ?? "Et spørsmål, en lagring eller en deling som passer innholdet."}`,
+    "",
+  ];
+
+  if (input.reelScript) {
+    lines.push(
+      "REEL-MANUS:",
+      "- Første linje er hooken. Ingen logo, ingen velkomst, ingen forklaring av tjenesten.",
+      "- Deretter 2–3 korte punkter som hjelper et valg eller bygger lyst.",
+      "- Avslutt med et spørsmål.",
+      "- Skriv teksten folk leser. Ikke kamerainstruks, ikke «scene 1».",
+      "",
+    );
+  }
+
+  lines.push(
+    "KRAV TIL OUTPUT:",
+    "- Hook i de første 1–2 linjene, om kundens verden.",
+    "- Gi leseren en grunn til å se ferdig, lagre, dele eller svare.",
+    "- Produktet kommer naturlig etterpå, eller uteblir.",
+    includeWebsite && websiteUrl
+      ? `- Én lenke til slutt, uten «Les mer»: ${websiteUrl}`
+      : "- Ingen nettadresse.",
+    "- 0–3 hashtags.",
+    "- Luft mellom avsnitt på Facebook og Instagram.",
+    "- Lever KUN postteksten. Ingen forklaringer eller metadata.",
+  );
+
+  return lines;
+};
 
 const buildTikTokUserPrompt = (
   input: CopyPromptInput,
   companyName: string,
   intent: PostIntent,
   format: PostFormat,
+  pillar: ContentPillar,
 ): string[] => [
   "Skriv en KORT videocaption for TikTok.",
   `Tema: ${input.topic}.`,
-  `Bedrift: ${companyName}.`,
+  `Bedrift i bakgrunnen: ${companyName}.`,
+  "",
+  "SØYLE:",
+  PILLAR_INSTRUCTIONS[pillar],
   "",
   "INTENSJON:",
   INTENT_INSTRUCTIONS[intent],
@@ -122,58 +165,62 @@ const buildTikTokUserPrompt = (
   "",
   `Målgruppe: ${input.brandRules.targetAudience}.`,
   "",
+  input.reelScript
+    ? "Hook først. Deretter maks ett kort poeng. Avslutt gjerne med et spørsmål. Ingen intro."
+    : "Første setning er hooken.",
+  "",
   "KRAV TIL OUTPUT:",
-  "- MAKS 2–3 setninger + hashtags. Totalt 10–40 ord før hashtags.",
-  "- Første setning = fengende hook.",
-  "- INGEN nettadresser eller lenker.",
-  "- Avslutt med 3–5 relevante hashtags.",
-  "- Lever KUN captionen. Ingen forklaringer.",
+  "- 8–30 ord før hashtags.",
+  "- INGEN nettadresser.",
+  "- 0–3 hashtags.",
+  "- Lever KUN captionen.",
 ];
 
 export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredPrompt => {
   const brandContext = input.brandContext ?? {};
   const companyName = brandContext.companyName ?? "bedriften";
   const websiteUrl = brandContext.websiteUrl?.trim();
-  const intent = input.intent ?? "brand_awareness";
-  const format = input.format ?? "insight";
+  const intent = input.intent ?? "engagement";
+  const format = input.format ?? "tip";
+  const pillar = input.contentPillar ?? "inspiration";
+  const includeWebsite = pillar === "commercial" || pillar === "trust";
   const channelRules = norwegianStyleGuide.channelSpecific[input.channel] ?? [];
-
   const brandDosAndDonts = brandContext.brandDosAndDonts?.trim();
-
   const isTikTok = input.channel === "tiktok";
 
   const systemLines = [
-    "Du er en senior norsk SoMe-strateg og copywriter som lager innhold som FAKTISK skaper verdi for bedrifter.",
-    "Du lager IKKE generisk AI-innhold som fyller en feed. Du lager innhold folk ville savnet om det forsvant.",
+    "Du er en norsk SoMe-redaktør. Du lager innhold folk vil se ferdig, lagre, dele eller svare på.",
+    "Du lager ikke annonser som forklarer en tjeneste.",
     "",
-    ...(isTikTok ? buildTikTokSystemRules(companyName, input.brandRules.prohibitedTerms) : buildStandardSystemRules(companyName, websiteUrl, input.brandRules.prohibitedTerms)),
+    ...(isTikTok
+      ? buildTikTokSystemRules(companyName, input.brandRules.prohibitedTerms)
+      : buildStandardSystemRules(companyName, input.brandRules.prohibitedTerms, includeWebsite, websiteUrl)),
     "",
-    "ANTI-GENERISK SJEKKLISTE (alle må være oppfylt):",
+    "KVALITETSSJEKK FØR DU LEVERER:",
     ...norwegianStyleGuide.antiGeneric.map((rule, i) => `${i + 1}. ${rule}`),
     "",
-    "SPRÅK OG GRAMMATIKK:",
+    "SPRÅK:",
     ...norwegianStyleGuide.grammar,
     "",
-    "TONE OG STEMME:",
+    "TONE:",
     ...norwegianStyleGuide.tone,
     "",
     ...(isTikTok ? [] : ["STRUKTUR:", ...norwegianStyleGuide.structure, ""]),
-    `KANALSPESIFIKKE REGLER FOR ${input.channel.toUpperCase()} (OBLIGATORISK — posten SKAL følge disse):`,
+    `KANAL: ${input.channel.toUpperCase()}`,
     ...channelRules,
     "",
-    `VIKTIG: Denne posten er KUN for ${input.channel}. Den skal IKKE fungere på andre plattformer.`,
-    `Tilpass lengde, tone, struktur og CTA-stil til ${input.channel}-brukere spesifikt.`,
+    `Tilpass lengde og rytme til ${input.channel}. Ikke skriv en tekst som kunne ligget uendret på en annen plattform.`,
     ...(brandDosAndDonts ? ["", "BEDRIFTENS EGNE RETNINGSLINJER:", brandDosAndDonts] : []),
     "",
     buildBrandSkill(brandContext),
     "",
-    "BEDRIFTSKONTEKST (bruk dette AKTIVT — dette er kjernekunnskapen om bedriften):",
+    "BAKGRUNN OM BEDRIFTEN (brukes som fakta, ikke som manus):",
     buildSystemContext(brandContext),
   ];
 
   const userLines = isTikTok
-    ? buildTikTokUserPrompt(input, companyName, intent, format)
-    : buildStandardUserPrompt(input, companyName, websiteUrl, intent, format);
+    ? buildTikTokUserPrompt(input, companyName, intent, format, pillar)
+    : buildStandardUserPrompt(input, companyName, websiteUrl, intent, format, pillar);
 
   return {
     system: systemLines.join("\n"),

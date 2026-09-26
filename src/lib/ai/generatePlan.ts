@@ -80,6 +80,8 @@ export const generatePlan = async (input: GeneratePlanInput): Promise<GeneratePl
             weekIndex: week,
             dayIndex,
             channel,
+            postsPerWeek: postingDayOffsets.length,
+            hasCustomerStories: (input.brandContext?.customerSuccessStories?.length ?? 0) > 0,
           });
 
           return generatePost({
@@ -93,6 +95,11 @@ export const generatePlan = async (input: GeneratePlanInput): Promise<GeneratePl
             format: strategy.format,
             ctaType: strategy.ctaType,
             imageDirection: strategy.imageDirection,
+            contentPillar: strategy.contentPillar,
+            visualMotif: strategy.visualMotif,
+            reelScript: strategy.reelScript,
+            includeWebsiteLink: strategy.includeWebsiteLink,
+            feedIndex: strategy.feedIndex,
           });
         }),
       );

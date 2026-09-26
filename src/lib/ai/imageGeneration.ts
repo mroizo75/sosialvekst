@@ -361,3 +361,71 @@ export const overlayLogoOnImage = async (
     return undefined;
   }
 };
+
+const escapeXml = (value: string): string =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+
+export const overlayCoverText = async (
+  imageUrl: string,
+  lines: { line1: string; line2: string },
+  userId: string,
+): Promise<string | undefined> => {
+  try {
+    const imageResponse = await fetch(imageUrl);
+    if (!imageResponse.ok) {
+      logger.warn("overlayCoverText: kunne ikke laste bilde", {
+        userId,
+        imageStatus: imageResponse.status,
+      });
+      return undefined;
+    }
+
+    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+    const baseImage = sharp(imageBuffer);
+    const metadata = await baseImage.metadata();
+    const width = metadata.width ?? 1024;
+    const height = metadata.height ?? 1024;
+    const pad = Math.round(width * 0.06);
+    const boxW = Math.round(width * 0.62);
+    const boxH = Math.round(height * 0.2);
+    const boxY = Math.round(height * 0.7);
+    const size1 = Math.round(width * 0.048);
+    const size2 = Math.round(width * 0.034);
+    const textX = pad + Math.round(width * 0.03);
+    const line1Y = boxY + Math.round(boxH * 0.42);
+    const line2Y = boxY + Math.round(boxH * 0.78);
+
+    const svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="${pad}" y="${boxY}" width="${boxW}" height="${boxH}" rx="14" fill="rgba(0,0,0,0.46)"/>
+      <text x="${textX}" y="${line1Y}" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="${size1}" font-weight="700">${escapeXml(lines.line1)}</text>
+      <text x="${textX}" y="${line2Y}" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="${size2}" font-weight="500">${escapeXml(lines.line2)}</text>
+    </svg>`;
+
+    const composited = await baseImage
+      .composite([{ input: Buffer.from(svg) }])
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+
+    const uploaded = await uploadUserFile({
+      userId,
+      fileName: `ai-image-cover-${crypto.randomUUID()}.jpg`,
+      contentType: "image/jpeg",
+      mediaKind: "image",
+      body: new Uint8Array(composited),
+    });
+
+    logger.info("Cover-tekst lagt på bilde", { userId });
+    return uploaded.publicUrl;
+  } catch (error) {
+    logger.warn("overlayCoverText feilet", {
+      userId,
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    return undefined;
+  }
+};

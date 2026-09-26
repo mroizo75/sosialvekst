@@ -57,9 +57,12 @@ export const buildSystemContext = (ctx: BrandContext): string => {
   }
 
   const storyList = listOrEmpty(ctx.customerSuccessStories);
-  if (storyList) {
-    sections.push(section("KUNDEHISTORIER OG REFERANSER", storyList));
-  }
+  sections.push(section(
+    "KUNDEHISTORIER",
+    storyList
+      ? `Bare disse dokumenterte historiene kan brukes. Ikke finn på nye kunder, sitater eller resultater.\n${storyList}`
+      : "Ingen dokumenterte kundehistorier. Ikke finn på kunder, sitater, prosenter eller resultater.",
+  ));
 
   if (ctx.tagline || ctx.slogan) {
     const identityParts: string[] = [];

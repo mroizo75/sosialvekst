@@ -317,6 +317,7 @@ async function regenerateSlots(
         weekIndex: slot.weekIndex,
         dayIndex: slot.dayIndex,
         channel: slot.channel,
+        hasCustomerStories: (brandContext?.customerSuccessStories?.length ?? 0) > 0,
       });
 
       const post = await generatePost({
@@ -331,6 +332,11 @@ async function regenerateSlots(
         format: strategy.format,
         ctaType: strategy.ctaType,
         imageDirection: strategy.imageDirection,
+        contentPillar: strategy.contentPillar,
+        visualMotif: strategy.visualMotif,
+        reelScript: strategy.reelScript,
+        includeWebsiteLink: strategy.includeWebsiteLink,
+        feedIndex: strategy.feedIndex,
       });
 
       const { error } = await admin

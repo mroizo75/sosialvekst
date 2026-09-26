@@ -12,7 +12,7 @@ const CTA_PATTERNS = [
   /ta kontakt/i,
   /les mer/i,
   /del (denne|gjerne|i kommentar)/i,
-  /f[oø]lg oss/i,
+  /f[oø]lg (oss|med)/i,
   /hva (tenker|mener|er|synes) du/i,
   /kom(menter|mentar)/i,
   /bes[oø]k/i,
@@ -22,7 +22,7 @@ const CTA_PATTERNS = [
   /book/i,
   /bestill/i,
   /ring oss/i,
-  /send (oss |en )?melding/i,
+  /send (den|oss |en )/i,
   /sjekk ut/i,
   /neste steg/i,
   /klar for/i,
@@ -32,7 +32,16 @@ const CTA_PATTERNS = [
   /last ned/i,
   /opplev/i,
   /finn ut/i,
+  /finn dagens/i,
   /din erfaring/i,
+  /hvilken/i,
+  /ville du/i,
+  /lagre denne/i,
+  /skriv (det |valget |under)/i,
+  /se utvalget/i,
+  /se hva som finnes/i,
+  /passer deg/i,
+  /spørsmål\?/i,
 ];
 
 const GENERIC_PHRASES = [
@@ -44,7 +53,31 @@ const GENERIC_PHRASES = [
   "vi er stolte av",
   "i dagens marked",
   "en helhetlig losning",
+  "en helhetlig løsning",
+  "spare deg tid og bekymringer",
+  "omfattende utvalg",
+  "omfattende hotellutvalg",
+  "gjøre reisen din enklere",
+  "gjøre det enklere",
+  "knirkefritt",
+  "ta kontakt for en uforpliktende prat",
+  "les mer på nettsiden",
+  "se hvordan vi kan",
 ];
+
+export const UNDOCUMENTED_CLAIM_PATTERNS = [
+  /vi hjalp nylig/i,
+  /vi hjalp en (familie|kunde|par)/i,
+  /best pris/i,
+  /billigere enn (andre|konkurrent)/i,
+  /\d+\s*%\s*billigere/i,
+  /kunden sa/i,
+  /en kunde fortalte/i,
+  /garantert laveste/i,
+];
+
+export const hasUndocumentedClaim = (text: string): boolean =>
+  UNDOCUMENTED_CLAIM_PATTERNS.some((pattern) => pattern.test(text));
 
 const detectCta = (text: string): boolean =>
   CTA_PATTERNS.some((pattern) => pattern.test(text));
@@ -92,12 +125,10 @@ export const calculateQualityScore = (input: QualityScoreInput): QualityScore =>
   const sentenceVariety = scoreSentenceVariety(input.text);
 
   const textLength = input.text.length;
-  const languageBase = textLength > 80 && textLength < 2000 ? 80 : 55;
-  const languageQuality = Math.min(100, languageBase + sentenceVariety * 0.2 - genericCount * 10);
+  const languageBase = textLength > 40 && textLength < 1600 ? 82 : 70;
+  const languageQuality = Math.min(100, languageBase + sentenceVariety * 0.15 - genericCount * 10);
 
-  const brandMatch = companyMentioned
-    ? input.hasBrandMatch ? 95 : 80
-    : input.hasBrandMatch ? 60 : 30;
+  const brandMatch = input.hasBrandMatch ? 90 : 78;
 
   const factualClarity = Math.min(100, 70 + (input.text.match(/\d+/g)?.length ?? 0) * 5);
 

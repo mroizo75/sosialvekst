@@ -15,32 +15,16 @@ type RevisionLoopResult = {
   qualityTotal: number;
 };
 
-const improveText = (text: string, reasons: string[], companyName?: string): string => {
+const improveText = (text: string, reasons: string[]): string => {
   let improved = text;
-
-  const missingCompany = reasons.some((r) => r.includes("Bedriftsnavnet"));
-  if (missingCompany && companyName) {
-    const sentences = improved.split(". ");
-    if (sentences.length >= 2) {
-      sentences[1] = `Hos ${companyName} ${sentences[1].charAt(0).toLowerCase()}${sentences[1].slice(1)}`;
-      improved = sentences.join(". ");
-    } else {
-      improved = `${companyName} presenterer: ${improved}`;
-    }
-  }
 
   const missingCta = reasons.some((r) => r.includes("CTA"));
   if (missingCta) {
-    const ctaOptions = companyName
-      ? [
-          `\n\nHva er din erfaring? Del gjerne i kommentarfeltet.`,
-          `\n\nVil du vite mer om hvordan ${companyName} kan hjelpe? Ta kontakt for en uforpliktende prat.`,
-          `\n\nFolg ${companyName} for flere tips og innsikt.`,
-        ]
-      : [
-          `\n\nHva tenker du? Del gjerne i kommentarfeltet.`,
-          `\n\nFolg oss for flere tips og faglig innsikt.`,
-        ];
+    const ctaOptions = [
+      "\n\nHvilken ville du valgt?",
+      "\n\nLagre denne til senere.",
+      "\n\nSend den til den du vil gjøre det med.",
+    ];
     const ctaIndex = text.length % ctaOptions.length;
     improved = `${improved}${ctaOptions[ctaIndex]}`;
   }
@@ -70,7 +54,7 @@ export const runRevisionLoop = (input: RevisionLoopInput): RevisionLoopResult =>
     }
 
     if (attempt < maxAttempts) {
-      candidate = improveText(candidate, decision.reasons, input.companyName);
+      candidate = improveText(candidate, decision.reasons);
     }
   }
 

@@ -1,75 +1,186 @@
 import type { PostFormat, PostIntent, SocialChannel } from "@/lib/types";
 
+export type ContentPillar = "inspiration" | "useful" | "commercial" | "trust";
+
+export type VisualMotif =
+  | "people"
+  | "beach"
+  | "room"
+  | "breakfast"
+  | "restaurant"
+  | "city"
+  | "activity"
+  | "view"
+  | "nature"
+  | "pool"
+  | "hotel"
+  | "destination"
+  | "guide"
+  | "comparison"
+  | "price";
+
 type PostSlot = {
   weekIndex: number;
   dayIndex: number;
   channel: SocialChannel;
+  postsPerWeek?: number;
+  feedIndex?: number;
+  hasCustomerStories?: boolean;
 };
 
-type PostStrategyResult = {
+export type PostStrategyResult = {
   intent: PostIntent;
   format: PostFormat;
   ctaType: string;
   imageDirection: string;
+  contentPillar: ContentPillar;
+  visualMotif: VisualMotif;
+  reelScript: boolean;
+  includeWebsiteLink: boolean;
+  feedIndex: number;
 };
 
-const INTENT_ROTATION: PostIntent[] = [
-  "authority",
-  "engagement",
-  "brand_awareness",
-  "lead_generation",
-  "traffic",
-  "community",
+const PILLAR_CYCLE: ContentPillar[] = [
+  "inspiration",
+  "useful",
+  "inspiration",
+  "commercial",
+  "useful",
+  "inspiration",
+  "trust",
+  "inspiration",
+  "useful",
+  "commercial",
+  "inspiration",
+  "useful",
+  "inspiration",
+  "trust",
+  "commercial",
+  "inspiration",
+  "useful",
+  "inspiration",
+  "commercial",
+  "trust",
 ];
 
-const FORMAT_ROTATION: PostFormat[] = [
-  "insight",
-  "tip",
-  "question",
-  "case_study",
-  "how_to",
-  "fact",
-  "behind_the_scenes",
-  "myth_busting",
-  "opinion",
+const MOTIF_CYCLE: VisualMotif[] = [
+  "people",
+  "beach",
+  "guide",
+  "restaurant",
+  "city",
+  "comparison",
+  "room",
+  "activity",
+  "breakfast",
+  "view",
+  "price",
+  "nature",
+  "destination",
+  "pool",
+  "restaurant",
+  "hotel",
+  "city",
+  "activity",
 ];
 
-const CTA_MAP: Record<PostIntent, string> = {
-  brand_awareness: "Del denne posten med noen som har nytte av det.",
-  traffic: "Les mer på nettsiden vår (lenke i bio/kommentar).",
-  engagement: "Hva er din erfaring? Del i kommentarfeltet.",
-  lead_generation: "Ta kontakt for en uforpliktende prat om hvordan vi kan hjelpe.",
-  authority: "Følg oss for flere faglige tips og innsikt.",
-  community: "Tagg en kollega som burde se dette.",
+const PILLAR_FORMATS: Record<ContentPillar, PostFormat[]> = {
+  inspiration: ["question", "insight", "opinion"],
+  useful: ["how_to", "tip", "myth_busting", "fact"],
+  commercial: ["fact", "tip"],
+  trust: ["behind_the_scenes", "opinion"],
 };
 
-const IMAGE_DIRECTION_MAP: Record<PostFormat, string> = {
-  insight: "Fotorealistisk scene fra det bedriften faktisk leverer. Ingen tekst i bildet.",
-  tip: "Ett konkret motiv fra virkeligheten kunden ønsker seg. Ingen laptop eller kontor.",
-  question: "Lengsel eller nysgjerrighet gjennom ekte omgivelser. Ingen tekst.",
-  case_study: "Resultat eller opplevelse i ekte setting, ikke et møterom.",
-  how_to: "Handling i relevant miljø. Ingen skrivebordsscene og ingen tekstoverlegg.",
-  fact: "Motivet kommuniserer gjennom sted og detalj, ikke tekst eller infografikk.",
-  behind_the_scenes: "Ekte situasjon ute i felt, kjøkken, hotell eller verksted — ikke kontor.",
-  myth_busting: "Kontrast i virkelige omgivelser, ikke i et møterom.",
-  opinion: "Karakter gjennom sted og atmosfære, ikke et portrett ved PC.",
+const PILLAR_INTENT: Record<ContentPillar, PostIntent> = {
+  inspiration: "engagement",
+  useful: "authority",
+  commercial: "traffic",
+  trust: "brand_awareness",
+};
+
+const PILLAR_CTA: Record<ContentPillar, string[]> = {
+  inspiration: [
+    "Lagre denne til neste gang.",
+    "Send den til den du vil oppleve det med.",
+    "Ville du tatt denne?",
+  ],
+  useful: [
+    "Hvilken ville du valgt? Skriv det under.",
+    "Lagre denne til du skal bestemme deg.",
+    "Send den til den du planlegger med.",
+  ],
+  commercial: [
+    "Se utvalget og finn dagens pris.",
+    "Se hva som finnes akkurat nå.",
+  ],
+  trust: [
+    "Spørsmål? Skriv under, så svarer vi.",
+    "Følg med for flere konkrete tips.",
+  ],
+};
+
+const MOTIF_DIRECTION: Record<VisualMotif, string> = {
+  people: "Mennesker i situasjonen kunden faktisk er i. Ikke et tomt produktbilde.",
+  beach: "Ute i kundens verden, med mennesker og naturlig lys.",
+  room: "Resultat eller detalj sett gjennom et menneske, ikke et tomt interiør.",
+  breakfast: "Et konkret øyeblikk der noen bruker eller nyter det det handler om.",
+  restaurant: "Mennesker sammen med det bedriften handler om. Stemning, ikke bare objektet.",
+  city: "Miljøet rundt kunden, med liv og mennesker.",
+  activity: "Mennesker som gjør noe i praksis, i ekte omgivelser.",
+  view: "Et menneske som ser resultatet, stedet eller arbeidet.",
+  nature: "Omgivelsene, med mennesker synlige. Ikke et tomt postkort.",
+  pool: "Et samlingspunkt med mennesker, ikke et tomt anlegg eller lokale.",
+  hotel: "Stedet eller lokalet med brukere synlige. Ikke bare fasade.",
+  destination: "Helheten av situasjonen, med mennesker i miljøet.",
+  guide: "En tydelig situasjon folk kan lære av, med mennesker. Rolig nedre tredjedel, uten tekst i selve bildet.",
+  comparison: "Ett tydelig valg, med mennesker. Rolig nedre tredjedel, uten tekst i selve bildet.",
+  price: "Hva man faktisk får, vist med mennesker. Rolig nedre tredjedel, uten tekst i selve bildet.",
+};
+
+const channelOffset = (channel: SocialChannel): number => {
+  if (channel === "instagram") return 4;
+  if (channel === "linkedin") return 8;
+  if (channel === "tiktok") return 12;
+  return 0;
+};
+
+const formatForPillar = (
+  pillar: ContentPillar,
+  feedIndex: number,
+  hasCustomerStories: boolean,
+): PostFormat => {
+  if (pillar === "trust" && hasCustomerStories && feedIndex % 2 === 0) {
+    return "case_study";
+  }
+  const formats = PILLAR_FORMATS[pillar];
+  return formats[feedIndex % formats.length];
 };
 
 export const assignPostStrategy = (slot: PostSlot): PostStrategyResult => {
-  const globalIndex = slot.weekIndex * 3 + slot.dayIndex;
-  const channelOffset = slot.channel === "facebook" ? 0 : slot.channel === "instagram" ? 1 : slot.channel === "linkedin" ? 2 : 3;
+  const postsPerWeek = Math.max(1, slot.postsPerWeek ?? 3);
+  const feedIndex = slot.feedIndex ?? slot.weekIndex * postsPerWeek + slot.dayIndex;
+  const contentPillar = PILLAR_CYCLE[feedIndex % PILLAR_CYCLE.length];
+  const visualMotif = MOTIF_CYCLE[(feedIndex + channelOffset(slot.channel)) % MOTIF_CYCLE.length];
+  const ctaOptions = PILLAR_CTA[contentPillar];
+  const reelScript = (slot.channel === "instagram" || slot.channel === "tiktok")
+    && (contentPillar === "useful" || contentPillar === "inspiration");
 
-  const intentIndex = (globalIndex + channelOffset) % INTENT_ROTATION.length;
-  const formatIndex = (globalIndex * 3 + channelOffset * 2) % FORMAT_ROTATION.length;
-
-  const intent = INTENT_ROTATION[intentIndex];
-  const format = FORMAT_ROTATION[formatIndex];
+  const imageDirection = [
+    MOTIF_DIRECTION[visualMotif],
+    reelScript ? "Vertikalt format 9:16, reel. Motivet skal fungere som åpningsbilde uten logo." : null,
+    "Ikke gjenta samme type motiv flere ganger på rad.",
+  ].filter(Boolean).join(" ");
 
   return {
-    intent,
-    format,
-    ctaType: CTA_MAP[intent],
-    imageDirection: IMAGE_DIRECTION_MAP[format],
+    intent: PILLAR_INTENT[contentPillar],
+    format: formatForPillar(contentPillar, feedIndex, slot.hasCustomerStories ?? false),
+    ctaType: ctaOptions[feedIndex % ctaOptions.length],
+    imageDirection,
+    contentPillar,
+    visualMotif,
+    reelScript,
+    includeWebsiteLink: contentPillar === "commercial" || contentPillar === "trust",
+    feedIndex,
   };
 };
 

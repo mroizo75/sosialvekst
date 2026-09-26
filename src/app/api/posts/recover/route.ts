@@ -110,8 +110,9 @@ const recoverPost = async (
 
     const strategy = assignPostStrategy({
       weekIndex: 0,
-      dayIndex: 0,
+      dayIndex: new Date(post.scheduled_at).getUTCDate() % 7,
       channel: post.channel,
+      hasCustomerStories: (brandContext.customerSuccessStories?.length ?? 0) > 0,
     });
 
     const generated = await generatePost({
@@ -126,6 +127,11 @@ const recoverPost = async (
       format: strategy.format,
       ctaType: strategy.ctaType,
       imageDirection: strategy.imageDirection,
+      contentPillar: strategy.contentPillar,
+      visualMotif: strategy.visualMotif,
+      reelScript: strategy.reelScript,
+      includeWebsiteLink: strategy.includeWebsiteLink,
+      feedIndex: strategy.feedIndex,
     });
 
     const { error } = await admin

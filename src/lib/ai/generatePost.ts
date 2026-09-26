@@ -1,11 +1,12 @@
 import { buildNorwegianCopyPrompt } from "@/lib/ai/copyPromptBuilderNo";
 import { mergeBrandRules } from "@/lib/ai/brandRules";
 import { generateImageToVideo, isFalAvailable } from "@/lib/ai/falClient";
-import { generateProfessionalImage, overlayLogoOnImage } from "@/lib/ai/imageGeneration";
+import { generateProfessionalImage, overlayCoverText, overlayLogoOnImage } from "@/lib/ai/imageGeneration";
 import { generateProductImage } from "@/lib/ai/imageEngine";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
-import { buildCarouselVariantPrompt, buildVisualBrief } from "@/lib/ai/visualDirection";
+import { buildCarouselVariantPrompt, buildCoverLines, buildVisualBrief } from "@/lib/ai/visualDirection";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
+import type { ContentPillar, VisualMotif } from "@/lib/ai/postStrategy";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
 import { uploadUserFile, listUserFiles } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
@@ -34,6 +35,11 @@ type GeneratePostInput = {
   imageDirection?: string;
   imageProfile?: ImageProfile;
   skipVideo?: boolean;
+  contentPillar?: ContentPillar;
+  visualMotif?: VisualMotif;
+  reelScript?: boolean;
+  includeWebsiteLink?: boolean;
+  feedIndex?: number;
 };
 
 type ImageQualityPolicy = {
@@ -78,9 +84,8 @@ const ownedImageCache = new Map<string, CachedOwnedImages>();
 const ownedImageCycle = new Map<string, OwnedImageCycle>();
 const hybridSourceToggle = new Map<string, boolean>();
 
-const fallbackText = (topic: string, companyName?: string): string => {
-  const name = companyName ?? "din bedrift";
-  return `${name} deler innsikt om ${topic}: slik bygger vi tillit med relevant og nyttig innhold. Hva er ditt neste steg?`;
+const fallbackText = (topic: string): string => {
+  return `${topic}?\n\nHer er det verdt å se nærmere på før du bestemmer deg.\n\nHvilken ville du valgt?`;
 };
 
 const getMaxOutputTokens = (channel: SocialChannel): number => {
@@ -95,13 +100,19 @@ const containsWebsiteUrl = (text: string, websiteUrl?: string): boolean => {
   return text.includes(websiteUrl);
 };
 
-const ensureWebsiteLinkInText = (text: string, websiteUrl?: string): string => {
-  if (!websiteUrl) return text.trim();
+const ensureWebsiteLinkInText = (
+  text: string,
+  websiteUrl: string | undefined,
+  includeWebsiteLink: boolean,
+  pillar?: ContentPillar,
+): string => {
+  if (!includeWebsiteLink || !websiteUrl) return text.trim();
   if (containsWebsiteUrl(text, websiteUrl)) return text.trim();
 
   const trimmed = text.trim();
   const withEnding = /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
-  return `${withEnding}\n\nLes mer: ${websiteUrl}`;
+  const lead = pillar === "trust" ? "Mer om hvordan det fungerer" : "Se utvalget";
+  return `${withEnding}\n\n${lead}: ${websiteUrl}`;
 };
 
 const ensureCompleteEnding = (text: string): string => {
@@ -222,7 +233,7 @@ const shouldUseOwnedInHybrid = (userId: string): boolean => {
 const createText = async (input: GeneratePostInput): Promise<string> => {
   const client = getOpenAiClient();
   if (!client) {
-    return fallbackText(input.topic, input.brandContext?.companyName);
+    return fallbackText(input.topic);
   }
 
   const brandRules = mergeBrandRules({
@@ -241,6 +252,8 @@ const createText = async (input: GeneratePostInput): Promise<string> => {
     intent: input.intent,
     format: input.format,
     ctaType: input.ctaType,
+    contentPillar: input.contentPillar,
+    reelScript: input.reelScript,
   });
 
   const response = await client.responses.create({
@@ -252,7 +265,7 @@ const createText = async (input: GeneratePostInput): Promise<string> => {
     ],
   });
 
-  return response.output_text || fallbackText(input.topic, input.brandContext?.companyName);
+  return response.output_text || fallbackText(input.topic);
 };
 
 const createImageUrl = async (input: GeneratePostInput): Promise<string | undefined> => {
@@ -300,6 +313,9 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     brandContext: input.brandContext,
     imageDirection: input.imageDirection,
     format: input.format,
+    visualMotif: input.visualMotif,
+    feedIndex: input.feedIndex,
+    reelScript: input.reelScript,
   });
 
   let imageUrl = await generateProfessionalImage({
@@ -307,6 +323,25 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     prompt: imagePrompt,
     profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
   });
+
+  if (imageUrl) {
+    const brief = buildVisualBrief({
+      topic: input.topic,
+      brandContext: input.brandContext,
+      format: input.format,
+      motif: input.visualMotif,
+      feedIndex: input.feedIndex,
+    });
+    const cover = buildCoverLines({
+      motif: input.visualMotif,
+      placeName: brief.placeName,
+      topic: input.topic,
+    });
+    if (cover) {
+      const withCover = await overlayCoverText(imageUrl, cover, input.userId);
+      if (withCover) imageUrl = withCover;
+    }
+  }
 
   if (imageUrl && logoUrl) {
     const branded = await overlayLogoOnImage(imageUrl, logoUrl, input.userId);
@@ -393,7 +428,9 @@ const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<string
 const shouldGenerateCarousel = (
   channel: SocialChannel,
   format?: PostFormat,
+  reelScript?: boolean,
 ): boolean => {
+  if (reelScript) return false;
   if (channel !== "instagram") return false;
   if (!format) return true;
   if (format === "question" || format === "opinion") return false;
@@ -555,7 +592,7 @@ const createVideoFromImage = async (
 };
 
 export const generatePost = async (input: GeneratePostInput): Promise<PostDraft> => {
-  let rawText = fallbackText(input.topic, input.brandContext?.companyName);
+  let rawText = fallbackText(input.topic);
   try {
     rawText = await createText(input);
   } catch (error) {
@@ -585,7 +622,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   }
 
   let additionalImageUrls: string[] | undefined;
-  if (imageUrl && shouldGenerateCarousel(input.channel, input.format)) {
+  if (imageUrl && shouldGenerateCarousel(input.channel, input.format, input.reelScript)) {
     const carouselBrandRules = mergeBrandRules({
       targetAudience: input.brandContext?.targetAudience,
       brandVoice: input.brandContext?.brandVoice,
@@ -601,6 +638,9 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       brandContext: input.brandContext,
       imageDirection: input.imageDirection,
       format: input.format,
+      visualMotif: input.visualMotif,
+      feedIndex: input.feedIndex,
+      reelScript: false,
     });
     additionalImageUrls = await generateCarouselImages(input, carouselPrompt, imageUrl);
     if (additionalImageUrls.length > 0) {
@@ -623,7 +663,12 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     maxAttempts: 2,
   });
   const normalizedText = ensureCompleteEnding(
-    ensureWebsiteLinkInText(revision.finalText, websiteUrl),
+    ensureWebsiteLinkInText(
+      revision.finalText,
+      websiteUrl,
+      input.includeWebsiteLink ?? false,
+      input.contentPillar,
+    ),
   );
   const decision = evaluatePolicy({
     text: normalizedText,
