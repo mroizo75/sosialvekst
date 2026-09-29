@@ -44,7 +44,7 @@ const escapeXml = (value: string): string =>
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 
-const wrap = (value: string, maxChars: number, maxLines: number): string[] => {
+const wrapWords = (value: string, maxChars: number): string[] => {
   const words = value.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
   const lines: string[] = [];
   let current = "";
@@ -58,7 +58,26 @@ const wrap = (value: string, maxChars: number, maxLines: number): string[] => {
     }
   }
   if (current) lines.push(current);
-  return lines.slice(0, maxLines);
+  return lines;
+};
+
+const wrap = (value: string, maxChars: number, maxLines: number): string[] =>
+  wrapWords(value, maxChars).slice(0, maxLines);
+
+const fitSubline = (value: string): { lines: string[]; font: number } => {
+  const clean = value.replace(/\s+/g, " ").trim();
+  if (!clean) return { lines: [], font: 50 };
+  for (let font = 50; font >= 32; font -= 2) {
+    const chars = Math.max(12, Math.floor((WIDTH - 200) / (font * 0.6)));
+    const lines = wrapWords(clean, chars);
+    if (lines.length <= 2) return { lines, font };
+  }
+  const words = clean.split(" ").filter(Boolean);
+  const mid = Math.ceil(words.length / 2);
+  return {
+    lines: [words.slice(0, mid).join(" "), words.slice(mid).join(" ")].filter(Boolean),
+    font: 32,
+  };
 };
 
 const palette = (primary?: string): { panel: string; ink: string; muted: string } => {
@@ -133,9 +152,9 @@ const photoOverlaySvg = (
 ): string => {
   const font = "Segoe UI, Arial, Helvetica, sans-serif";
   const ink = photoTextColors(colors);
-  const subFont = 50;
-  const subChars = Math.floor((WIDTH - 184) / (subFont * 0.62));
-  const subLines = wrap(subline, subChars, 2);
+  const fitted = fitSubline(subline);
+  const subFont = fitted.font;
+  const subLines = fitted.lines;
   const titleFont = 120;
   const titleLines = wrap(title, 12, 2);
   const creditLine = credit?.trim() ?? "";

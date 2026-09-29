@@ -185,6 +185,22 @@ describe("slideDesign", () => {
     expect(resolveSlideLayout("instagram", "guide", 1)).toBe("card");
   });
 
+  it("beholder en hel undertittel fra design-svaret", () => {
+    const parsed = parseSocialDesign(
+      JSON.stringify({
+        hook: "Kvelden er rolig i Gouvia.",
+        coverTitle: "Gouvia",
+        coverSubline: "Rolig område med marina og gode restauranter.",
+        question: "Hvor vil du sitte?",
+        cta: "Hva velger du?",
+        cards: [],
+      }),
+      "headline",
+    );
+
+    expect(parsed?.coverSubline).toBe("Rolig område med marina og gode restauranter.");
+  });
+
   it("viser hele undertittelen i stor tekst, med kreditering", () => {
     const svg = buildSlideSvg({
       photo: Buffer.alloc(0),

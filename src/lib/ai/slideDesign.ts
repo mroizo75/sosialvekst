@@ -102,10 +102,10 @@ export const parseSocialDesign = (raw: string, mode: "guide" | "headline"): Soci
   if (!record) return null;
 
   const coverTitle = clampWords(String(record.coverTitle ?? ""), 4, 28);
-  const coverSubline = clampWords(String(record.coverSubline ?? ""), 14, 64);
+  const coverSubline = clampWords(String(record.coverSubline ?? ""), 16, 140);
   const rawHook = String(record.hook ?? "").replace(/\s+/g, " ").trim();
   const hook = rawHook.endsWith("?") ? "" : clampWords(rawHook, 22, 140);
-  const question = clampWords(String(record.question ?? ""), 10, 48);
+  const question = clampWords(String(record.question ?? ""), 16, 120);
   const cta = clampWords(String(record.cta ?? ""), 6, 32);
   if (!coverTitle || !coverSubline) return null;
 
@@ -163,10 +163,12 @@ export const placeGuideCopy = (design: SocialDesign, placeName: string): SocialD
   const question = design.question && !sales.test(design.question)
     ? design.question
     : `Hvor vil du bo i ${placeName}?`;
+  const written = design.coverSubline.trim();
+  const coverSubline = written && !sales.test(written) ? written : question;
   return {
     ...design,
     coverTitle: placeName,
-    coverSubline: question,
+    coverSubline,
     question,
     cta: design.cta && !sales.test(design.cta) ? design.cta : "Hvilken ville du valgt?",
   };
@@ -234,6 +236,7 @@ const designUserPrompt = (input: DesignInput, mode: "guide" | "headline", issues
   const travelLines = [
     "hook er én setning, ikke et spørsmål, og konkret om stedet.",
     "coverTitle er kun stedsnavnet. Aldri hotell, downtown, pris eller bestill.",
+    "coverSubline er én ferdig setning på maks 12 ord om stedet. Hele setningen skal få plass på bildet. Ikke kutt den.",
     "question kommer rett etter hook og er et valg mellom områder i det låste stedet. cta skal være et spørsmål, uten nettadresse.",
     mode === "guide"
       ? [
@@ -250,6 +253,7 @@ const designUserPrompt = (input: DesignInput, mode: "guide" | "headline", issues
   const genericLines = [
     "hook er én setning, ikke et spørsmål, og konkret om temaet i kundens fag. Ikke et stedsnavn.",
     "coverTitle er temaet i 1–4 ord. Ikke et sted.",
+    "coverSubline er én ferdig setning på maks 12 ord i kundens fag. Hele setningen skal få plass på bildet. Ikke kutt den.",
     "question er et konkret valg i kundens verden. cta skal være et spørsmål, uten nettadresse.",
     mode === "guide"
       ? [
@@ -285,6 +289,7 @@ export const createSocialDesign = async (input: DesignInput): Promise<SocialDesi
           content: [
             "Du lager teksten som skal stå PÅ et ferdig SoMe-design, ikke en annonse.",
             "Svar kun med JSON.",
+            "coverSubline er én ferdig setning som kan leses alene. Ikke stopp midt i setningen.",
             "Konkret, kort, norsk bokmål. Ingen priser, prosenter, «best» eller oppdiktede kunder.",
             "Teksten skal hjelpe leseren å velge, i kundens verden, ikke forklare bedriftens funksjoner.",
           ].join(" "),

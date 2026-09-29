@@ -107,6 +107,8 @@ const visualLines = (visual?: CopyVisual): string[] => {
     `Scene: ${visual.scene}`,
     `Overlay-tittel: ${visual.overlayTitle}`,
     `Overlay-undertekst: ${visual.overlaySubline}`,
+    "Overlay-underteksten er en hel setning. Gjenta den ikke i avkuttet form.",
+    "Ikke skriv fotografkreditt. Den settes inn etter hashtags.",
     "Nevn stedet hvis det finnes. Beskriv bare det scenen viser. Ikke motsi tittelen eller underteksten.",
     "",
   ];

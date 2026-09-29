@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { assembleCaption } from "@/lib/ai/generatePost";
 import { buildPlaceQuery, formatPhotoCredits, placeSearchQueries, rankPlacePhotos } from "@/lib/ai/placePhoto";
 
 const payload = {
@@ -57,6 +58,14 @@ describe("placePhoto", () => {
     expect(photos).toHaveLength(1);
     expect(photos[0]?.imageUrl).toBe("https://example.com/town.jpg");
     expect(photos[0]?.credit).toBe("Foto: Michael Cavén, CC BY 2.0");
+
+    const caption = assembleCaption({
+      body: "Kvelden ligger over gaten\n#gouvia #kveld",
+      link: "https://www.sydenklar.no/",
+      credits: photos[0]?.credit,
+    });
+    expect(caption.indexOf("#gouvia")).toBeLessThan(caption.indexOf("Foto:"));
+    expect(caption.endsWith("Foto: Michael Cavén, CC BY 2.0")).toBe(true);
   });
 
   it("hopper over avkuttede fotografnavn og samler kreditering på én linje", () => {

@@ -203,6 +203,11 @@ export type CaptionAssembly = {
   credits?: string;
 };
 
+export const placeCreditLine = (items: PhotoAttribution[]): string => {
+  if (items.length === 1) return photoCreditRecord(items[0]);
+  return formatPhotoCredits(items);
+};
+
 export const assembleCaption = ({ body, link, hashtags, credits }: CaptionAssembly): string => {
   const combined = `${body}${hashtags?.trim() ? `\n${hashtags.trim()}` : ""}`;
   const linked = ensureWebsiteLinkInText(combined, link?.trim(), Boolean(link?.trim()));
@@ -1041,7 +1046,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   const creditedText = assembleCaption({
     body: revision.finalText,
     link: input.includeWebsiteLink ? websiteUrl : undefined,
-    credits: formatPhotoCredits(imageInput.photoCredits ?? []) || undefined,
+    credits: placeCreditLine(imageInput.photoCredits ?? []) || undefined,
   });
   const decision = evaluatePolicy({
     text: creditedText,
