@@ -10,7 +10,7 @@ import { buildCarouselVariantPrompt, buildVisualBrief, type VisualBrief } from "
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import type { ContentPillar, VisualMotif } from "@/lib/ai/postStrategy";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
-import { findPlacePhoto } from "@/lib/ai/placePhoto";
+import { findPlacePhoto, formatPhotoCredits, photoCreditRecord, type PhotoAttribution } from "@/lib/ai/placePhoto";
 import {
   buildPhotoPrompt,
   buildPhotoSubject,
@@ -54,7 +54,7 @@ type GeneratePostInput = {
   includeWebsiteLink?: boolean;
   feedIndex?: number;
   socialDesign?: SocialDesign;
-  photoCredits?: string[];
+  photoCredits?: PhotoAttribution[];
   placePhotoUsed?: Set<string>;
   placeLook?: string | null;
 };
@@ -135,6 +135,7 @@ const ensureWebsiteLinkInText = (
 const ensureCompleteEnding = (text: string): string => {
   const trimmed = text.trim();
   if (!trimmed) return trimmed;
+  if (/https?:\/\/\S+$/.test(trimmed)) return trimmed;
   if (/[.!?]$/.test(trimmed)) return trimmed;
   return `${trimmed}.`;
 };
@@ -355,7 +356,7 @@ const renderDesignedSlide = async (
   const onPhoto = design.mode === "guide" || Boolean(brief.placeName) || brief.world === "travel";
   const layout = resolveSlideLayout(input.channel, design.mode, slideIndex, onPhoto);
   let photo: Buffer | undefined;
-  let credit: string | undefined;
+  let attribution: PhotoAttribution | undefined;
   if (brief.placeName) {
     const subject = slideIndex > 0 ? design.cards[slideIndex - 1]?.title : undefined;
     const found = await findPlacePhoto(brief.placeName, subject, input.placePhotoUsed ?? new Set());
@@ -367,7 +368,7 @@ const renderDesignedSlide = async (
       return undefined;
     }
     photo = found.bytes;
-    credit = found.credit;
+    attribution = found.attribution;
   } else if (brief.world === "travel") {
     logger.warn("Reiseinnlegg uten stedsnavn, hopper over oppdiktet bilde", {
       topic: input.topic,
@@ -412,8 +413,8 @@ const renderDesignedSlide = async (
     mediaKind: "image",
     body: new Uint8Array(jpeg),
   });
-  if (credit && input.photoCredits && !input.photoCredits.includes(credit)) {
-    input.photoCredits.push(credit);
+  if (attribution && input.photoCredits && !input.photoCredits.some((item) => photoCreditRecord(item) === photoCreditRecord(attribution))) {
+    input.photoCredits.push(attribution);
   }
   return uploaded.publicUrl;
 };
@@ -900,6 +901,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     imageUrl,
     companyName,
     maxAttempts: 2,
+    guideMode: socialDesign?.mode === "guide",
   });
   const normalizedText = ensureCompleteEnding(
     ensureWebsiteLinkInText(
@@ -909,8 +911,9 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       input.contentPillar,
     ),
   );
-  const creditedText = imageInput.photoCredits?.length
-    ? `${normalizedText}\n\n${imageInput.photoCredits.join("\n")}`
+  const creditLine = formatPhotoCredits(imageInput.photoCredits ?? []);
+  const creditedText = creditLine
+    ? `${normalizedText}\n\n${creditLine}`
     : normalizedText;
   const decision = evaluatePolicy({
     text: creditedText,
@@ -925,6 +928,8 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     text: creditedText,
     imageUrl,
     additionalImageUrls: additionalImageUrls?.length ? additionalImageUrls : undefined,
+    imageCredit: imageInput.photoCredits?.[0] ? photoCreditRecord(imageInput.photoCredits[0]) : undefined,
+    additionalImageCredits: imageInput.photoCredits?.slice(1).map(photoCreditRecord),
     videoUrl,
     status: decision.status,
     quality: decision.quality,

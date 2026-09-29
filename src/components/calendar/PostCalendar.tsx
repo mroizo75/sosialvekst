@@ -47,6 +47,15 @@ type CalendarView = "month" | "week";
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
+const osloHour = (iso: string): number => {
+  const hour = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Oslo",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(iso));
+  return Number(hour) % 24;
+};
+
 const getIsoWeekNumber = (date: Date): number => {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   const day = d.getUTCDay() || 7;
@@ -126,6 +135,7 @@ const PostCardMini = ({ post, onClick, onDragStart, onDragEnd, isProcessing }: P
   const time = new Date(post.scheduledAt).toLocaleTimeString(dateLocale, {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "Europe/Oslo",
   });
 
   if (post.status === "generating") {
@@ -1952,7 +1962,7 @@ export const PostCalendar = () => {
                   const dateKey = toLocalDateKey(day);
                   const dayPosts = postsByDate.get(dateKey) ?? [];
                   const hourPosts = dayPosts.filter(
-                    (p) => new Date(p.scheduledAt).getHours() === hour,
+                    (p) => osloHour(p.scheduledAt) === hour,
                   );
 
                   return (

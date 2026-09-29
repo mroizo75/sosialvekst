@@ -11,12 +11,14 @@ type DbPostRow = {
   image_url: string | null;
   video_url: string | null;
   quality_score: PostDraft["quality"];
+  image_credit?: string | null;
 };
 
 type DbPostMediaRow = {
   post_id: string;
   file_url: string;
   sort_order: number;
+  credit?: string | null;
 };
 
 const normalizeR2Url = (url: string | null): string | undefined => {
@@ -41,6 +43,7 @@ const toPostDraft = (row: DbPostRow): PostDraft => ({
   text: row.text_content,
   imageUrl: normalizeR2Url(row.image_url),
   videoUrl: row.video_url ?? undefined,
+  imageCredit: row.image_credit ?? undefined,
   quality: row.quality_score,
 });
 
@@ -52,16 +55,21 @@ const attachAdditionalImages = (
     return posts;
   }
   const mediaByPost = new Map<string, string[]>();
+  const creditsByPost = new Map<string, string[]>();
   for (const row of mediaRows) {
     const normalized = normalizeR2Url(row.file_url);
     if (!normalized) continue;
     const existing = mediaByPost.get(row.post_id) ?? [];
     existing.push(normalized);
     mediaByPost.set(row.post_id, existing);
+    const credits = creditsByPost.get(row.post_id) ?? [];
+    credits.push(row.credit ?? "");
+    creditsByPost.set(row.post_id, credits);
   }
   return posts.map((post) => ({
     ...post,
     additionalImageUrls: mediaByPost.get(post.id) ?? [],
+    additionalImageCredits: creditsByPost.get(post.id) ?? [],
   }));
 };
 
@@ -155,7 +163,7 @@ export const listPosts = async (userId: string, workspaceId?: string): Promise<P
   const supabase = await createSupabaseServerClient();
   let query = supabase
     .from("posts")
-    .select("id, channel, status, scheduled_at, text_content, image_url, video_url, quality_score")
+    .select("id, channel, status, scheduled_at, text_content, image_url, video_url, image_credit, quality_score")
     .eq("user_id", userId);
   if (workspaceId) query = query.eq("workspace_id", workspaceId);
   const { data, error } = await query.order("scheduled_at", { ascending: true });
@@ -171,7 +179,7 @@ export const listPosts = async (userId: string, workspaceId?: string): Promise<P
 
   const { data: mediaData, error: mediaError } = await supabase
     .from("post_media_assets")
-    .select("post_id, file_url, sort_order")
+    .select("post_id, file_url, sort_order, credit")
     .in("post_id", posts.map((post) => post.id))
     .order("sort_order", { ascending: true });
 
@@ -186,7 +194,7 @@ export const getPostById = async (userId: string, postId: string): Promise<PostD
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("posts")
-    .select("id, channel, status, scheduled_at, text_content, image_url, video_url, quality_score")
+    .select("id, channel, status, scheduled_at, text_content, image_url, video_url, image_credit, quality_score")
     .eq("user_id", userId)
     .eq("id", postId)
     .maybeSingle();
@@ -201,7 +209,7 @@ export const getPostById = async (userId: string, postId: string): Promise<PostD
   const post = toPostDraft(data as DbPostRow);
   const { data: mediaData, error: mediaError } = await supabase
     .from("post_media_assets")
-    .select("post_id, file_url, sort_order")
+    .select("post_id, file_url, sort_order, credit")
     .eq("post_id", postId)
     .order("sort_order", { ascending: true });
 
@@ -222,13 +230,14 @@ export const savePost = async (userId: string, post: PostDraft): Promise<PostDra
       text_content: post.text,
       image_url: post.imageUrl ?? null,
       video_url: post.videoUrl ?? null,
+      image_credit: post.imageCredit ?? null,
       status: post.status,
       quality_score: post.quality,
       updated_at: new Date().toISOString(),
     })
     .eq("user_id", userId)
     .eq("id", post.id)
-    .select("id, channel, status, scheduled_at, text_content, image_url, video_url, quality_score")
+    .select("id, channel, status, scheduled_at, text_content, image_url, video_url, image_credit, quality_score")
     .single();
 
   if (error) {
@@ -238,7 +247,7 @@ export const savePost = async (userId: string, post: PostDraft): Promise<PostDra
   const savedPost = toPostDraft(data as DbPostRow);
   const { data: mediaData, error: mediaError } = await supabase
     .from("post_media_assets")
-    .select("post_id, file_url, sort_order")
+    .select("post_id, file_url, sort_order, credit")
     .eq("post_id", post.id)
     .order("sort_order", { ascending: true });
 
@@ -254,6 +263,7 @@ export const setPostAdditionalImages = async (
   userId: string,
   postId: string,
   imageUrls: string[],
+  credits?: Array<string | undefined>,
 ): Promise<void> => {
   const supabase = await createSupabaseServerClient();
   const { data: postRow, error: postError } = await supabase
@@ -284,6 +294,7 @@ export const setPostAdditionalImages = async (
     post_id: postId,
     file_url: url,
     sort_order: index,
+    credit: credits?.[index] ?? null,
   }));
 
   const { error: insertError } = await supabase

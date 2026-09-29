@@ -1,8 +1,14 @@
 import { logger } from "@/lib/logger";
 
+export type PhotoAttribution = {
+  creator: string;
+  license: string;
+};
+
 export type PlacePhotoPick = {
   imageUrl: string;
   credit: string;
+  attribution: PhotoAttribution;
 };
 
 type OpenverseResult = {
@@ -95,6 +101,30 @@ const haystack = (result: OpenverseResult): string => {
   return fold(`${result.title ?? ""} ${tags}`);
 };
 
+const creatorIsComplete = (creator: string): boolean => {
+  const name = creator.trim();
+  if (!name) return false;
+  if (name.includes("...") || name.includes("…")) return false;
+  return true;
+};
+
+export const formatPhotoCredits = (items: PhotoAttribution[]): string => {
+  const usable = items.filter((item) => item.license.trim());
+  if (usable.length === 0) return "";
+  const licenses = new Set(usable.map((item) => item.license));
+  if (licenses.size === 1) {
+    const names = usable.map((item) => item.creator.trim()).filter(Boolean);
+    const license = usable[0]?.license ?? "";
+    return names.length > 0 ? `Foto: ${names.join(", ")} – ${license}` : `Foto: ${license}`;
+  }
+  return `Foto: ${usable.map((item) => (
+    item.creator.trim() ? `${item.creator.trim()} (${item.license})` : item.license
+  )).join(", ")}`;
+};
+
+export const photoCreditRecord = (item: PhotoAttribution): string =>
+  item.creator.trim() ? `Foto: ${item.creator.trim()}, ${item.license}` : `Foto: ${item.license}`;
+
 const licenseCredit = (license: string, version?: string): string | null => {
   if (license === "cc0") return "CC0";
   if (license === "pdm") return "Public domain";
@@ -129,12 +159,13 @@ export const rankPlacePhotos = (payload: unknown, place: string, subject?: strin
       const width = result.width ?? 0;
       const height = result.height ?? 0;
       if (!imageUrl || !creditName || result.mature) return null;
-      if (license === "by" && !creator) return null;
+      if (license === "by" && (!creator || !creatorIsComplete(creator))) return null;
+      if (creator && !creatorIsComplete(creator)) return null;
       if (width < MIN_WIDTH || height < MIN_HEIGHT) return null;
       if (BLOCKED_TITLE.test(result.title ?? "")) return null;
       if (!matchesPlace(text, place) || !matchesSubject(text, subject)) return null;
-      const credit = creator ? `Foto: ${creator}, ${creditName}` : `Foto: ${creditName}`;
-      return { imageUrl, credit };
+      const attribution = { creator: creator ?? "", license: creditName };
+      return { imageUrl, credit: photoCreditRecord(attribution), attribution };
     })
     .filter((item): item is PlacePhotoPick => item !== null);
 };
@@ -160,7 +191,7 @@ export const findPlacePhoto = async (
   place: string,
   subject: string | undefined,
   used: Set<string>,
-): Promise<{ bytes: Buffer; credit: string } | null> => {
+): Promise<{ bytes: Buffer; credit: string; attribution: PhotoAttribution } | null> => {
   for (const attempt of placeSearchQueries(place, subject)) {
     const cacheKey = `${attempt.query}|${attempt.subject ?? ""}`;
     let photos = cache.get(cacheKey);
@@ -191,7 +222,7 @@ export const findPlacePhoto = async (
       const bytes = await downloadPhoto(photo.imageUrl);
       if (!bytes) continue;
       used.add(photo.imageUrl);
-      return { bytes, credit: photo.credit };
+      return { bytes, credit: photo.credit, attribution: photo.attribution };
     }
   }
   return null;

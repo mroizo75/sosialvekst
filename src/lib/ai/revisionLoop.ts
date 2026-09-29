@@ -5,6 +5,7 @@ type RevisionLoopInput = {
   imageUrl?: string;
   companyName?: string;
   maxAttempts?: number;
+  guideMode?: boolean;
 };
 
 type RevisionLoopResult = {
@@ -15,21 +16,16 @@ type RevisionLoopResult = {
   qualityTotal: number;
 };
 
-const improveText = (text: string, reasons: string[]): string => {
-  let improved = text;
+const improveText = (text: string, reasons: string[], guideMode = false): string => {
+  const withoutSave = text.replace(/\n*Lagre denne til senere\.?/gi, "").trim();
+  if (guideMode) return withoutSave;
 
   const missingCta = reasons.some((r) => r.includes("CTA"));
   if (missingCta) {
-    const ctaOptions = [
-      "\n\nHvilken ville du valgt?",
-      "\n\nLagre denne til senere.",
-      "\n\nSend den til den du vil gjøre det med.",
-    ];
-    const ctaIndex = text.length % ctaOptions.length;
-    improved = `${improved}${ctaOptions[ctaIndex]}`;
+    return `${withoutSave}\n\nHvilken ville du valgt?`;
   }
 
-  return improved;
+  return withoutSave;
 };
 
 export const runRevisionLoop = (input: RevisionLoopInput): RevisionLoopResult => {
@@ -54,7 +50,7 @@ export const runRevisionLoop = (input: RevisionLoopInput): RevisionLoopResult =>
     }
 
     if (attempt < maxAttempts) {
-      candidate = improveText(candidate, decision.reasons);
+      candidate = improveText(candidate, decision.reasons, input.guideMode);
     }
   }
 

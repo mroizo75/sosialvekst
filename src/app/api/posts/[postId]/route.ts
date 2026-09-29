@@ -168,6 +168,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     let updatedImageUrl = payload.imageUrl === "" ? undefined : payload.imageUrl ?? post.imageUrl;
     let updatedVideoUrl = payload.videoUrl === "" ? undefined : payload.videoUrl ?? post.videoUrl;
     let updatedAdditionalImageUrls = payload.additionalImageUrls ?? post.additionalImageUrls ?? [];
+    let updatedImageCredit = post.imageCredit;
+    let updatedAdditionalImageCredits = post.additionalImageCredits ?? [];
     const fallbackTopic = brandContext?.companyDescription?.slice(0, 180)
       ?? brandContext?.products?.join(", ")?.slice(0, 180)
       ?? "Generell merkevarebygging";
@@ -341,6 +343,8 @@ export async function PATCH(request: Request, context: RouteContext) {
         updatedImageUrl = regenerated.imageUrl;
         updatedVideoUrl = regenerated.videoUrl;
         updatedAdditionalImageUrls = regenerated.additionalImageUrls ?? [];
+        updatedImageCredit = regenerated.imageCredit;
+        updatedAdditionalImageCredits = regenerated.additionalImageCredits ?? [];
       }
       if (regenAction === "regenerate_text") {
         updatedText = regenerated.text;
@@ -362,6 +366,8 @@ export async function PATCH(request: Request, context: RouteContext) {
           updatedImageUrl = regenerated.imageUrl;
           updatedVideoUrl = regenerated.videoUrl;
           updatedAdditionalImageUrls = regenerated.additionalImageUrls ?? [];
+          updatedImageCredit = regenerated.imageCredit;
+          updatedAdditionalImageCredits = regenerated.additionalImageCredits ?? [];
         }
       }
 
@@ -376,6 +382,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     if (updatedVideoUrl) {
       updatedAdditionalImageUrls = [];
+      updatedAdditionalImageCredits = [];
     } else if (updatedAdditionalImageUrls.length > 0) {
       updatedVideoUrl = undefined;
     }
@@ -387,12 +394,14 @@ export async function PATCH(request: Request, context: RouteContext) {
       text: updatedText,
       imageUrl: updatedImageUrl,
       videoUrl: updatedVideoUrl,
+      imageCredit: updatedImageCredit,
       additionalImageUrls: updatedAdditionalImageUrls,
+      additionalImageCredits: updatedAdditionalImageCredits,
       status: decision.status,
       quality: decision.quality,
     });
 
-    await setPostAdditionalImages(userId, post.id, updatedAdditionalImageUrls);
+    await setPostAdditionalImages(userId, post.id, updatedAdditionalImageUrls, updatedAdditionalImageCredits);
 
     const refreshedPost = await getPostById(userId, post.id);
     return NextResponse.json(refreshedPost);

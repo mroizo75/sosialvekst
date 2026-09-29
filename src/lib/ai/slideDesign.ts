@@ -7,11 +7,13 @@ import type { BrandContext, SocialChannel } from "@/lib/types";
 export type GuideCard = {
   title: string;
   summary: string;
+  slideLine?: string;
   bullets: string[];
 };
 
 export type SocialDesign = {
   mode: "guide" | "headline";
+  hook: string;
   coverTitle: string;
   coverSubline: string;
   question: string;
@@ -31,8 +33,23 @@ type DesignInput = {
 
 const clampWords = (value: string, maxWords: number, maxChars: number): string => {
   const cleaned = value.replace(/\s+/g, " ").replace(/[«»"]/g, "").trim();
-  const words = cleaned.split(" ").filter(Boolean).slice(0, maxWords).join(" ");
-  return words.length <= maxChars ? words : words.slice(0, maxChars).trim();
+  const words = cleaned.split(" ").filter(Boolean);
+  const kept: string[] = [];
+  for (const word of words) {
+    if (kept.length >= maxWords) break;
+    const next = kept.length === 0 ? word : `${kept.join(" ")} ${word}`;
+    if (next.length > maxChars) break;
+    kept.push(word);
+  }
+  return kept.join(" ");
+};
+
+export const slideLineForImage = (slideLine: string | undefined, title: string): string => {
+  const cleaned = (slideLine ?? "").replace(/\s+/g, " ").trim();
+  const words = cleaned.split(" ").filter(Boolean);
+  if (words.length === 0 || words.length > 5) return title;
+  if (cleaned.length > 42) return title;
+  return cleaned;
 };
 
 export const resolveDesignMode = (
@@ -55,6 +72,7 @@ export const fallbackSocialDesign = (input: DesignInput): SocialDesign => {
   const titleSource = input.brief.placeName ?? input.topic;
   return {
     mode: "headline",
+    hook: "",
     coverTitle: coverTitleFrom(titleSource),
     coverSubline: input.contentPillar === "useful" ? "Dette bør du vite" : "Verdt å se nærmere på",
     question: "Hva passer deg?",
@@ -83,6 +101,8 @@ export const parseSocialDesign = (raw: string, mode: "guide" | "headline"): Soci
 
   const coverTitle = clampWords(String(record.coverTitle ?? ""), 4, 28);
   const coverSubline = clampWords(String(record.coverSubline ?? ""), 8, 42);
+  const rawHook = String(record.hook ?? "").replace(/\s+/g, " ").trim();
+  const hook = rawHook.endsWith("?") ? "" : clampWords(rawHook, 22, 140);
   const question = clampWords(String(record.question ?? ""), 10, 48);
   const cta = clampWords(String(record.cta ?? ""), 6, 32);
   if (!coverTitle || !coverSubline) return null;
@@ -92,18 +112,21 @@ export const parseSocialDesign = (raw: string, mode: "guide" | "headline"): Soci
     const card = asRecord(item);
     if (!card) return null;
     const title = clampWords(String(card.title ?? ""), 4, 24);
-    const summary = clampWords(String(card.summary ?? ""), 16, 90);
+    const summary = clampWords(String(card.summary ?? ""), 28, 180);
+    const slideLine = slideLineForImage(String(card.slideLine ?? ""), title);
     const bullets = Array.isArray(card.bullets)
       ? card.bullets.map((bullet) => clampWords(String(bullet), 4, 24)).filter(Boolean).slice(0, 3)
       : [];
     if (!title || !summary || bullets.length < 3) return null;
-    return { title, summary, bullets };
+    const built: GuideCard = { title, summary, slideLine, bullets };
+    return built;
   }).filter((card): card is GuideCard => card !== null);
 
   if (mode === "guide" && cards.length < 3) return null;
 
   return {
     mode: mode === "guide" && cards.length >= 3 ? "guide" : "headline",
+    hook,
     coverTitle,
     coverSubline,
     question: question || "Hva passer deg?",
@@ -147,13 +170,24 @@ export const placeGuideCopy = (design: SocialDesign, placeName: string): SocialD
   };
 };
 
+export const guideClosingQuestion = (design: SocialDesign): string => {
+  const cta = design.cta.trim();
+  if (cta.endsWith("?")) return cta;
+  const titles = design.cards.map((card) => card.title.trim()).filter(Boolean);
+  if (titles.length === 0) return "Hva velger du?";
+  if (titles.length === 1) return `${titles[0]} – hva velger du?`;
+  const last = titles[titles.length - 1];
+  return `${titles.slice(0, -1).join(", ")} eller ${last} – hva velger du?`;
+};
+
 export const composeGuideCaption = (design: SocialDesign, websiteUrl?: string): string => {
   const lines = [
-    design.question,
+    design.hook.trim(),
+    design.question.trim(),
     "",
     ...design.cards.flatMap((card) => [card.title, card.summary, ""]),
-    design.cta.endsWith("?") ? design.cta : `${design.cta}.`,
-  ];
+    guideClosingQuestion(design),
+  ].filter((line, index, all) => line !== "" || (index > 0 && all[index - 1] !== ""));
   if (websiteUrl) {
     lines.push("", websiteUrl);
   }
@@ -183,7 +217,7 @@ export const createSocialDesign = async (input: DesignInput): Promise<SocialDesi
   try {
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
-      max_output_tokens: 500,
+      max_output_tokens: 800,
       input: [
         {
           role: "system",
@@ -202,13 +236,16 @@ export const createSocialDesign = async (input: DesignInput): Promise<SocialDesi
             place,
             `Modus: ${mode}.`,
             "JSON-form:",
-            '{"coverTitle":"","coverSubline":"","question":"","cta":"","cards":[{"title":"","summary":"","bullets":["","",""]}]}',
+            '{"hook":"","coverTitle":"","coverSubline":"","question":"","cta":"","cards":[{"title":"","summary":"","slideLine":"","bullets":["","",""]}]}',
+            "hook er én setning, ikke et spørsmål, og konkret om stedet.",
             "coverTitle er kun stedsnavnet. Aldri hotell, downtown, pris eller bestill.",
-            "question er et valg mellom områder i det låste stedet. cta maks 5 ord, uten nettadresse.",
+            "question kommer rett etter hook og er et valg mellom områder i det låste stedet. cta skal være et spørsmål, uten nettadresse.",
             mode === "guide"
               ? [
                 "cards skal ha nøyaktig 3 ekte områder i det låste stedet. Ikke finn på bydeler og ikke bruk en annen by.",
-                "title er det lokale navnet, uoversatt. summary er én konkret setning om stedet, uten reklamespråk.",
+                "title er det lokale navnet, uoversatt.",
+                "summary: To korte setninger. Setning 1: én konkret, verifiserbar detalj om området (severdighet, type strand, avstand). Setning 2: «For deg som …». Ingen adjektiver som vakker, flott, sjarmerende, livlig, fantastisk. Er du usikker på en detalj, dropp den og skriv bare hvem området passer for.",
+                "slideLine: maks 5 ord, en komplett frase, ingen adjektiver som vakre, flotte eller sjarmerende.",
                 "Hvert bullet maks 3 ord.",
                 ...(input.brief.world === "travel"
                   ? [

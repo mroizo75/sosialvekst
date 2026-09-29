@@ -12,6 +12,8 @@ const BANNED_PHRASES = [
   "feriedrømmen",
 ];
 
+const BANNED_ADJECTIVES = ["vakker", "vakre", "flott", "flotte", "sjarmerende", "livlig", "fantastisk"];
+
 const CATALOG_COUNT = /\d[^\n]{0,24}\b(?:hoteller|land)\b|\b(?:hoteller|land)\b[^\n]{0,24}\d/i;
 
 export type CopyCheck = {
@@ -55,6 +57,11 @@ export const findCopyIssues = (text: string, check: CopyCheck): string[] => {
   const lower = text.toLowerCase();
   for (const phrase of BANNED_PHRASES) {
     if (lower.includes(phrase)) issues.push(`Inneholder «${phrase}».`);
+  }
+  for (const word of BANNED_ADJECTIVES) {
+    if (new RegExp(`(?:^|[^\\p{L}])${word}(?:[^\\p{L}]|$)`, "iu").test(text)) {
+      issues.push(`Inneholder «${word}».`);
+    }
   }
 
   if (check.placeName && !mentionsPlace(text, check.placeName)) {

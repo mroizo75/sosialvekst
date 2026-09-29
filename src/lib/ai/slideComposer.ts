@@ -1,6 +1,6 @@
 import sharp from "sharp";
 
-import type { SocialDesign } from "@/lib/ai/slideDesign";
+import { slideLineForImage, type SocialDesign } from "@/lib/ai/slideDesign";
 import type { SocialChannel } from "@/lib/types";
 
 export type SlideLayout = "photo" | "card" | "single";
@@ -124,23 +124,29 @@ const photoOverlaySvg = (
 ): string => {
   const font = "Segoe UI, Arial, Helvetica, sans-serif";
   const ink = photoTextColors(colors);
-  const titleLines = wrap(title, 16, 2).map(escapeXml);
-  const sub = escapeXml(wrap(subline, 32, 1)[0] ?? "");
-  const titleStart = titleLines.length > 1 ? 980 : 1080;
+  const titleLines = wrap(title, 12, 2).map(escapeXml);
+  const sub = wrap(subline, 28, 1)[0] ?? "";
+  const titleStart = titleLines.length > 1 ? 920 : 1020;
   const titleSvg = titleLines.map((line, index) =>
-    `<text x="64" y="${titleStart + index * 84}" fill="${ink.title}" font-family="${font}" font-size="72" font-weight="700">${line}</text>`,
+    `<text x="64" y="${titleStart + index * 108}" fill="${ink.title}" font-family="${font}" font-size="96" font-weight="800">${line}</text>`,
   ).join("");
-  const subY = titleStart + Math.max(titleLines.length - 1, 0) * 84 + 96;
+  const subY = titleStart + Math.max(titleLines.length - 1, 0) * 108 + 88;
+  const pillWidth = Math.min(WIDTH - 128, Math.max(320, sub.length * 26 + 64));
+  const accent = parseHex(ink.accent);
+  const pillInk = accent && luminance(accent) > 0.62 ? "#142018" : "#FFFFFF";
+  const pill = sub
+    ? `<rect x="64" y="${subY - 52}" width="${pillWidth}" height="78" rx="28" fill="${ink.accent}"/><text x="92" y="${subY}" fill="${pillInk}" font-family="${font}" font-size="36" font-weight="700">${escapeXml(sub)}</text>`
+    : "";
   return `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0.45" stop-color="rgba(0,0,0,0)"/>
-        <stop offset="1" stop-color="rgba(8,18,28,0.82)"/>
+        <stop offset="0.6" stop-color="rgba(0,0,0,0)"/>
+        <stop offset="1" stop-color="rgba(0,0,0,0.6)"/>
       </linearGradient>
     </defs>
     <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#fade)"/>
     ${titleSvg}
-    <text x="64" y="${subY}" fill="${ink.accent}" font-family="${font}" font-size="40" font-weight="600">${sub}</text>
+    ${pill}
   </svg>`;
 };
 
@@ -149,9 +155,11 @@ export const buildSlideSvg = (input: ComposeInput): string => {
   const font = "Segoe UI, Arial, Helvetica, sans-serif";
   if (input.layout === "photo") {
     const card = input.slideIndex > 0 ? input.design.cards[input.slideIndex - 1] : undefined;
+    const line = card ? slideLineForImage(card.slideLine, card.title) : input.design.coverSubline;
+    const subline = card && line === card.title ? "" : line;
     return photoOverlaySvg(
       card?.title ?? input.design.coverTitle,
-      card?.summary ?? input.design.coverSubline,
+      subline,
       { primary: input.primaryColor, secondary: input.secondaryColor, accent: input.accentColor },
     );
   }

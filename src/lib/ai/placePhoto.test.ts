@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPlaceQuery, rankPlacePhotos } from "@/lib/ai/placePhoto";
+import { buildPlaceQuery, formatPhotoCredits, rankPlacePhotos } from "@/lib/ai/placePhoto";
 
 const payload = {
   results: [
@@ -55,6 +55,46 @@ describe("placePhoto", () => {
     expect(photos).toHaveLength(1);
     expect(photos[0]?.imageUrl).toBe("https://example.com/town.jpg");
     expect(photos[0]?.credit).toBe("Foto: Michael Cavén, CC BY 2.0");
+  });
+
+  it("hopper over avkuttede fotografnavn og samler kreditering på én linje", () => {
+    const photos = rankPlacePhotos({
+      results: [
+        {
+          title: "Dubrovnik walls",
+          url: "https://example.com/cut.jpg",
+          creator: "Michael Cav...",
+          license: "by",
+          license_version: "2.0",
+          width: 1600,
+          height: 1000,
+          mature: false,
+          tags: [{ name: "dubrovnik" }],
+        },
+        {
+          title: "Dubrovnik harbour",
+          url: "https://example.com/harbour.jpg",
+          creator: "Ada",
+          license: "by",
+          license_version: "3.0",
+          width: 1600,
+          height: 1000,
+          mature: false,
+          tags: [{ name: "dubrovnik" }],
+        },
+      ],
+    }, "Dubrovnik");
+
+    expect(photos).toHaveLength(1);
+    expect(photos[0]?.attribution.creator).toBe("Ada");
+    expect(formatPhotoCredits([
+      { creator: "Ada", license: "CC BY 2.0" },
+      { creator: "Bo", license: "CC BY 2.0" },
+    ])).toBe("Foto: Ada, Bo – CC BY 2.0");
+    expect(formatPhotoCredits([
+      { creator: "Ada", license: "CC BY 2.0" },
+      { creator: "Bo", license: "CC BY 3.0" },
+    ])).toBe("Foto: Ada (CC BY 2.0), Bo (CC BY 3.0)");
   });
 
   it("tar det første relevante bildet, ikke det største", () => {

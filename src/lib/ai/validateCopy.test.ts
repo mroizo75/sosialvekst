@@ -21,6 +21,8 @@ describe("validateCopy", () => {
     expect(issues.some((issue) => issue.includes("visste du"))).toBe(true);
     expect(issues.some((issue) => issue.includes("send dette til"))).toBe(true);
     expect(issues.some((issue) => issue.includes("Sicilia"))).toBe(true);
+    expect(findCopyIssues("En flott strand i Sicilia.", { placeName: "Sicilia", pillar: "inspiration" })
+      .some((issue) => issue.includes("flott"))).toBe(true);
   });
 
   it("avviser hotelltall i inspirasjon, men slipper gjennom en observasjon", () => {

@@ -7,6 +7,14 @@ import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { createContentPlan } from "@/lib/posts/repository";
+import {
+  addCalendarDays,
+  audienceHoursForCountry,
+  minuteForChannel,
+  mondayOf,
+  scheduleInTimeZone,
+  timeZoneForCountry,
+} from "@/lib/schedule/audienceTime";
 import { requireWorkspaceId } from "@/lib/workspace";
 import { getPostsPerWeekAllowance, requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -33,13 +41,6 @@ const generateSchema = z.object({
     .default([]),
 });
 
-const bestHoursByCountry: Record<string, number[]> = {
-  NO: [8, 11, 18],
-  SE: [8, 12, 19],
-  DK: [9, 12, 18],
-  US: [10, 13, 17],
-};
-
 const defaultPostingDayOffsets = [0, 2, 4];
 
 const getTopicForWeek = (week: number, windows: TopicWindow[]): string => {
@@ -48,17 +49,8 @@ const getTopicForWeek = (week: number, windows: TopicWindow[]): string => {
 };
 
 const getHour = (countryCode: string, index: number): number => {
-  const hours = bestHoursByCountry[countryCode] ?? bestHoursByCountry.NO;
+  const hours = audienceHoursForCountry(countryCode);
   return hours[index % hours.length];
-};
-
-const startOfWeekMonday = (value: Date): Date => {
-  const date = new Date(value);
-  const day = date.getDay();
-  const distanceToMonday = day === 0 ? -6 : 1 - day;
-  date.setDate(date.getDate() + distanceToMonday);
-  date.setHours(0, 0, 0, 0);
-  return date;
 };
 
 const getPostingDayOffsets = (postsPerWeek: number, customDays?: number[]): number[] => {
@@ -69,13 +61,6 @@ const getPostingDayOffsets = (postsPerWeek: number, customDays?: number[]): numb
     return defaultPostingDayOffsets.slice(0, postsPerWeek);
   }
   return Array.from({ length: postsPerWeek }, (_, index) => Math.min(index, 6));
-};
-
-const scheduleDate = (weekStart: Date, dayOffset: number, hour: number): string => {
-  const date = new Date(weekStart);
-  date.setDate(date.getDate() + dayOffset);
-  date.setHours(hour, 0, 0, 0);
-  return date.toISOString();
 };
 
 type PlaceholderSlot = {
@@ -105,13 +90,13 @@ const buildSlots = (
 
   const baseDate = startDate ? new Date(startDate) : now;
   const earliestAllowed = new Date(Math.max(baseDate.getTime(), now.getTime()));
-  const thisMonday = startOfWeekMonday(baseDate);
-
-  const weekCursor = new Date(thisMonday);
+  const timeZone = timeZoneForCountry(countryCode);
+  let weekMonday = mondayOf(baseDate, timeZone);
   let logicalWeek = 0;
 
   while (slots.length < targetTotal) {
     const weekTopic = getTopicForWeek(logicalWeek + 1, topicWindows);
+    const weekAnchor = new Date(Date.UTC(weekMonday.year, weekMonday.month - 1, weekMonday.day, 12));
 
     for (let dayIndex = 0; dayIndex < dayOffsets.length; dayIndex += 1) {
       if (slots.length >= targetTotal) break;
@@ -120,17 +105,22 @@ const buildSlots = (
       const hour = customHours && customHours[dayIndex] !== undefined
         ? customHours[dayIndex]
         : getHour(countryCode, dayIndex);
-      const scheduled = scheduleDate(weekCursor, dayOffset, hour);
-
-      if (new Date(scheduled).getTime() < earliestAllowed.getTime()) {
-        continue;
-      }
 
       for (const channel of channels) {
+        if (slots.length >= targetTotal) break;
+        const scheduledAt = scheduleInTimeZone({
+          timeZone,
+          anchor: weekAnchor,
+          dayOffset,
+          hour,
+          minute: minuteForChannel(channel),
+        });
+        if (new Date(scheduledAt).getTime() < earliestAllowed.getTime()) continue;
+
         slots.push({
           id: crypto.randomUUID(),
           channel,
-          scheduledAt: scheduled,
+          scheduledAt,
           weekIndex: logicalWeek,
           dayIndex,
           postsPerWeek: dayOffsets.length,
@@ -139,7 +129,7 @@ const buildSlots = (
       }
     }
 
-    weekCursor.setDate(weekCursor.getDate() + 7);
+    weekMonday = addCalendarDays(weekMonday, 7);
     logicalWeek += 1;
   }
 
@@ -354,6 +344,7 @@ async function generateSingleSlot(
       text_content: post.text,
       image_url: post.imageUrl ?? null,
       video_url: post.videoUrl ?? null,
+      image_credit: post.imageCredit ?? null,
       status: post.status,
       quality_score: post.quality,
     });
@@ -366,6 +357,7 @@ async function generateSingleSlot(
           post_id: slot.id,
           file_url: url,
           sort_order: idx + 1,
+          credit: post.additionalImageCredits?.[idx] ?? null,
         }));
         const { error: mediaErr } = await supabase
           .from("post_media_assets")

@@ -10,6 +10,14 @@ import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireWorkspaceId } from "@/lib/workspace";
+import {
+  addCalendarDays,
+  audienceHoursForCountry,
+  minuteForChannel,
+  mondayOf,
+  scheduleInTimeZone,
+  timeZoneForCountry,
+} from "@/lib/schedule/audienceTime";
 import type { BrandContext, SocialChannel, TopicWindow } from "@/lib/types";
 
 const DEFAULT_POSTS_PER_WEEK = 3;
@@ -144,7 +152,7 @@ export async function POST() {
 
     const { data: planData } = await admin
       .from("content_plans")
-      .select("topic_windows")
+      .select("topic_windows, country_code")
       .eq("id", planId)
       .eq("user_id", userId)
       .maybeSingle();
@@ -174,41 +182,42 @@ export async function POST() {
 
     const now = new Date();
     const dayOffsets = [0, 2, 4];
-    const bestHours = [8, 11, 18];
-    const startOfWeekMonday = (d: Date): Date => {
-      const date = new Date(d);
-      const day = date.getDay();
-      date.setDate(date.getDate() + (day === 0 ? -6 : 1 - day));
-      date.setHours(0, 0, 0, 0);
-      return date;
-    };
+    const countryCode = String((planData as { country_code?: string } | null)?.country_code ?? "NO");
+    const timeZone = timeZoneForCountry(countryCode);
+    const bestHours = audienceHoursForCountry(countryCode);
 
     const newSlots: Slot[] = [];
     const targetTotal = postsPerWeek * totalWeeks * channelSet.length;
-    const weekCursor = startOfWeekMonday(now);
+    let weekMonday = mondayOf(now, timeZone);
     let logicalWeek = 0;
 
     while (newSlots.length < targetTotal) {
+      const weekAnchor = new Date(Date.UTC(weekMonday.year, weekMonday.month - 1, weekMonday.day, 12));
       for (let dayIndex = 0; dayIndex < dayOffsets.length; dayIndex += 1) {
         if (newSlots.length >= targetTotal) break;
-        const day = new Date(weekCursor);
-        day.setDate(weekCursor.getDate() + dayOffsets[dayIndex]);
-        day.setHours(bestHours[dayIndex], 0, 0, 0);
-
-        if (day.getTime() <= now.getTime()) continue;
 
         for (const channel of channelSet) {
+          if (newSlots.length >= targetTotal) break;
+          const scheduledAt = scheduleInTimeZone({
+            timeZone,
+            anchor: weekAnchor,
+            dayOffset: dayOffsets[dayIndex],
+            hour: bestHours[dayIndex] ?? bestHours[0],
+            minute: minuteForChannel(channel),
+          });
+          if (new Date(scheduledAt).getTime() <= now.getTime()) continue;
+
           newSlots.push({
             id: crypto.randomUUID(),
             channel,
-            scheduledAt: day.toISOString(),
+            scheduledAt,
             weekIndex: logicalWeek,
             dayIndex,
             topic: getTopicForWeek(logicalWeek + 1, topicWindows),
           });
         }
       }
-      weekCursor.setDate(weekCursor.getDate() + 7);
+      weekMonday = addCalendarDays(weekMonday, 7);
       logicalWeek += 1;
     }
 
@@ -345,6 +354,7 @@ async function regenerateSlots(
           text_content: post.text,
           image_url: post.imageUrl ?? null,
           video_url: post.videoUrl ?? null,
+          image_credit: post.imageCredit ?? null,
           status: post.status,
           quality_score: post.quality,
           updated_at: new Date().toISOString(),
@@ -364,6 +374,7 @@ async function regenerateSlots(
             post_id: slot.id,
             file_url: url,
             sort_order: idx + 1,
+            credit: post.additionalImageCredits?.[idx] ?? null,
           }));
           const { error: mediaErr } = await admin
             .from("post_media_assets")

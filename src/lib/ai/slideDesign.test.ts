@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 
 import { buildSlideSvg, composeDesignedSlide, photoTextColors, resolveSlideLayout } from "@/lib/ai/slideComposer";
-import { buildPhotoPrompt, buildPhotoSubject, composeGuideCaption, fallbackSocialDesign, headlineFromCaption, knownPlaceLook, parseSocialDesign, placeGuideCopy, resolveDesignMode } from "@/lib/ai/slideDesign";
+import { buildPhotoPrompt, buildPhotoSubject, composeGuideCaption, fallbackSocialDesign, headlineFromCaption, knownPlaceLook, parseSocialDesign, placeGuideCopy, resolveDesignMode, slideLineForImage } from "@/lib/ai/slideDesign";
 import type { VisualBrief } from "@/lib/ai/visualDirection";
 
 const brief: VisualBrief = {
@@ -17,6 +17,7 @@ const brief: VisualBrief = {
 
 const guide = {
   mode: "guide" as const,
+  hook: "Sanddynene i Maspalomas går ned til sjøen.",
   coverTitle: "GRAN CANARIA",
   coverSubline: "Her bør du bo",
   question: "Hvor bør du bo på Gran Canaria?",
@@ -24,7 +25,8 @@ const guide = {
   cards: [
     {
       title: "Maspalomas",
-      summary: "Roligere, flotte strender og bra for par.",
+      summary: "Dynene går ned til stranden. For deg som vil bo rett ved sjøen.",
+      slideLine: "Dyner ned til sjøen",
       bullets: ["Lange strender", "Familievennlig", "Rolig atmosfære"],
     },
     {
@@ -83,9 +85,14 @@ describe("slideDesign", () => {
     });
 
     expect(svg).toContain("Maspalomas");
+    expect(svg).toContain("Dyner ned til sjøen");
+    expect(svg).toContain("offset=\"0.6\"");
     expect(svg).toContain("fade");
     expect(svg).toContain("#F6E27A");
     expect(svg).not.toContain("Lange strender");
+    expect(svg).not.toContain("flott");
+    expect(slideLineForImage("Sanddyner som er veldig lange og fine", "Maspalomas")).toBe("Maspalomas");
+    expect(slideLineForImage("Dyner ned til sjøen", "Maspalomas")).toBe("Dyner ned til sjøen");
   });
 
   it("bruker bedriftens egen aksent, ikke Sydenklar-gul", () => {
@@ -136,6 +143,7 @@ describe("slideDesign", () => {
       photo: Buffer.alloc(0),
       design: {
         mode: "headline",
+        hook: "",
         coverTitle: lines.coverTitle,
         coverSubline: lines.coverSubline,
         question: lines.coverTitle,
@@ -149,6 +157,7 @@ describe("slideDesign", () => {
     const photo = buildPhotoPrompt(
       {
         mode: "headline",
+        hook: "",
         coverTitle: lines.coverTitle,
         coverSubline: lines.coverSubline,
         question: lines.coverTitle,
@@ -178,6 +187,7 @@ describe("slideDesign", () => {
     const photo = buildPhotoPrompt(
       {
         mode: "guide",
+        hook: "",
         coverTitle: "DUBROVNIK",
         coverSubline: "Her bør du bo",
         question: "Hvor vil du bo i Dubrovnik?",
@@ -205,6 +215,7 @@ describe("slideDesign", () => {
     const copy = placeGuideCopy(
       {
         mode: "guide",
+        hook: "",
         coverTitle: "Hotell i Dubrovnik",
         coverSubline: "Sammenlign priser og bestill",
         question: "Hvor vil du bo i Dubrovnik?",
@@ -230,11 +241,11 @@ describe("slideDesign", () => {
   it("skriver karusellteksten fra kortene, ikke som en annonse", () => {
     const caption = composeGuideCaption(guide, "https://sydenklar.no");
 
-    expect(caption.startsWith("Hvor bør du bo på Gran Canaria?")).toBe(true);
-    expect(caption).toContain("Maspalomas\nRoligere, flotte strender og bra for par.");
-    expect(caption).toContain("Puerto Rico");
-    expect(caption).toContain("Playa del Inglés");
-    expect(caption).not.toContain("omfattende");
+    expect(caption.startsWith("Sanddynene i Maspalomas går ned til sjøen.")).toBe(true);
+    expect(caption).toContain("Hvor bør du bo på Gran Canaria?");
+    expect(caption).toContain("Maspalomas, Puerto Rico eller Playa del Inglés – hva velger du?");
+    expect(caption).not.toContain("Lagre denne");
+    expect(caption).not.toContain("Se hotellene");
     expect(caption.endsWith("https://sydenklar.no")).toBe(true);
   });
 
@@ -267,6 +278,7 @@ describe("slideDesign", () => {
     }).jpeg().toBuffer();
     const design = {
       mode: "headline" as const,
+      hook: "",
       coverTitle: "Søk. Sammenlign. Æøå",
       coverSubline: "Æøå",
       question: "Æøå",
@@ -292,6 +304,7 @@ describe("slideDesign", () => {
     }).png().toBuffer();
     const design = {
       mode: "headline" as const,
+      hook: "",
       coverTitle: "Sicilia",
       coverSubline: "Kveldssol",
       question: "Sicilia",

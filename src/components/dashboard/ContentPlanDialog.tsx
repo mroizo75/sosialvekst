@@ -40,22 +40,22 @@ export type GenerateConfig = {
 };
 
 const RECOMMENDED_HOURS: Record<number, number> = {
-  0: 8,
-  1: 11,
-  2: 14,
-  3: 11,
-  4: 17,
-  5: 10,
+  0: 11,
+  1: 12,
+  2: 19,
+  3: 12,
+  4: 12,
+  5: 11,
   6: 12,
 };
 
 const INITIAL_DAYS: DayConfig[] = [
-  { dayOffset: 0, label: "", shortLabel: "", enabled: true, hour: 8, minute: 0 },
-  { dayOffset: 1, label: "", shortLabel: "", enabled: false, hour: 11, minute: 0 },
-  { dayOffset: 2, label: "", shortLabel: "", enabled: true, hour: 14, minute: 0 },
-  { dayOffset: 3, label: "", shortLabel: "", enabled: false, hour: 11, minute: 0 },
-  { dayOffset: 4, label: "", shortLabel: "", enabled: true, hour: 17, minute: 0 },
-  { dayOffset: 5, label: "", shortLabel: "", enabled: false, hour: 10, minute: 0 },
+  { dayOffset: 0, label: "", shortLabel: "", enabled: true, hour: 11, minute: 0 },
+  { dayOffset: 1, label: "", shortLabel: "", enabled: false, hour: 12, minute: 0 },
+  { dayOffset: 2, label: "", shortLabel: "", enabled: true, hour: 19, minute: 0 },
+  { dayOffset: 3, label: "", shortLabel: "", enabled: false, hour: 12, minute: 0 },
+  { dayOffset: 4, label: "", shortLabel: "", enabled: true, hour: 12, minute: 0 },
+  { dayOffset: 5, label: "", shortLabel: "", enabled: false, hour: 11, minute: 0 },
   { dayOffset: 6, label: "", shortLabel: "", enabled: false, hour: 12, minute: 0 },
 ];
 

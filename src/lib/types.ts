@@ -106,6 +106,8 @@ export type PostDraft = {
   text: string;
   imageUrl?: string;
   additionalImageUrls?: string[];
+  imageCredit?: string;
+  additionalImageCredits?: string[];
   videoUrl?: string;
   status: PostStatus;
   quality: QualityScore;
