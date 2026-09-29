@@ -62,25 +62,11 @@ const buildBrandValues = (ctx: BrandContext): string => {
   return section("MERKEVARE-BUDSKAP", lines);
 };
 
-const buildBrandGuidelines = (ctx: BrandContext): string => {
-  const lines: string[] = [];
-
-  if (ctx.brandDosAndDonts) {
-    lines.push(ctx.brandDosAndDonts);
-  }
-  if (ctx.prohibitedTerms && ctx.prohibitedTerms.length > 0) {
-    lines.push(`Forbudte termer: ${ctx.prohibitedTerms.join(", ")}`);
-  }
-
-  return section("RETNINGSLINJER", lines);
-};
-
 export const buildBrandSkill = (ctx: BrandContext): string => {
   const blocks = [
     buildVisualIdentity(ctx),
     buildVerbalIdentity(ctx),
     buildBrandValues(ctx),
-    buildBrandGuidelines(ctx),
   ].filter(Boolean);
 
   if (blocks.length === 0) return "";

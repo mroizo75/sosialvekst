@@ -114,6 +114,22 @@ describe("organisk innholdsstrategi", () => {
     expect(prompt.system).toContain("uten tegnsetting");
     expect(prompt.system).toContain("antall hoteller");
     expect(prompt.system.toLowerCase()).not.toContain("strand");
+    expect(prompt.system.match(/^\d+\. /gm)?.length ?? 0).toBeLessThanOrEqual(12);
+
+    const dos = "Skriv alltid konkret, aldri svevende.";
+    const withDos = buildNorwegianCopyPrompt({
+      topic: "Vernerunde",
+      channel: "facebook",
+      brandRules: { ...defaultBrandRules, prohibitedTerms: ["billigst", ...defaultBrandRules.prohibitedTerms] },
+      brandContext: {
+        companyName: "HMS Nova",
+        brandDosAndDonts: dos,
+        prohibitedTerms: ["billigst"],
+      },
+      contentPillar: "useful",
+    });
+    expect(withDos.system.split(dos).length - 1).toBe(1);
+    expect(withDos.system.split("Forbudte uttrykk:").length - 1).toBe(1);
 
     const tiktok = buildNorwegianCopyPrompt({
       topic: "En uke på Sicilia",
