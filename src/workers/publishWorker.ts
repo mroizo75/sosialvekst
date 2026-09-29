@@ -1,5 +1,6 @@
 import { logger } from "@/lib/logger";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { attachedMediaFields, collectImageUrls } from "@/workers/metaMedia";
 
 type RunPublishWorkerInput = {
   userId?: string;
@@ -38,37 +39,74 @@ const ensureJson = async <T>(response: Response): Promise<T> => {
   return payload;
 };
 
+const postGraphForm = async <T>(apiVersion: string, path: string, fields: Record<string, string>): Promise<T> => {
+  const response = await fetch(`https://graph.facebook.com/${apiVersion}/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(fields).toString(),
+  });
+  return ensureJson<T>(response);
+};
+
+// Multi-photo posts: upload every image unpublished, then attach them all to one feed post.
+const publishFacebookAlbum = async (input: PublishInput, apiVersion: string, imageUrls: string[]): Promise<string> => {
+  const token = input.accessToken ?? "";
+  const mediaIds = await Promise.all(imageUrls.map(async (url) => {
+    const photo = await postGraphForm<{ id?: string }>(apiVersion, `${input.accountId}/photos`, {
+      access_token: token,
+      url,
+      published: "false",
+    });
+    if (!photo.id) {
+      throw new Error("Facebook-bilde ble ikke lastet opp.");
+    }
+    return photo.id;
+  }));
+  const payload = await postGraphForm<{ id?: string }>(apiVersion, `${input.accountId}/feed`, {
+    access_token: token,
+    message: input.text,
+    ...attachedMediaFields(mediaIds),
+  });
+  logger.info("[publishFacebook] Innlegg med flere bilder", { imageCount: mediaIds.length });
+  return payload.id ?? `facebook_${input.idempotencyKey}`;
+};
+
 const publishFacebook = async (input: PublishInput): Promise<string> => {
   if (!input.accountId) {
     throw new Error("Mangler Facebook accountId.");
   }
   const apiVersion = process.env.FACEBOOK_GRAPH_API_VERSION ?? "v23.0";
-  const endpoint = input.videoUrl
-    ? `https://graph.facebook.com/${apiVersion}/${input.accountId}/videos`
-    : input.imageUrl
-      ? `https://graph.facebook.com/${apiVersion}/${input.accountId}/photos`
-      : `https://graph.facebook.com/${apiVersion}/${input.accountId}/feed`;
-  const form = new URLSearchParams();
-  form.set("access_token", input.accessToken ?? "");
+  const token = input.accessToken ?? "";
+
   if (input.videoUrl) {
-    form.set("description", input.text);
-    form.set("file_url", input.videoUrl);
-  } else {
-    form.set("message", input.text);
-  }
-  if (input.imageUrl && !input.videoUrl) {
-    form.set("url", input.imageUrl);
-    form.set("published", "true");
-    form.set("caption", input.text);
+    const payload = await postGraphForm<{ id?: string; post_id?: string }>(apiVersion, `${input.accountId}/videos`, {
+      access_token: token,
+      description: input.text,
+      file_url: input.videoUrl,
+    });
+    return payload.post_id ?? payload.id ?? `facebook_${input.idempotencyKey}`;
   }
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: form.toString(),
+  const imageUrls = collectImageUrls(input.imageUrl, input.additionalImageUrls);
+  if (imageUrls.length > 1) {
+    return publishFacebookAlbum(input, apiVersion, imageUrls);
+  }
+
+  if (imageUrls[0]) {
+    const payload = await postGraphForm<{ id?: string; post_id?: string }>(apiVersion, `${input.accountId}/photos`, {
+      access_token: token,
+      url: imageUrls[0],
+      published: "true",
+      caption: input.text,
+    });
+    return payload.post_id ?? payload.id ?? `facebook_${input.idempotencyKey}`;
+  }
+
+  const payload = await postGraphForm<{ id?: string }>(apiVersion, `${input.accountId}/feed`, {
+    access_token: token,
+    message: input.text,
   });
-  const payload = await ensureJson<{ id?: string; post_id?: string }>(response);
-  return payload.post_id ?? payload.id ?? `facebook_${input.idempotencyKey}`;
+  return payload.id ?? `facebook_${input.idempotencyKey}`;
 };
 
 const IG_CONTAINER_POLL_INTERVAL_MS = 3_000;
@@ -108,8 +146,7 @@ const publishInstagram = async (input: PublishInput): Promise<string> => {
   if (!input.accountId) {
     throw new Error("Mangler Instagram accountId.");
   }
-  const imageUrls = [input.imageUrl, ...input.additionalImageUrls]
-    .filter((value): value is string => Boolean(value));
+  const imageUrls = collectImageUrls(input.imageUrl, input.additionalImageUrls);
   if (imageUrls.length === 0 && !input.videoUrl) {
     throw new Error("Instagram krever bilde eller video for publisering.");
   }
@@ -174,6 +211,7 @@ const publishInstagram = async (input: PublishInput): Promise<string> => {
       },
     );
     const publishPayload = await ensureJson<{ id?: string }>(publishResponse);
+    logger.info("[publishInstagram] Karusell publisert", { imageCount: carouselIds.length });
     return publishPayload.id ?? `instagram_${input.idempotencyKey}`;
   }
 

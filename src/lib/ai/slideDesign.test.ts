@@ -203,6 +203,29 @@ describe("slideComposer", () => {
     }
   });
 
+  it("viser bare kicker og tittel på forsiden, ikke undertekst", async () => {
+    const photo = await solidPhoto("#335577");
+    const render = (coverSubline: string) =>
+      composeDesignedSlide({ photo, design: { ...plumbing, coverSubline }, slideIndex: 0, layout: "cover" });
+    const [short, long] = await Promise.all([render("Kort."), render("En helt annen og mye lengre undertekst her.")]);
+
+    expect(short.equals(long)).toBe(true);
+  });
+
+  it("beholder forklaringen på bildeslides etter forsiden", async () => {
+    const photo = await solidPhoto("#335577");
+    const card = plumbing.cards[0];
+    const render = (summary: string) => composeDesignedSlide({
+      photo,
+      design: { ...plumbing, cards: [{ ...card, summary }, ...plumbing.cards.slice(1)] },
+      slideIndex: 1,
+      layout: "slide",
+    });
+    const [a, b] = await Promise.all([render("Kort forklaring."), render("En helt annen forklaring på slide en.")]);
+
+    expect(a.equals(b)).toBe(false);
+  });
+
   it("legger logoen oppe til venstre på forsiden", async () => {
     const photo = await solidPhoto("#224466", 200, 200);
     const logo = await sharp({

@@ -256,25 +256,26 @@ const photoTextLayers = async (input: ComposeInput): Promise<{ layers: sharp.Ove
   const accent = accentFor(input);
   const card = input.slideIndex > 0 ? input.design.cards[input.slideIndex - 1] : undefined;
   const cover = input.layout === "cover";
-  const titleOnly = input.shape === "square";
+  const square = input.shape === "square";
   const title = await renderTextBlock({
     text: card?.title ?? input.design.coverTitle,
     weight: "heavy",
     color: "#FFFFFF",
     maxWidth: TEXT_WIDTH,
-    maxHeight: titleOnly ? (cover ? 440 : 320) : cover ? 470 : 280,
-    maxSize: titleOnly ? (cover ? 156 : 112) : cover ? 124 : 84,
+    maxHeight: square ? (cover ? 440 : 320) : cover ? 520 : 280,
+    maxSize: square ? (cover ? 156 : 112) : cover ? 140 : 84,
     minSize: cover ? 60 : 50,
   });
-  const body = titleOnly
+  // Covers show only kicker and headline so they read at feed size.
+  const body = square || cover || !card
     ? null
     : await renderTextBlock({
-      text: card?.summary ?? input.design.coverSubline,
+      text: card.summary,
       weight: "medium",
       color: "#F4F4F4",
       maxWidth: TEXT_WIDTH,
-      maxHeight: cover ? 150 : 270,
-      maxSize: cover ? 44 : 42,
+      maxHeight: 270,
+      maxSize: 42,
       minSize: 30,
     });
 
@@ -290,7 +291,7 @@ const photoTextLayers = async (input: ComposeInput): Promise<{ layers: sharp.Ove
     layers.push(place(title, PAD, y));
     y -= 30;
   }
-  const coverLabel = titleOnly ? "" : input.design.coverKicker.toUpperCase();
+  const coverLabel = square ? "" : input.design.coverKicker.toUpperCase();
   const label = cover ? coverLabel : String(input.slideIndex).padStart(2, "0");
   if (label) {
     const badge = await labelPill(label, accent, y);
