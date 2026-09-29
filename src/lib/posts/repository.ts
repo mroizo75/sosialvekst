@@ -35,6 +35,16 @@ const normalizeR2Url = (url: string | null): string | undefined => {
   return `${publicBase}${match[0]}`;
 };
 
+const POST_SELECT =
+  "id, channel, status, scheduled_at, text_content, image_url, video_url, quality_score";
+const POST_SELECT_WITH_CREDIT =
+  "id, channel, status, scheduled_at, text_content, image_url, video_url, image_credit, quality_score";
+const MEDIA_SELECT = "post_id, file_url, sort_order";
+const MEDIA_SELECT_WITH_CREDIT = "post_id, file_url, sort_order, credit";
+
+const missingColumn = (message: string | undefined, column: string): boolean =>
+  (message ?? "").toLowerCase().includes(column.toLowerCase());
+
 const toPostDraft = (row: DbPostRow): PostDraft => ({
   id: row.id,
   channel: row.channel,
@@ -159,45 +169,81 @@ export const upsertPosts = async (input: {
   }
 };
 
+const loadMediaRows = async (
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  postIds: string[],
+): Promise<DbPostMediaRow[]> => {
+  const withCredit = await supabase
+    .from("post_media_assets")
+    .select(MEDIA_SELECT_WITH_CREDIT)
+    .in("post_id", postIds)
+    .order("sort_order", { ascending: true });
+
+  if (!withCredit.error) {
+    return (withCredit.data ?? []) as DbPostMediaRow[];
+  }
+  if (!missingColumn(withCredit.error.message, "credit")) {
+    if (!withCredit.error.message.toLowerCase().includes("post_media_assets")) {
+      throw toAppError("POST_MEDIA_LIST_FAILED", "Kunne ikke hente postmedier", withCredit.error.message);
+    }
+    return [];
+  }
+
+  const plain = await supabase
+    .from("post_media_assets")
+    .select(MEDIA_SELECT)
+    .in("post_id", postIds)
+    .order("sort_order", { ascending: true });
+
+  if (plain.error && !plain.error.message.toLowerCase().includes("post_media_assets")) {
+    throw toAppError("POST_MEDIA_LIST_FAILED", "Kunne ikke hente postmedier", plain.error.message);
+  }
+  return (plain.data ?? []) as DbPostMediaRow[];
+};
+
 export const listPosts = async (userId: string, workspaceId?: string): Promise<PostDraft[]> => {
   const supabase = await createSupabaseServerClient();
-  let query = supabase
-    .from("posts")
-    .select("id, channel, status, scheduled_at, text_content, image_url, video_url, image_credit, quality_score")
-    .eq("user_id", userId);
-  if (workspaceId) query = query.eq("workspace_id", workspaceId);
-  const { data, error } = await query.order("scheduled_at", { ascending: true });
+  const run = (columns: string) => {
+    let query = supabase.from("posts").select(columns).eq("user_id", userId);
+    if (workspaceId) query = query.eq("workspace_id", workspaceId);
+    return query.order("scheduled_at", { ascending: true });
+  };
+
+  let { data, error } = await run(POST_SELECT_WITH_CREDIT);
+  if (error && missingColumn(error.message, "image_credit")) {
+    ({ data, error } = await run(POST_SELECT));
+  }
 
   if (error) {
     throw toAppError("POSTS_LIST_FAILED", "Kunne ikke hente poster", error.message);
   }
 
-  const posts = (data ?? []).map((row) => toPostDraft(row as DbPostRow));
+  const posts = (data ?? []).map((row) => toPostDraft(row as unknown as DbPostRow));
   if (posts.length === 0) {
     return posts;
   }
 
-  const { data: mediaData, error: mediaError } = await supabase
-    .from("post_media_assets")
-    .select("post_id, file_url, sort_order, credit")
-    .in("post_id", posts.map((post) => post.id))
-    .order("sort_order", { ascending: true });
-
-  if (mediaError && !mediaError.message.toLowerCase().includes("post_media_assets")) {
-    throw toAppError("POST_MEDIA_LIST_FAILED", "Kunne ikke hente postmedier", mediaError.message);
-  }
-
-  return attachAdditionalImages(posts, (mediaData ?? []) as DbPostMediaRow[]);
+  const mediaRows = await loadMediaRows(supabase, posts.map((post) => post.id));
+  return attachAdditionalImages(posts, mediaRows);
 };
 
 export const getPostById = async (userId: string, postId: string): Promise<PostDraft | null> => {
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("posts")
-    .select("id, channel, status, scheduled_at, text_content, image_url, video_url, image_credit, quality_score")
+    .select(POST_SELECT_WITH_CREDIT)
     .eq("user_id", userId)
     .eq("id", postId)
     .maybeSingle();
+
+  if (error && missingColumn(error.message, "image_credit")) {
+    ({ data, error } = await supabase
+      .from("posts")
+      .select(POST_SELECT)
+      .eq("user_id", userId)
+      .eq("id", postId)
+      .maybeSingle());
+  }
 
   if (error) {
     throw toAppError("POST_GET_FAILED", "Kunne ikke hente post", error.message);
@@ -206,56 +252,48 @@ export const getPostById = async (userId: string, postId: string): Promise<PostD
     return null;
   }
 
-  const post = toPostDraft(data as DbPostRow);
-  const { data: mediaData, error: mediaError } = await supabase
-    .from("post_media_assets")
-    .select("post_id, file_url, sort_order, credit")
-    .eq("post_id", postId)
-    .order("sort_order", { ascending: true });
-
-  if (mediaError && !mediaError.message.toLowerCase().includes("post_media_assets")) {
-    throw toAppError("POST_MEDIA_GET_FAILED", "Kunne ikke hente postmedier", mediaError.message);
-  }
-
-  const [withMedia] = attachAdditionalImages([post], (mediaData ?? []) as DbPostMediaRow[]);
+  const post = toPostDraft(data as unknown as DbPostRow);
+  const mediaRows = await loadMediaRows(supabase, [postId]);
+  const [withMedia] = attachAdditionalImages([post], mediaRows);
   return withMedia;
 };
 
 export const savePost = async (userId: string, post: PostDraft): Promise<PostDraft> => {
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
+  const payload = {
+    scheduled_at: post.scheduledAt,
+    text_content: post.text,
+    image_url: post.imageUrl ?? null,
+    video_url: post.videoUrl ?? null,
+    status: post.status,
+    quality_score: post.quality,
+    updated_at: new Date().toISOString(),
+  };
+  let { data, error } = await supabase
     .from("posts")
-    .update({
-      scheduled_at: post.scheduledAt,
-      text_content: post.text,
-      image_url: post.imageUrl ?? null,
-      video_url: post.videoUrl ?? null,
-      image_credit: post.imageCredit ?? null,
-      status: post.status,
-      quality_score: post.quality,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ ...payload, image_credit: post.imageCredit ?? null })
     .eq("user_id", userId)
     .eq("id", post.id)
-    .select("id, channel, status, scheduled_at, text_content, image_url, video_url, image_credit, quality_score")
+    .select(POST_SELECT_WITH_CREDIT)
     .single();
+
+  if (error && missingColumn(error.message, "image_credit")) {
+    ({ data, error } = await supabase
+      .from("posts")
+      .update(payload)
+      .eq("user_id", userId)
+      .eq("id", post.id)
+      .select(POST_SELECT)
+      .single());
+  }
 
   if (error) {
     throw toAppError("POST_UPDATE_FAILED", "Kunne ikke oppdatere post", error.message);
   }
 
-  const savedPost = toPostDraft(data as DbPostRow);
-  const { data: mediaData, error: mediaError } = await supabase
-    .from("post_media_assets")
-    .select("post_id, file_url, sort_order, credit")
-    .eq("post_id", post.id)
-    .order("sort_order", { ascending: true });
-
-  if (mediaError && !mediaError.message.toLowerCase().includes("post_media_assets")) {
-    throw toAppError("POST_MEDIA_GET_FAILED", "Kunne ikke hente postmedier", mediaError.message);
-  }
-
-  const [withMedia] = attachAdditionalImages([savedPost], (mediaData ?? []) as DbPostMediaRow[]);
+  const savedPost = toPostDraft(data as unknown as DbPostRow);
+  const mediaRows = await loadMediaRows(supabase, [post.id]);
+  const [withMedia] = attachAdditionalImages([savedPost], mediaRows);
   return withMedia;
 };
 
@@ -297,9 +335,16 @@ export const setPostAdditionalImages = async (
     credit: credits?.[index] ?? null,
   }));
 
-  const { error: insertError } = await supabase
-    .from("post_media_assets")
-    .insert(rows);
+  let { error: insertError } = await supabase.from("post_media_assets").insert(rows);
+  if (insertError && missingColumn(insertError.message, "credit")) {
+    ({ error: insertError } = await supabase.from("post_media_assets").insert(
+      imageUrls.map((url, index) => ({
+        post_id: postId,
+        file_url: url,
+        sort_order: index,
+      })),
+    ));
+  }
 
   if (insertError) {
     throw toAppError("POST_MEDIA_SAVE_FAILED", "Kunne ikke lagre ekstra bilder.", insertError.message);
