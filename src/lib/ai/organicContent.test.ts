@@ -85,9 +85,12 @@ describe("organisk innholdsstrategi", () => {
       maxAttempts: 2,
     });
 
+    expect(result.status).toBe("needs_review");
+    expect(result.finalText).toBe(
+      "Gran Canaria i november er ofte solrikt på sørsiden. Maspalomas er rolig. Puerto Rico er kompakt.",
+    );
     expect(result.finalText.toLowerCase()).not.toContain("sydenklar");
-    expect(result.finalText.toLowerCase()).not.toContain("presenterer");
-    expect(result.finalText).toMatch(/hvilken|lagre|send den/i);
+    expect(result.finalText.toLowerCase()).not.toMatch(/send den|lagre denne/);
   });
 
   it("ber ikke copy-prompten om å nevne bedriften i hvert innlegg", () => {

@@ -5,7 +5,6 @@ type RevisionLoopInput = {
   imageUrl?: string;
   companyName?: string;
   maxAttempts?: number;
-  guideMode?: boolean;
 };
 
 type RevisionLoopResult = {
@@ -16,17 +15,11 @@ type RevisionLoopResult = {
   qualityTotal: number;
 };
 
-const improveText = (text: string, reasons: string[], guideMode = false): string => {
-  const withoutSave = text.replace(/\n*Lagre denne til senere\.?/gi, "").trim();
-  if (guideMode) return withoutSave;
+const stripSaveLine = (text: string): string =>
+  text.replace(/\n*Lagre denne til senere\.?/gi, "").trim();
 
-  const missingCta = reasons.some((r) => r.includes("CTA"));
-  if (missingCta) {
-    return `${withoutSave}\n\nHvilken ville du valgt?`;
-  }
-
-  return withoutSave;
-};
+const missingCta = (reasons: string[]): boolean =>
+  reasons.some((reason) => reason.includes("CTA"));
 
 export const runRevisionLoop = (input: RevisionLoopInput): RevisionLoopResult => {
   const maxAttempts = input.maxAttempts ?? 2;
@@ -49,8 +42,18 @@ export const runRevisionLoop = (input: RevisionLoopInput): RevisionLoopResult =>
       };
     }
 
+    if (missingCta(decision.reasons)) {
+      return {
+        finalText: stripSaveLine(candidate),
+        attempts: attempt + 1,
+        status: "needs_review",
+        reasons: decision.reasons,
+        qualityTotal: decision.quality.total,
+      };
+    }
+
     if (attempt < maxAttempts) {
-      candidate = improveText(candidate, decision.reasons, input.guideMode);
+      candidate = stripSaveLine(candidate);
     }
   }
 

@@ -5,6 +5,9 @@ const HASHTAG_PUNCTUATION = /#([\p{L}\p{N}_]+)[.,!?;:]+/gu;
 
 const BANNED_PHRASES = [
   "send dette til",
+  "send den til",
+  "lagre denne",
+  "tagg en",
   "tagg en venn",
   "visste du",
   "det er noe helt spesielt",

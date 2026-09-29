@@ -944,7 +944,6 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     imageUrl,
     companyName,
     maxAttempts: 2,
-    guideMode: socialDesign?.mode === "guide",
   });
   const creditedText = assembleCaption({
     body: revision.finalText,

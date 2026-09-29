@@ -20,6 +20,10 @@ describe("validateCopy", () => {
     expect(issues.some((issue) => issue.includes("spørsmålstegn"))).toBe(true);
     expect(issues.some((issue) => issue.includes("visste du"))).toBe(true);
     expect(issues.some((issue) => issue.includes("send dette til"))).toBe(true);
+    expect(findCopyIssues("Send den til en venn og lagre denne.", { pillar: "inspiration" })
+      .some((issue) => issue.includes("send den til"))).toBe(true);
+    expect(findCopyIssues("Tagg en kollega.", { pillar: "inspiration" })
+      .some((issue) => issue.includes("tagg en"))).toBe(true);
     expect(issues.some((issue) => issue.includes("Sicilia"))).toBe(true);
     expect(findCopyIssues("En flott strand i Sicilia.", { placeName: "Sicilia", pillar: "inspiration" })
       .some((issue) => issue.includes("flott"))).toBe(true);

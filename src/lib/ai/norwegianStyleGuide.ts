@@ -19,7 +19,7 @@ export const norwegianStyleGuide = {
     "Hook: Første 1–2 linjer skal stoppe scrolling for noen som ikke kjenner merkevaren.",
     "Verdi: Inspirer, lær bort noe, hjelp en beslutning, eller vis en konkret mulighet.",
     "Produkt og merkevare kommer etterpå, eller ikke i det hele tatt.",
-    "CTA: Avslutt med noe som passer innholdet: et spørsmål, lagre, del, eller se utvalget.",
+    "CTA: Avslutt med noe som passer innholdet: et konkret valg-spørsmål, eller se utvalget.",
     "Aldri avslutt med «kontakt oss», «les mer» eller «besøk nettsiden» som standard.",
   ],
 
@@ -50,7 +50,7 @@ export const norwegianStyleGuide = {
       "STRUKTUR: Linjeskift mellom poengene. Luft. Ikke ett tett avsnitt.",
       "EMOJI: 0–3, som stemning, ikke som kulepunkter i lange lister.",
       "HASHTAGS: 0–3 relevante tags, for eksempel et sted eller merkenavn. Aldri generiske tagger som #inspo.",
-      "ENGASJEMENT: «Lagre denne», «Send den til den du vil reise eller gjøre det med», eller et konkret valg-spørsmål.",
+      "ENGASJEMENT: Avslutt med et konkret valg-spørsmål.",
       "UNNGÅ: Tekst som bare forklarer tjenesten, og tekst som gjentar det bildet allerede viser.",
     ],
     linkedin: [

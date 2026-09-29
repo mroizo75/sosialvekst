@@ -100,17 +100,14 @@ const PILLAR_INTENT: Record<ContentPillar, PostIntent> = {
 
 const PILLAR_CTA: Record<ContentPillar, string[]> = {
   inspiration: [
-    "Lagre denne til neste gang.",
-    "Send den til den du vil oppleve det med.",
     "Ville du tatt denne?",
+    "Hva ville du gjort først?",
   ],
   useful: [
     "Hvilken ville du valgt? Skriv det under.",
-    "Lagre denne til du skal bestemme deg.",
-    "Send den til den du planlegger med.",
+    "Hva ville du sjekket først?",
   ],
   commercial: [
-    "Se utvalget og finn dagens pris.",
     "Se hva som finnes akkurat nå.",
   ],
   trust: [
