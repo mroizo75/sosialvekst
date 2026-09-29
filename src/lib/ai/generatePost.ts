@@ -1,4 +1,5 @@
 import { buildNorwegianCopyPrompt, type CopyVisual } from "@/lib/ai/copyPromptBuilderNo";
+import { autoFixCopy, findCopyIssues } from "@/lib/ai/validateCopy";
 import { mergeBrandRules } from "@/lib/ai/brandRules";
 import { generateImageToVideo, isFalAvailable } from "@/lib/ai/falClient";
 import { generateProfessionalImage, overlayLogoOnImage } from "@/lib/ai/imageGeneration";
@@ -258,29 +259,59 @@ const createText = async (input: GeneratePostInput, visual?: CopyVisual): Promis
     prohibitedTerms: input.brandContext?.prohibitedTerms,
   });
 
-  const prompt = buildNorwegianCopyPrompt({
+  const check = { placeName: visual?.placeName, pillar: input.contentPillar };
+  const ask = async (rejectionReasons?: string[]): Promise<string> => {
+    const prompt = buildNorwegianCopyPrompt({
+      topic: input.topic,
+      channel: input.channel,
+      brandRules,
+      brandContext: input.brandContext,
+      intent: input.intent,
+      format: input.format,
+      ctaType: input.ctaType,
+      contentPillar: input.contentPillar,
+      reelScript: input.reelScript,
+      visual,
+      rejectionReasons,
+    });
+    const response = await client.responses.create({
+      model: "gpt-4.1-mini",
+      max_output_tokens: getMaxOutputTokens(input.channel),
+      input: [
+        { role: "system", content: prompt.system },
+        { role: "user", content: prompt.user },
+      ],
+    });
+    return autoFixCopy(response.output_text || fallbackText(input.topic));
+  };
+
+  const first = await ask();
+  const firstIssues = findCopyIssues(first, check);
+  if (firstIssues.length === 0) return first;
+
+  let second = first;
+  try {
+    second = await ask(firstIssues);
+  } catch (error) {
+    logger.warn("Nytt utkast feilet etter avvist posttekst", {
+      topic: input.topic,
+      channel: input.channel,
+      error: error instanceof Error ? error.message : "ukjent",
+      issues: firstIssues,
+    });
+    return first;
+  }
+
+  const secondIssues = findCopyIssues(second, check);
+  if (secondIssues.length === 0) return second;
+
+  logger.warn("Posttekst avvist to ganger, bruker beste utkast", {
     topic: input.topic,
     channel: input.channel,
-    brandRules,
-    brandContext: input.brandContext,
-    intent: input.intent,
-    format: input.format,
-    ctaType: input.ctaType,
-    contentPillar: input.contentPillar,
-    reelScript: input.reelScript,
-    visual,
+    firstIssues,
+    secondIssues,
   });
-
-  const response = await client.responses.create({
-    model: "gpt-4.1-mini",
-    max_output_tokens: getMaxOutputTokens(input.channel),
-    input: [
-      { role: "system", content: prompt.system },
-      { role: "user", content: prompt.user },
-    ],
-  });
-
-  return response.output_text || fallbackText(input.topic);
+  return secondIssues.length < firstIssues.length ? second : first;
 };
 
 const loadBuffer = async (url?: string): Promise<Buffer | undefined> => {

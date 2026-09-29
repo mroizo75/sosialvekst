@@ -24,6 +24,7 @@ type CopyPromptInput = {
   contentPillar?: ContentPillar;
   reelScript?: boolean;
   visual?: CopyVisual;
+  rejectionReasons?: string[];
 };
 
 type StructuredPrompt = {
@@ -175,6 +176,10 @@ const buildStandardUserPrompt = (
     "- Lever KUN postteksten. Ingen forklaringer eller metadata.",
   );
 
+  if (input.rejectionReasons?.length) {
+    lines.push("", `Forrige utkast ble avvist fordi: ${input.rejectionReasons.join(" ")}`);
+  }
+
   return lines;
 };
 
@@ -210,6 +215,9 @@ const buildTikTokUserPrompt = (
   "- INGEN nettadresser.",
   "- 0–3 hashtags.",
   "- Lever KUN captionen.",
+  ...(input.rejectionReasons?.length
+    ? ["", `Forrige utkast ble avvist fordi: ${input.rejectionReasons.join(" ")}`]
+    : []),
 ];
 
 export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredPrompt => {
