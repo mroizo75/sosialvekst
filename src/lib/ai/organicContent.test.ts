@@ -124,6 +124,36 @@ describe("organisk innholdsstrategi", () => {
     expect(tiktok.system).toContain("uten tegnsetting");
   });
 
+  it("holder utvalgsfakta unna inspirasjon og nyttig", () => {
+    const catalog = "2 millioner hoteller i 90 land";
+    const brandContext = {
+      companyName: "Sydenklar",
+      industry: "Reise",
+      targetAudience: "Par som vil ha sol",
+      companyDescription: catalog,
+    };
+    const inspiration = buildNorwegianCopyPrompt({
+      topic: "Sicilia",
+      channel: "facebook",
+      brandRules: defaultBrandRules,
+      brandContext,
+      contentPillar: "inspiration",
+    });
+    const commercial = buildNorwegianCopyPrompt({
+      topic: "Sicilia",
+      channel: "facebook",
+      brandRules: defaultBrandRules,
+      brandContext,
+      contentPillar: "commercial",
+    });
+
+    expect(inspiration.system).toContain("Firmanavn: Sydenklar");
+    expect(inspiration.system).toContain("Bransje: Reise");
+    expect(inspiration.system).toContain("Målgruppe: Par som vil ha sol");
+    expect(inspiration.system).not.toContain(catalog);
+    expect(commercial.system).toContain(catalog);
+  });
+
   it("legger bildet først i copy-prompten når scenen er kjent", () => {
     const prompt = buildNorwegianCopyPrompt({
       topic: "En uke på Sicilia",

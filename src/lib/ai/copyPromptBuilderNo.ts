@@ -96,6 +96,15 @@ const buildTikTokSystemRules = (companyName: string, prohibitedTerms: string[]):
   "9. Ikke skriv om søk, sammenligning, antall hoteller eller antall land med mindre søylen er commercial eller trust.",
 ];
 
+const limitedBrandContext = (ctx: BrandContext): string => {
+  const lines = [
+    `Firmanavn: ${ctx.companyName ?? "bedriften"}`,
+    ctx.industry ? `Bransje: ${ctx.industry}` : "",
+    ctx.targetAudience ? `Målgruppe: ${ctx.targetAudience}` : "",
+  ].filter(Boolean);
+  return lines.join("\n");
+};
+
 const visualLines = (visual?: CopyVisual): string[] => {
   if (!visual) return [];
   const place = visual.placeName ?? "ikke et navngitt sted";
@@ -241,7 +250,7 @@ export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredProm
     buildBrandSkill(brandContext),
     "",
     "BAKGRUNN OM BEDRIFTEN (brukes som fakta, ikke som manus):",
-    buildSystemContext(brandContext),
+    includeWebsite ? buildSystemContext(brandContext) : limitedBrandContext(brandContext),
   ];
 
   const userLines = isTikTok
