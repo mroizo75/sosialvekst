@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assembleCaption, ensureCompleteEnding, ensureWebsiteLinkInText } from "@/lib/ai/generatePost";
+import { assembleCaption, buildCopyUserInput, ensureCompleteEnding, ensureWebsiteLinkInText, resolveCopyModel } from "@/lib/ai/generatePost";
 
 describe("assembleCaption", () => {
   it("setter ikke punktum etter hashtags, og lenken kommer før dem", () => {
@@ -22,5 +22,24 @@ describe("assembleCaption", () => {
     expect(caption.indexOf("https://sydenklar.no")).toBeLessThan(caption.indexOf("#sicilia"));
     expect(caption.endsWith("Foto: Ada – CC BY 2.0")).toBe(true);
     expect(caption.startsWith("Kvelden ligger over gaten.")).toBe(true);
+  });
+
+  it("sender bildet til copy-modellen og bruker en sterkere standardmodell", () => {
+    expect(resolveCopyModel(undefined)).toBe("gpt-4.1");
+    expect(resolveCopyModel("  gpt-5  ")).toBe("gpt-5");
+
+    const content = buildCopyUserInput("BILDE OG OVERLAY\nScene: gate", "https://cdn.example/post.jpg");
+    expect(Array.isArray(content)).toBe(true);
+    if (!Array.isArray(content)) return;
+    expect(content[0]).toMatchObject({
+      type: "input_text",
+      text: expect.stringContaining("Dette er bildet som publiseres. Teksten skal passe det du ser."),
+    });
+    expect(content[0]?.text).toContain("BILDE OG OVERLAY");
+    expect(content[1]).toMatchObject({
+      type: "input_image",
+      image_url: "https://cdn.example/post.jpg",
+    });
+    expect(buildCopyUserInput("Bare tekst")).toBe("Bare tekst");
   });
 });

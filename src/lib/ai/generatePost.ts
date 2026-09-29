@@ -306,7 +306,26 @@ const profileTermsFor = (input: GeneratePostInput, placeName?: string | null): s
     placeName ?? "",
   ].filter((term) => term.trim().length >= 3);
 
-const createText = async (input: GeneratePostInput, visual?: CopyVisual, world?: VisualWorld): Promise<string> => {
+export const resolveCopyModel = (envValue = process.env.COPY_MODEL): string =>
+  envValue?.trim() || "gpt-4.1";
+
+export const buildCopyUserInput = (text: string, imageUrl?: string) => {
+  if (!imageUrl) return text;
+  return [
+    {
+      type: "input_text" as const,
+      text: `${text}\n\nDette er bildet som publiseres. Teksten skal passe det du ser.`,
+    },
+    { type: "input_image" as const, image_url: imageUrl, detail: "auto" as const },
+  ];
+};
+
+const createText = async (
+  input: GeneratePostInput,
+  visual?: CopyVisual,
+  world?: VisualWorld,
+  imageUrl?: string,
+): Promise<string> => {
   const client = getOpenAiClient();
   if (!client) {
     return fallbackText(input.topic);
@@ -331,11 +350,11 @@ const createText = async (input: GeneratePostInput, visual?: CopyVisual, world?:
       rejectionReasons,
     });
     const response = await client.responses.create({
-      model: "gpt-4.1-mini",
+      model: resolveCopyModel(),
       max_output_tokens: getMaxOutputTokens(input.channel),
       input: [
         { role: "system", content: prompt.system },
-        { role: "user", content: prompt.user },
+        { role: "user", content: buildCopyUserInput(prompt.user, imageUrl) },
       ],
     });
     return autoFixCopy(response.output_text || fallbackText(input.topic));
@@ -934,7 +953,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
           }
         : undefined;
     try {
-      rawText = await createText(input, visual, brief.world);
+      rawText = await createText(input, visual, brief.world, imageUrl);
     } catch (error) {
       logger.warn("AI text generation failed, using fallback text", {
         userId: input.userId,
