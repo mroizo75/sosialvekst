@@ -260,4 +260,26 @@ describe("slideDesign", () => {
     expect(knownPlaceLook("Sicilia")).toBeNull();
     expect(buildPhotoPrompt(guide, brief, 0, "slide", "stone lanes and the sea")).toContain("stone lanes and the sea");
   });
+
+  it("rendrer æ, ø og å i overlayet", async () => {
+    const photo = await sharp({
+      create: { width: 64, height: 64, channels: 3, background: "#123456" },
+    }).jpeg().toBuffer();
+    const design = {
+      mode: "headline" as const,
+      coverTitle: "Søk. Sammenlign. Æøå",
+      coverSubline: "Æøå",
+      question: "Æøå",
+      cards: [],
+      cta: "",
+    };
+    const svg = buildSlideSvg({ photo, design, slideIndex: 0, layout: "photo" });
+    const rendered = await composeDesignedSlide({ photo, design, slideIndex: 0, layout: "photo" });
+
+    expect(svg).toContain("Søk");
+    expect(svg).toContain("Sammenlign");
+    expect(svg).toContain("Æøå");
+    expect(svg).toContain("Segoe UI");
+    expect(rendered.length).toBeGreaterThan(0);
+  });
 });
