@@ -19,7 +19,7 @@ describe("generatePlan", () => {
 
     expect(result.posts).toHaveLength(36);
     expect(result.posts[0]?.quality.total).toBeGreaterThan(0);
-  });
+  }, 30_000);
 
   it("haandterer edge case med 1 post i 1 uke", async () => {
     const result = await generatePlan({

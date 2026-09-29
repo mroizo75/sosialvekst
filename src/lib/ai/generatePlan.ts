@@ -194,52 +194,56 @@ export const generatePlan = async (input: GeneratePlanInput): Promise<GeneratePl
     for (let dayIndex = 0; dayIndex < postingDayOffsets.length; dayIndex += 1) {
       const dayOffset = postingDayOffsets[dayIndex];
       const hour = getHour(input.countryCode, dayIndex);
-      const dayAngles: string[] = [];
-
-      for (const channel of input.channels) {
-        const scheduledAt = scheduleInTimeZone({
-          timeZone,
-          anchor: weekAnchor,
-          dayOffset,
-          hour,
-          minute: minuteForChannel(channel),
-        });
+      const dayPlan = input.channels.map((channel) => {
         const angle = weekAngles[angleIndex] ?? { angle: weekTopic };
         angleIndex += 1;
-        dayAngles.push(angle.angle);
-
-        const strategy = assignPostStrategy({
-          weekIndex: week,
-          dayIndex,
-          channel,
-          postsPerWeek: postingDayOffsets.length,
-          hasCustomerStories: (input.brandContext?.customerSuccessStories?.length ?? 0) > 0,
-        });
-
-        const post = await generatePost({
-          userId: input.userId,
-          topic: angle.place ? `${angle.angle} Sted: ${angle.place}.` : angle.angle,
-          channel,
-          scheduledAt,
-          mediaMode: input.mediaMode,
-          brandContext: input.brandContext,
-          intent: strategy.intent,
-          format: strategy.format,
-          ctaType: strategy.ctaType,
-          imageDirection: strategy.imageDirection,
-          contentPillar: strategy.contentPillar,
-          visualMotif: strategy.visualMotif,
-          reelScript: strategy.reelScript,
-          includeWebsiteLink: strategy.includeWebsiteLink,
-          feedIndex: strategy.feedIndex,
-          avoidRepeating: used.slice(-5),
-        });
+        return { channel, angle };
+      });
+      const avoidRepeating = used.slice(-5);
+      const generatedForDay = await Promise.all(
+        dayPlan.map(({ channel, angle }) => {
+          const scheduledAt = scheduleInTimeZone({
+            timeZone,
+            anchor: weekAnchor,
+            dayOffset,
+            hour,
+            minute: minuteForChannel(channel),
+          });
+          const strategy = assignPostStrategy({
+            weekIndex: week,
+            dayIndex,
+            channel,
+            postsPerWeek: postingDayOffsets.length,
+            hasCustomerStories: (input.brandContext?.customerSuccessStories?.length ?? 0) > 0,
+          });
+          return generatePost({
+            userId: input.userId,
+            topic: angle.place ? `${angle.angle} Sted: ${angle.place}.` : angle.angle,
+            channel,
+            scheduledAt,
+            mediaMode: input.mediaMode,
+            brandContext: input.brandContext,
+            intent: strategy.intent,
+            format: strategy.format,
+            ctaType: strategy.ctaType,
+            imageDirection: strategy.imageDirection,
+            contentPillar: strategy.contentPillar,
+            visualMotif: strategy.visualMotif,
+            reelScript: strategy.reelScript,
+            includeWebsiteLink: strategy.includeWebsiteLink,
+            feedIndex: strategy.feedIndex,
+            avoidRepeating,
+          }).then((post) => ({ post, angle }));
+        }),
+      );
+      for (const { post, angle } of generatedForDay) {
         posts.push(post);
         used.push(angle.angle);
         if (angle.place) used.push(angle.place);
         const opening = openingSentence(post.text);
         if (opening) used.push(opening);
       }
+      const dayAngles = dayPlan.map((item) => item.angle.angle);
 
       const uniqueDayAngles = new Set(dayAngles.map((angle) => angle.toLowerCase()));
       if (input.channels.length > 1 && uniqueDayAngles.size < dayAngles.length) {

@@ -307,6 +307,16 @@ const profileTermsFor = (input: GeneratePostInput, placeName?: string | null): s
     placeName ?? "",
   ].filter((term) => term.trim().length >= 3);
 
+export const postStatusForMedia = (
+  channel: SocialChannel,
+  imageUrl: string | undefined,
+  videoUrl: string | undefined,
+  status: "draft" | "needs_review",
+): "draft" | "needs_review" => {
+  if (channel === "tiktok" && !imageUrl && !videoUrl) return "needs_review";
+  return status;
+};
+
 export const resolveCopyModel = (envValue = process.env.COPY_MODEL): string =>
   envValue?.trim() || "gpt-4.1";
 
@@ -616,7 +626,9 @@ const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<string
     return pickOwnedImageUrl(input);
   }
 
-  const maxAttempts = getImageQualityPolicy(input.channel, input.imageProfile).imageRetryAttempts;
+  const maxAttempts = getOpenAiClient()
+    ? getImageQualityPolicy(input.channel, input.imageProfile).imageRetryAttempts
+    : 1;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const imageUrl = await createImageUrl(input);
@@ -975,6 +987,13 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   }
 
   const videoUrl: string | undefined = undefined;
+  const missingTikTokMedia = input.channel === "tiktok" && !imageUrl && !videoUrl;
+  if (missingTikTokMedia) {
+    logger.warn("TikTok-innlegg mangler både bilde og video", {
+      userId: input.userId,
+      topic: input.topic,
+    });
+  }
 
   const companyName = input.brandContext?.companyName;
   const websiteUrl = input.channel === "tiktok" ? undefined : input.brandContext?.websiteUrl?.trim();
@@ -1015,7 +1034,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     imageCredit: imageInput.photoCredits?.[0] ? photoCreditRecord(imageInput.photoCredits[0]) : undefined,
     additionalImageCredits: imageInput.photoCredits?.slice(1).map(photoCreditRecord),
     videoUrl,
-    status: decision.status,
+    status: postStatusForMedia(input.channel, imageUrl, videoUrl, decision.status),
     quality: decision.quality,
     intent: input.intent,
     format: input.format,

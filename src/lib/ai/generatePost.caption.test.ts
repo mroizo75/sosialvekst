@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assembleCaption, buildCopyUserInput, ensureCompleteEnding, ensureWebsiteLinkInText, resolveCopyModel } from "@/lib/ai/generatePost";
+import { assembleCaption, buildCopyUserInput, ensureCompleteEnding, ensureWebsiteLinkInText, postStatusForMedia, resolveCopyModel } from "@/lib/ai/generatePost";
 
 describe("assembleCaption", () => {
   it("setter ikke punktum etter hashtags, og lenken kommer før dem", () => {
@@ -41,5 +41,11 @@ describe("assembleCaption", () => {
       image_url: "https://cdn.example/post.jpg",
     });
     expect(buildCopyUserInput("Bare tekst")).toBe("Bare tekst");
+  });
+
+  it("setter TikTok uten bilde og video til vurdering", () => {
+    expect(postStatusForMedia("tiktok", undefined, undefined, "draft")).toBe("needs_review");
+    expect(postStatusForMedia("tiktok", "https://cdn.example/a.jpg", undefined, "draft")).toBe("draft");
+    expect(postStatusForMedia("facebook", undefined, undefined, "draft")).toBe("draft");
   });
 });
