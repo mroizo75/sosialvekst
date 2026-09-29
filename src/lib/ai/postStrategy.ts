@@ -156,7 +156,7 @@ const formatForPillar = (
 export const assignPostStrategy = (slot: PostSlot): PostStrategyResult => {
   const postsPerWeek = Math.max(1, slot.postsPerWeek ?? 3);
   const feedIndex = slot.feedIndex ?? slot.weekIndex * postsPerWeek + slot.dayIndex;
-  const contentPillar = PILLAR_CYCLE[feedIndex % PILLAR_CYCLE.length];
+  const contentPillar = PILLAR_CYCLE[(feedIndex + channelOffset(slot.channel)) % PILLAR_CYCLE.length];
   const visualMotif = MOTIF_CYCLE[(feedIndex + channelOffset(slot.channel)) % MOTIF_CYCLE.length];
   const ctaOptions = PILLAR_CTA[contentPillar];
   const reelScript = slot.channel === "tiktok"

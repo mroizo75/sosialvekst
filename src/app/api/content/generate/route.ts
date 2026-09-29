@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { fallbackAngle } from "@/lib/ai/generatePlan";
 import { generatePost } from "@/lib/ai/generatePost";
 import { assignPostStrategy } from "@/lib/ai/postStrategy";
 import { requireUserId } from "@/lib/auth";
@@ -43,9 +44,9 @@ const generateSchema = z.object({
 
 const defaultPostingDayOffsets = [0, 2, 4];
 
-const getTopicForWeek = (week: number, windows: TopicWindow[]): string => {
+const getTopicForWeek = (week: number, windows: TopicWindow[], brandContext?: BrandContext): string => {
   const match = windows.find((w) => week >= w.startWeek && week <= w.endWeek);
-  return match?.topic ?? "Generell merkevarebygging";
+  return match?.topic ?? fallbackAngle(brandContext);
 };
 
 const getHour = (countryCode: string, index: number): number => {
@@ -82,6 +83,7 @@ const buildSlots = (
   startDate?: string,
   customDays?: number[],
   customHours?: number[],
+  brandContext?: BrandContext,
 ): PlaceholderSlot[] => {
   const slots: PlaceholderSlot[] = [];
   const now = new Date();
@@ -95,7 +97,7 @@ const buildSlots = (
   let logicalWeek = 0;
 
   while (slots.length < targetTotal) {
-    const weekTopic = getTopicForWeek(logicalWeek + 1, topicWindows);
+    const weekTopic = getTopicForWeek(logicalWeek + 1, topicWindows, brandContext);
     const weekAnchor = new Date(Date.UTC(weekMonday.year, weekMonday.month - 1, weekMonday.day, 12));
 
     for (let dayIndex = 0; dayIndex < dayOffsets.length; dayIndex += 1) {
@@ -187,6 +189,7 @@ export async function POST(request: Request) {
       payload.startDate,
       payload.postingDays,
       payload.postingHours,
+      brandContext,
     );
 
     const supabase = await createSupabaseServerClient();

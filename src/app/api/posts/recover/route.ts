@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { fallbackAngle } from "@/lib/ai/generatePlan";
 import { generatePost } from "@/lib/ai/generatePost";
 import { assignPostStrategy } from "@/lib/ai/postStrategy";
 import { requireUserId } from "@/lib/auth";
@@ -34,6 +35,7 @@ const getTopicFromPlan = async (
   planId: string,
   scheduledAt: string,
   userId: string,
+  brandContext?: BrandContext,
 ): Promise<string> => {
   const admin = createSupabaseAdminClient();
 
@@ -49,7 +51,7 @@ const getTopicFromPlan = async (
     : [];
 
   if (topicWindows.length === 0) {
-    return "Generell merkevarebygging";
+    return fallbackAngle(brandContext);
   }
 
   const { data: firstPost } = await admin
@@ -62,7 +64,7 @@ const getTopicFromPlan = async (
     .maybeSingle();
 
   if (!firstPost?.scheduled_at) {
-    return "Generell merkevarebygging";
+    return fallbackAngle(brandContext);
   }
 
   const planStart = new Date(firstPost.scheduled_at);
@@ -71,7 +73,7 @@ const getTopicFromPlan = async (
   const week = Math.floor(daysDiff / 7) + 1;
 
   const match = topicWindows.find((w) => week >= w.startWeek && week <= w.endWeek);
-  return match?.topic ?? "Generell merkevarebygging";
+  return match?.topic ?? fallbackAngle(brandContext);
 };
 
 const getMediaModeFromPlan = async (
@@ -101,8 +103,8 @@ const recoverPost = async (
 
   try {
     const topic = post.plan_id
-      ? await getTopicFromPlan(post.plan_id, post.scheduled_at, post.user_id)
-      : "Generell merkevarebygging";
+      ? await getTopicFromPlan(post.plan_id, post.scheduled_at, post.user_id, brandContext)
+      : fallbackAngle(brandContext);
 
     const mediaMode = post.plan_id
       ? await getMediaModeFromPlan(post.plan_id, post.user_id)

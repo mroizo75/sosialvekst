@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { fallbackAngle } from "@/lib/ai/generatePlan";
 import { generatePost } from "@/lib/ai/generatePost";
 import { assignPostStrategy } from "@/lib/ai/postStrategy";
 import { requireUserId } from "@/lib/auth";
@@ -52,6 +53,7 @@ export async function POST() {
     const userId = await requireUserId();
     const workspaceId = await requireWorkspaceId(userId);
     await requireActiveSubscription(userId);
+    const brandContext = await getBrandContext(userId, workspaceId);
     const supabase = await createSupabaseServerClient();
     const admin = createSupabaseAdminClient();
 
@@ -213,7 +215,7 @@ export async function POST() {
             scheduledAt,
             weekIndex: logicalWeek,
             dayIndex,
-            topic: getTopicForWeek(logicalWeek + 1, topicWindows),
+            topic: getTopicForWeek(logicalWeek + 1, topicWindows, brandContext),
           });
         }
       }
@@ -255,8 +257,6 @@ export async function POST() {
       action: "regenerate_all",
       post_count: newSlots.length,
     });
-
-    const brandContext = await getBrandContext(userId, workspaceId);
 
     console.log(`[regenerate-all] Starter generering av ${newSlots.length} poster for bruker ${userId}`);
 
@@ -304,9 +304,9 @@ type Slot = {
   topic: string;
 };
 
-const getTopicForWeek = (week: number, windows: TopicWindow[]): string => {
+const getTopicForWeek = (week: number, windows: TopicWindow[], brandContext?: BrandContext): string => {
   const match = windows.find((w) => week >= w.startWeek && week <= w.endWeek);
-  return match?.topic ?? "Generell merkevarebygging";
+  return match?.topic ?? fallbackAngle(brandContext);
 };
 
 async function regenerateSlots(

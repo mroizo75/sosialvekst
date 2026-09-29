@@ -53,6 +53,7 @@ type GeneratePostInput = {
   reelScript?: boolean;
   includeWebsiteLink?: boolean;
   feedIndex?: number;
+  avoidRepeating?: string[];
   socialDesign?: SocialDesign;
   photoCredits?: PhotoAttribution[];
   placePhotoUsed?: Set<string>;
@@ -348,6 +349,7 @@ const createText = async (
       visual,
       visualWorld: world,
       rejectionReasons,
+      avoidRepeating: input.avoidRepeating,
     });
     const response = await client.responses.create({
       model: resolveCopyModel(),

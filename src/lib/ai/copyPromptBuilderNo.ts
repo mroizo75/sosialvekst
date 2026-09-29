@@ -27,6 +27,7 @@ type CopyPromptInput = {
   visual?: CopyVisual;
   visualWorld?: VisualWorld;
   rejectionReasons?: string[];
+  avoidRepeating?: string[];
 };
 
 type StructuredPrompt = {
@@ -178,6 +179,9 @@ const buildStandardUserPrompt = (
     "- Lever KUN postteksten. Ingen forklaringer eller metadata.",
   );
 
+  if (input.avoidRepeating?.length) {
+    lines.push("", "Ikke gjenta disse:", ...input.avoidRepeating.slice(-5));
+  }
   if (input.rejectionReasons?.length) {
     lines.push("", `Forrige utkast ble avvist fordi: ${input.rejectionReasons.join(" ")}`);
   }
@@ -217,6 +221,9 @@ const buildTikTokUserPrompt = (
   "- INGEN nettadresser.",
   "- 0–3 hashtags.",
   "- Lever KUN captionen.",
+  ...(input.avoidRepeating?.length
+    ? ["", "Ikke gjenta disse:", ...input.avoidRepeating.slice(-5)]
+    : []),
   ...(input.rejectionReasons?.length
     ? ["", `Forrige utkast ble avvist fordi: ${input.rejectionReasons.join(" ")}`]
     : []),

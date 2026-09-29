@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { fallbackAngle } from "@/lib/ai/generatePlan";
 import { generatePost } from "@/lib/ai/generatePost";
 import { assignPostStrategy } from "@/lib/ai/postStrategy";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
@@ -171,8 +172,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     let updatedImageCredit = post.imageCredit;
     let updatedAdditionalImageCredits = post.additionalImageCredits ?? [];
     const fallbackTopic = brandContext?.companyDescription?.slice(0, 180)
-      ?? brandContext?.products?.join(", ")?.slice(0, 180)
-      ?? "Generell merkevarebygging";
+      ?? fallbackAngle(brandContext);
     const action = payload.action ?? (payload.regenerate ? "regenerate_all" : "save");
     const shouldUnlockFirst =
       (action === "unlock" || action === "reject_and_regenerate") &&
