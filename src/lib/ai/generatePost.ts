@@ -18,6 +18,7 @@ import {
   createSocialDesign,
   placeGuideCopy,
   resolveDesignMode,
+  resolvePlaceLook,
   type SocialDesign,
 } from "@/lib/ai/slideDesign";
 import { uploadUserFile, listUserFiles } from "@/lib/cloudflare/r2";
@@ -55,6 +56,7 @@ type GeneratePostInput = {
   socialDesign?: SocialDesign;
   photoCredits?: string[];
   placePhotoUsed?: Set<string>;
+  placeLook?: string | null;
 };
 
 type ImageQualityPolicy = {
@@ -356,6 +358,7 @@ const renderDesignedSlide = async (
         brief,
         slideIndex,
         layout === "single" ? "single" : "slide",
+        input.placeLook,
       ),
       profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
       size: "1024x1536",
@@ -756,6 +759,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     motif: input.visualMotif,
     feedIndex: input.feedIndex,
   });
+  const placeLookPromise = resolvePlaceLook(brief.placeName);
 
   let socialDesign: SocialDesign | undefined;
   if (input.channel !== "tiktok" && input.mediaMode !== "owned_only") {
@@ -780,6 +784,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     socialDesign,
     photoCredits: [],
     placePhotoUsed: new Set<string>(),
+    placeLook: await placeLookPromise,
   };
 
   let imageUrl: string | undefined;

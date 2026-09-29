@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 
 import { buildSlideSvg, composeDesignedSlide, photoTextColors, resolveSlideLayout } from "@/lib/ai/slideComposer";
-import { buildPhotoPrompt, buildPhotoSubject, composeGuideCaption, headlineFromCaption, parseSocialDesign, placeGuideCopy, resolveDesignMode } from "@/lib/ai/slideDesign";
+import { buildPhotoPrompt, buildPhotoSubject, composeGuideCaption, fallbackSocialDesign, headlineFromCaption, knownPlaceLook, parseSocialDesign, placeGuideCopy, resolveDesignMode } from "@/lib/ai/slideDesign";
 import type { VisualBrief } from "@/lib/ai/visualDirection";
 
 const brief: VisualBrief = {
@@ -236,5 +236,28 @@ describe("slideDesign", () => {
     expect(caption).toContain("Playa del Inglés");
     expect(caption).not.toContain("omfattende");
     expect(caption.endsWith("https://sydenklar.no")).toBe(true);
+  });
+
+  it("fjerner salgsord fra fallback-tittelen", () => {
+    const design = fallbackSocialDesign({
+      topic: "Sicilia hotell pris",
+      channel: "facebook",
+      brief: { ...brief, placeName: null },
+    });
+    const empty = fallbackSocialDesign({
+      topic: "hotell booking",
+      channel: "facebook",
+      brief: { ...brief, placeName: null },
+    });
+
+    expect(design.coverTitle).toBe("SICILIA");
+    expect(design.coverTitle).not.toMatch(/HOTELL|PRIS|BESTILL|BOOKING/);
+    expect(empty.coverTitle).toBe("VERDT EN TUR");
+  });
+
+  it("bruker kjent stedsutseende og lar ukjente steder være tomme", () => {
+    expect(knownPlaceLook("Dubrovnik")).toContain("limestone");
+    expect(knownPlaceLook("Sicilia")).toBeNull();
+    expect(buildPhotoPrompt(guide, brief, 0, "slide", "stone lanes and the sea")).toContain("stone lanes and the sea");
   });
 });

@@ -44,11 +44,18 @@ export const resolveDesignMode = (
   return "headline";
 };
 
+const SALES_WORDS = /\b(?:hoteller|hotell|pris|bestill|booking)\b/gi;
+
+const coverTitleFrom = (value: string): string => {
+  const stripped = value.replace(SALES_WORDS, " ").replace(/\s+/g, " ").trim();
+  return clampWords(stripped || "Verdt en tur", 3, 22).toUpperCase();
+};
+
 export const fallbackSocialDesign = (input: DesignInput): SocialDesign => {
   const titleSource = input.brief.placeName ?? input.topic;
   return {
     mode: "headline",
-    coverTitle: clampWords(titleSource, 3, 22).toUpperCase(),
+    coverTitle: coverTitleFrom(titleSource),
     coverSubline: input.contentPillar === "useful" ? "Dette bør du vite" : "Verdt å se nærmere på",
     question: "Hva passer deg?",
     cards: [],
@@ -153,10 +160,21 @@ export const composeGuideCaption = (design: SocialDesign, websiteUrl?: string): 
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 };
 
+type FallbackReason = "no_client" | "exception" | "parse_null";
+
+const useFallback = (input: DesignInput, reason: FallbackReason): SocialDesign => {
+  logger.warn("Fallback-design brukes", {
+    reason,
+    placeName: input.brief.placeName ?? "mangler",
+    topic: input.topic,
+  });
+  return fallbackSocialDesign(input);
+};
+
 export const createSocialDesign = async (input: DesignInput): Promise<SocialDesign> => {
   const mode = input.forceGuide ? "guide" : resolveDesignMode(input.contentPillar, input.visualMotif);
   const client = getOpenAiClient();
-  if (!client) return fallbackSocialDesign(input);
+  if (!client) return useFallback(input, "no_client");
 
   const company = input.brandContext?.companyName ?? "bedriften";
   const industry = input.brandContext?.industry ?? "ukjent bransje";
@@ -192,8 +210,12 @@ export const createSocialDesign = async (input: DesignInput): Promise<SocialDesi
                 "cards skal ha nøyaktig 3 ekte områder i det låste stedet. Ikke finn på bydeler og ikke bruk en annen by.",
                 "title er det lokale navnet, uoversatt. summary er én konkret setning om stedet, uten reklamespråk.",
                 "Hvert bullet maks 3 ord.",
-                "Eksempel for Rhodos: Lindos, Faliraki, Rhodos by. Ikke Downtown Rhodos, Magisk strand eller Hotellområdet.",
-                "Samme regel for Kos, Hurghada og alle andre steder: kjente områder, ellers sentrum, strand og havn.",
+                ...(input.brief.world === "travel"
+                  ? [
+                    "Eksempel for Rhodos: Lindos, Faliraki, Rhodos by. Ikke Downtown Rhodos, Magisk strand eller Hotellområdet.",
+                    "Samme regel for Kos, Hurghada og alle andre steder: kjente områder, ellers sentrum, strand og havn.",
+                  ]
+                  : []),
               ].join(" ")
               : "cards skal være en tom liste.",
           ].join("\n"),
@@ -202,12 +224,13 @@ export const createSocialDesign = async (input: DesignInput): Promise<SocialDesi
     });
 
     const parsed = parseSocialDesign(response.output_text || "", mode);
-    return parsed ?? fallbackSocialDesign(input);
+    return parsed ?? useFallback(input, "parse_null");
   } catch (error) {
     logger.warn("Kunne ikke planlegge slide-tekst", {
+      reason: "exception",
       error: error instanceof Error ? error.message : "ukjent",
     });
-    return fallbackSocialDesign(input);
+    return useFallback(input, "exception");
   }
 };
 
@@ -220,10 +243,45 @@ const PLACE_LOOK: Record<string, string> = {
   Kreta: "Cretan stone, olive landscape, or the named beach",
 };
 
-const placeLook = (placeName: string | null): string | null => {
+const placeLookCache = new Map<string, string>();
+
+export const knownPlaceLook = (placeName: string | null): string | null => {
   if (!placeName) return null;
   const key = Object.keys(PLACE_LOOK).find((name) => name.toLowerCase() === placeName.toLowerCase());
   return key ? PLACE_LOOK[key] ?? null : null;
+};
+
+export const resolvePlaceLook = async (placeName: string | null): Promise<string | null> => {
+  const known = knownPlaceLook(placeName);
+  if (known || !placeName) return known;
+  const cached = placeLookCache.get(placeName.toLowerCase());
+  if (cached) return cached;
+
+  const client = getOpenAiClient();
+  if (!client) return null;
+
+  try {
+    const response = await client.responses.create({
+      model: "gpt-4.1-mini",
+      max_output_tokens: 80,
+      input: [
+        {
+          role: "user",
+          content: `One English sentence describing the real architecture and landscape of ${placeName}. No hotel names, prices or superlatives.`,
+        },
+      ],
+    });
+    const look = (response.output_text || "").replace(/\s+/g, " ").trim();
+    if (!look) return null;
+    placeLookCache.set(placeName.toLowerCase(), look);
+    return look;
+  } catch (error) {
+    logger.warn("Kunne ikke hente placeLook", {
+      placeName,
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    return null;
+  }
 };
 
 const placeLock = (brief: VisualBrief): string =>
@@ -249,9 +307,10 @@ export const buildPhotoPrompt = (
   brief: VisualBrief,
   slideIndex: number,
   kind: "single" | "slide" = "slide",
+  resolvedLook?: string | null,
 ): string => {
   const place = brief.placeName;
-  const look = placeLook(place);
+  const look = resolvedLook ?? knownPlaceLook(place);
   const subject = buildPhotoSubject(design, brief, slideIndex);
   return [
     kind === "single"
