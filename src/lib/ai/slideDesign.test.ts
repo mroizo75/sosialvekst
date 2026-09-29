@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 
 import { buildSlideSvg, composeDesignedSlide, photoTextColors, resolveSlideLayout } from "@/lib/ai/slideComposer";
-import { buildPhotoPrompt, buildPhotoSubject, composeGuideCaption, fallbackSocialDesign, headlineFromCaption, knownPlaceLook, parseSocialDesign, placeGuideCopy, resolveDesignMode, slideLineForImage } from "@/lib/ai/slideDesign";
+import { buildPhotoPrompt, buildPhotoSubject, composeGuideCaption, fallbackSocialDesign, headlineFromCaption, knownPlaceLook, overlaySentence, parseSocialDesign, placeGuideCopy, resolveDesignMode, slideLineForImage } from "@/lib/ai/slideDesign";
 import type { VisualBrief } from "@/lib/ai/visualDirection";
 
 const brief: VisualBrief = {
@@ -87,7 +87,7 @@ describe("slideDesign", () => {
     });
 
     expect(svg).toContain("Maspalomas");
-    expect(svg).toContain("Dyner ned til sjøen");
+    expect(svg).toContain("Dynene går ned til stranden.");
     expect(svg).toContain("offset=\"0.42\"");
     expect(svg).toContain("fade");
     expect(svg).toContain("#F6E27A");
@@ -199,6 +199,8 @@ describe("slideDesign", () => {
     );
 
     expect(parsed?.coverSubline).toBe("Rolig område med marina og gode restauranter.");
+    expect(overlaySentence("Roligere område med flotte")).toBe("");
+    expect(overlaySentence("Dynene går ned til stranden. For deg som vil bo rett ved sjøen.")).toBe("Dynene går ned til stranden.");
   });
 
   it("viser hele undertittelen i stor tekst, med kreditering", () => {
@@ -217,8 +219,9 @@ describe("slideDesign", () => {
     });
 
     expect(svg).toContain("Gouvia");
-    expect(svg).toContain('font-size="120"');
+    expect(svg).toContain('font-size="156"');
     expect(svg).toContain("gode restauranter");
+    expect(svg).not.toContain("med flotte");
     expect(svg).toContain("Foto: Ada, CC BY 2.0");
     expect(svg).toContain("Sydenklar");
   });

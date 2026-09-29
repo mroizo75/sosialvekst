@@ -175,8 +175,9 @@ export const ensureCompleteEnding = (text: string): string => {
   if (!trimmed) return trimmed;
   if (endsWithHashtagLine(trimmed)) return trimmed;
   if (/https?:\/\/\S+$/.test(trimmed)) return trimmed;
-  if (/[.!?]$/.test(trimmed)) return trimmed;
-  return `${trimmed}.`;
+  const normalized = trimmed.replace(/:+(?=\s*[.!?]?$)/u, "").trim();
+  if (/[.!?]$/.test(normalized)) return normalized;
+  return `${normalized}.`;
 };
 
 export const ensureWebsiteLinkInText = (

@@ -45,6 +45,20 @@ const clampWords = (value: string, maxWords: number, maxChars: number): string =
   return kept.join(" ");
 };
 
+const DANGLING_END = /(?:^|\s)(?:og|eller|med|for|til|av|som|den|det|en|et|i|på|flotte?|vakre?|fine?|gode?|store?|små|nye?)$/iu;
+
+export const overlaySentence = (primary: string, fallback = ""): string => {
+  const accept = (value: string): string => {
+    const clean = value.replace(/\s+/g, " ").trim();
+    if (!clean) return "";
+    const sentence = clean.match(/^.*?[.!?]/)?.[0]?.trim() ?? clean;
+    const bare = sentence.replace(/[.!?]+$/u, "").trim();
+    if (!bare || DANGLING_END.test(bare)) return "";
+    return /[.!?]$/u.test(sentence) ? sentence : `${bare}.`;
+  };
+  return accept(primary) || accept(fallback);
+};
+
 export const slideLineForImage = (slideLine: string | undefined, title: string): string => {
   const cleaned = (slideLine ?? "").replace(/\s+/g, " ").trim();
   const words = cleaned.split(" ").filter(Boolean);
@@ -243,7 +257,7 @@ const designUserPrompt = (input: DesignInput, mode: "guide" | "headline", issues
         "cards skal ha nøyaktig 3 ekte områder i det låste stedet. Ikke finn på bydeler og ikke bruk en annen by.",
         "title er det lokale navnet, uoversatt.",
         "summary: To korte setninger. Setning 1: én konkret, verifiserbar detalj om området (severdighet, type strand, avstand). Setning 2: «For deg som …». Ingen adjektiver som vakker, flott, sjarmerende, livlig, fantastisk. Er du usikker på en detalj, dropp den og skriv bare hvem området passer for.",
-        "slideLine: maks 5 ord, en komplett frase, ingen adjektiver som vakre, flotte eller sjarmerende.",
+        "slideLine: én ferdig setning som slutter med punktum. Ikke stopp etter et adjektiv som flott eller vakker.",
         "Hvert bullet maks 3 ord.",
         "Eksempel for Rhodos: Lindos, Faliraki, Rhodos by. Ikke Downtown Rhodos, Magisk strand eller Hotellområdet.",
         "Samme regel for Kos, Hurghada og alle andre steder: kjente områder, ellers sentrum, strand og havn.",
@@ -260,7 +274,7 @@ const designUserPrompt = (input: DesignInput, mode: "guide" | "headline", issues
         "cards skal ha nøyaktig 3 konkrete alternativer, steg eller tips i kundens fag. Ikke områder, byer eller strender.",
         "title er navnet på alternativet, steget eller tipset.",
         "summary: To korte setninger om hva kunden faktisk gjør eller velger. Ingen adjektiver som vakker, flott, sjarmerende, livlig, fantastisk.",
-        "slideLine: maks 5 ord, en komplett frase.",
+        "slideLine: én ferdig setning som slutter med punktum.",
         "Hvert bullet maks 3 ord.",
       ].join(" ")
       : "cards skal være en tom liste.",

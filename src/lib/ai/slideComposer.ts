@@ -1,6 +1,6 @@
 import sharp from "sharp";
 
-import { slideLineForImage, type SocialDesign } from "@/lib/ai/slideDesign";
+import { overlaySentence, type SocialDesign } from "@/lib/ai/slideDesign";
 import type { SocialChannel } from "@/lib/types";
 
 export type SlideLayout = "photo" | "card" | "single";
@@ -143,6 +143,11 @@ export const photoTextColors = (colors: {
   return { title, accent: toHex(next) };
 };
 
+const fitAttrs = (line: string, font: number, maxPx: number): string => {
+  if (line.length * font * 0.62 <= maxPx) return "";
+  return ` textLength="${maxPx}" lengthAdjust="spacingAndGlyphs"`;
+};
+
 const photoOverlaySvg = (
   title: string,
   subline: string,
@@ -152,53 +157,42 @@ const photoOverlaySvg = (
 ): string => {
   const font = "Segoe UI, Arial, Helvetica, sans-serif";
   const ink = photoTextColors(colors);
+  const panelTop = 700;
+  const textX = 56;
+  const maxPx = WIDTH - textX - 56;
+  const titleLines = wrapWords(title, 18).slice(0, 3);
+  const titleFont = titleLines.length > 2 ? 84 : titleLines.length > 1 ? 104 : 156;
   const fitted = fitSubline(subline);
-  const subFont = fitted.font;
-  const subLines = fitted.lines;
-  const titleFont = 120;
-  const titleLines = wrap(title, 12, 2);
+  const subFont = Math.max(fitted.font, 40);
+  const subLines = fitted.lines.slice(0, 2);
   const creditLine = credit?.trim() ?? "";
-  const bottom = HEIGHT - 72;
-  const creditY = creditLine ? bottom : bottom;
-  const subLineH = 68;
-  const subLastY = creditLine ? creditY - 80 : bottom;
-  const subFirstY = subLastY - Math.max(subLines.length - 1, 0) * subLineH;
-  const titleLineH = 128;
-  const titleLastY = subLines.length > 0 ? subFirstY - 150 : (creditLine ? creditY - 150 : bottom);
-  const titleFirstY = titleLastY - Math.max(titleLines.length - 1, 0) * titleLineH;
-  const longest = subLines.reduce((max, line) => Math.max(max, line.length), 0);
-  const pillWidth = Math.min(WIDTH - 128, Math.max(360, Math.ceil(longest * subFont * 0.62) + 72));
-  const pillTop = subLines.length > 0 ? subFirstY - subFont - 8 : 0;
-  const pillHeight = subLines.length * subLineH + 28;
-  const accent = parseHex(ink.accent);
-  const pillInk = accent && luminance(accent) > 0.62 ? "#142018" : "#FFFFFF";
+  const brand = brandLabel?.trim() ?? "";
+  const titleStart = panelTop + (brand ? 150 : 120);
   const titleSvg = titleLines.map((line, index) =>
-    `<text x="64" y="${titleFirstY + index * titleLineH}" fill="${ink.title}" font-family="${font}" font-size="${titleFont}" font-weight="800">${escapeXml(line)}</text>`,
+    `<text x="${textX}" y="${titleStart + index * (titleFont + 8)}" fill="#FFFFFF" font-family="${font}" font-size="${titleFont}" font-weight="800"${fitAttrs(line, titleFont, maxPx)}>${escapeXml(line)}</text>`,
   ).join("");
+  const subStart = titleStart + titleLines.length * (titleFont + 8) + 24;
   const subSvg = subLines.map((line, index) =>
-    `<text x="96" y="${subFirstY + index * subLineH}" fill="${pillInk}" font-family="${font}" font-size="${subFont}" font-weight="700">${escapeXml(line)}</text>`,
+    `<text x="${textX}" y="${subStart + index * (subFont + 18)}" fill="#FFFFFF" font-family="${font}" font-size="${subFont}" font-weight="700"${fitAttrs(line, subFont, maxPx)}>${escapeXml(line)}</text>`,
   ).join("");
-  const pill = subLines.length > 0
-    ? `<rect x="64" y="${pillTop}" width="${pillWidth}" height="${pillHeight}" rx="28" fill="${ink.accent}"/>`
-    : "";
   const creditSvg = creditLine
-    ? `<text x="64" y="${creditY}" fill="#FFFFFF" font-family="${font}" font-size="28" font-weight="600">${escapeXml(creditLine)}</text>`
+    ? `<text x="${textX}" y="${HEIGHT - 36}" fill="#FFFFFF" font-family="${font}" font-size="26" font-weight="600"${fitAttrs(creditLine, 26, maxPx)}>${escapeXml(creditLine)}</text>`
     : "";
-  const brandSvg = brandLabel?.trim()
-    ? `<rect x="48" y="40" width="${Math.min(520, brandLabel.trim().length * 22 + 48)}" height="84" rx="22" fill="rgba(255,255,255,0.96)"/><text x="72" y="94" fill="#142018" font-family="${font}" font-size="36" font-weight="800">${escapeXml(brandLabel.trim())}</text>`
+  const brandSvg = brand
+    ? `<text x="${textX}" y="${panelTop + 72}" fill="${ink.accent}" font-family="${font}" font-size="36" font-weight="800">${escapeXml(brand)}</text>`
     : "";
   return `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0.42" stop-color="rgba(0,0,0,0)"/>
-        <stop offset="1" stop-color="rgba(0,0,0,0.72)"/>
+        <stop offset="1" stop-color="rgba(0,0,0,0.2)"/>
       </linearGradient>
     </defs>
     <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#fade)"/>
-    <rect x="0" y="0" width="16" height="${HEIGHT}" fill="${ink.accent}"/>
+    <rect x="0" y="${panelTop}" width="${WIDTH}" height="${HEIGHT - panelTop}" fill="rgba(8,16,24,0.9)"/>
+    <rect x="0" y="${panelTop}" width="18" height="${HEIGHT - panelTop}" fill="${ink.accent}"/>
     ${brandSvg}
     ${titleSvg}
-    ${pill}
     ${subSvg}
     ${creditSvg}
   </svg>`;
@@ -209,8 +203,9 @@ export const buildSlideSvg = (input: ComposeInput): string => {
   const font = "Segoe UI, Arial, Helvetica, sans-serif";
   if (input.layout === "photo") {
     const card = input.slideIndex > 0 ? input.design.cards[input.slideIndex - 1] : undefined;
-    const line = card ? slideLineForImage(card.slideLine, card.title) : input.design.coverSubline;
-    const subline = card && line === card.title ? "" : line;
+    const subline = card
+      ? overlaySentence(card.summary, card.slideLine)
+      : overlaySentence(input.design.coverSubline, input.design.hook);
     return photoOverlaySvg(
       card?.title ?? input.design.coverTitle,
       subline,
@@ -259,11 +254,14 @@ export const buildSlideSvg = (input: ComposeInput): string => {
 const isSvg = (logo: Buffer): boolean =>
   logo.subarray(0, 300).toString("utf8").includes("<svg");
 
-const fitLogo = async (logo: Buffer): Promise<Buffer> =>
-  sharp(logo, isSvg(logo) ? { density: 300 } : undefined)
-    .resize({ width: 360, height: 120, fit: "inside", withoutEnlargement: false })
+const fitLogo = async (logo: Buffer): Promise<Buffer> => {
+  const base = sharp(logo, isSvg(logo) ? { density: 300 } : undefined);
+  const trimmed = await base.trim({ threshold: 12 }).png().toBuffer().catch(() => logo);
+  return sharp(trimmed)
+    .resize({ width: 520, height: 180, fit: "inside", withoutEnlargement: false })
     .png()
     .toBuffer();
+};
 
 export const composeDesignedSlide = async (input: ComposeInput): Promise<Buffer> => {
   const onPhoto = input.layout === "photo";

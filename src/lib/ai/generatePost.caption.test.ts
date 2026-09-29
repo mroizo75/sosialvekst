@@ -22,6 +22,8 @@ describe("assembleCaption", () => {
     expect(caption.indexOf("https://sydenklar.no")).toBeLessThan(caption.indexOf("#sicilia"));
     expect(caption.endsWith("Foto: Ada – CC BY 2.0")).toBe(true);
     expect(caption.startsWith("Kvelden ligger over gaten.")).toBe(true);
+    expect(ensureCompleteEnding("Se hva som finnes akkurat nå:")).toBe("Se hva som finnes akkurat nå.");
+    expect(ensureCompleteEnding("Se hva som finnes akkurat nå:.")).toBe("Se hva som finnes akkurat nå.");
   });
 
   it("gir emneknagger uten firkant et #, én lenke, og fotograf til slutt", () => {
