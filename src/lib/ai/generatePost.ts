@@ -1,4 +1,4 @@
-import { buildNorwegianCopyPrompt } from "@/lib/ai/copyPromptBuilderNo";
+import { buildNorwegianCopyPrompt, type CopyVisual } from "@/lib/ai/copyPromptBuilderNo";
 import { mergeBrandRules } from "@/lib/ai/brandRules";
 import { generateImageToVideo, isFalAvailable } from "@/lib/ai/falClient";
 import { generateProfessionalImage, overlayLogoOnImage } from "@/lib/ai/imageGeneration";
@@ -12,9 +12,9 @@ import { runRevisionLoop } from "@/lib/ai/revisionLoop";
 import { findPlacePhoto } from "@/lib/ai/placePhoto";
 import {
   buildPhotoPrompt,
+  buildPhotoSubject,
   composeGuideCaption,
   createSocialDesign,
-  headlineFromCaption,
   placeGuideCopy,
   resolveDesignMode,
   type SocialDesign,
@@ -244,7 +244,7 @@ const shouldUseOwnedInHybrid = (userId: string): boolean => {
   return current;
 };
 
-const createText = async (input: GeneratePostInput): Promise<string> => {
+const createText = async (input: GeneratePostInput, visual?: CopyVisual): Promise<string> => {
   const client = getOpenAiClient();
   if (!client) {
     return fallbackText(input.topic);
@@ -268,6 +268,7 @@ const createText = async (input: GeneratePostInput): Promise<string> => {
     ctaType: input.ctaType,
     contentPillar: input.contentPillar,
     reelScript: input.reelScript,
+    visual,
   });
 
   const response = await client.responses.create({
@@ -705,68 +706,42 @@ const createVideoFromImage = async (
   }
 };
 
+const buildCopyVisual = (
+  brief: VisualBrief,
+  design: SocialDesign,
+): CopyVisual => ({
+  placeName: brief.placeName,
+  scene: buildPhotoSubject(design, brief, 0),
+  overlayTitle: design.coverTitle,
+  overlaySubline: design.coverSubline,
+});
+
 export const generatePost = async (input: GeneratePostInput): Promise<PostDraft> => {
   const instagramCarousel = input.channel === "instagram" && !input.reelScript && input.mediaMode !== "owned_only";
-
-  let rawText = fallbackText(input.topic);
-  if (!instagramCarousel) {
-    try {
-      rawText = await createText(input);
-    } catch (error) {
-      logger.warn("AI text generation failed, using fallback text", {
-        userId: input.userId,
-        channel: input.channel,
-        topic: input.topic,
-        error: error instanceof Error ? error.message : "unknown",
-      });
-    }
-  }
+  const brief = buildVisualBrief({
+    topic: input.topic,
+    brandContext: input.brandContext,
+    format: input.format,
+    motif: input.visualMotif,
+    feedIndex: input.feedIndex,
+  });
 
   let socialDesign: SocialDesign | undefined;
   if (input.channel !== "tiktok" && input.mediaMode !== "owned_only") {
-    const brief = buildVisualBrief({
-      topic: input.topic,
-      brandContext: input.brandContext,
-      format: input.format,
-      motif: input.visualMotif,
-      feedIndex: input.feedIndex,
-    });
     const forceGuide = instagramCarousel || input.contentPillar === "useful";
     const mode = forceGuide ? "guide" : resolveDesignMode(input.contentPillar, input.visualMotif);
-    if (mode === "guide") {
-      socialDesign = await createSocialDesign({
-        topic: input.topic,
-        channel: input.channel,
-        brandContext: input.brandContext,
-        contentPillar: input.contentPillar,
-        visualMotif: input.visualMotif,
-        brief,
-        forceGuide: true,
-      });
-      if (brief.placeName) {
-        socialDesign = placeGuideCopy(socialDesign, brief.placeName);
-      }
-    } else {
-      const lines = headlineFromCaption(rawText);
-      socialDesign = {
-        mode: "headline",
-        coverTitle: lines.coverTitle,
-        coverSubline: lines.coverSubline,
-        question: lines.coverTitle,
-        cards: [],
-        cta: "",
-      };
+    socialDesign = await createSocialDesign({
+      topic: input.topic,
+      channel: input.channel,
+      brandContext: input.brandContext,
+      contentPillar: input.contentPillar,
+      visualMotif: input.visualMotif,
+      brief,
+      forceGuide: mode === "guide",
+    });
+    if (brief.placeName && socialDesign.mode === "guide") {
+      socialDesign = placeGuideCopy(socialDesign, brief.placeName);
     }
-  }
-
-  if (socialDesign?.mode === "guide") {
-    const websiteUrl = input.includeWebsiteLink && input.channel !== "tiktok"
-      ? input.brandContext?.websiteUrl?.trim()
-      : undefined;
-    rawText = composeGuideCaption(socialDesign, websiteUrl);
-  } else if (socialDesign) {
-    const lines = headlineFromCaption(rawText);
-    socialDesign = { ...socialDesign, ...lines, question: lines.coverTitle };
   }
 
   const imageInput: GeneratePostInput = {
@@ -822,6 +797,35 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
         userId: input.userId,
         extraImages: additionalImageUrls.length,
         format: input.format,
+      });
+    }
+  }
+
+  let rawText = fallbackText(input.topic);
+  if (socialDesign?.mode === "guide") {
+    const link = input.includeWebsiteLink && input.channel !== "tiktok"
+      ? input.brandContext?.websiteUrl?.trim()
+      : undefined;
+    rawText = composeGuideCaption(socialDesign, link);
+  } else if (!instagramCarousel) {
+    const visual = socialDesign
+      ? buildCopyVisual(brief, socialDesign)
+      : brief.placeName
+        ? {
+            placeName: brief.placeName,
+            scene: brief.subjectDirection,
+            overlayTitle: brief.placeName,
+            overlaySubline: "",
+          }
+        : undefined;
+    try {
+      rawText = await createText(input, visual);
+    } catch (error) {
+      logger.warn("AI text generation failed, using fallback text", {
+        userId: input.userId,
+        channel: input.channel,
+        topic: input.topic,
+        error: error instanceof Error ? error.message : "unknown",
       });
     }
   }
