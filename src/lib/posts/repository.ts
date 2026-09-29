@@ -1,4 +1,7 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { toAppError } from "@/lib/errors";
+import { logger } from "@/lib/logger";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { MediaMode, PostDraft, SocialChannel, TopicWindow } from "@/lib/types";
 
@@ -44,6 +47,49 @@ const MEDIA_SELECT_WITH_CREDIT = "post_id, file_url, sort_order, credit";
 
 const missingColumn = (message: string | undefined, column: string): boolean =>
   (message ?? "").toLowerCase().includes(column.toLowerCase());
+
+type PostRowFilter = { id: string; userId: string; workspaceId?: string };
+
+export const updatePostRow = async (
+  client: SupabaseClient,
+  filter: PostRowFilter,
+  payload: Record<string, unknown>,
+): Promise<string | null> => {
+  const run = (values: Record<string, unknown>) => {
+    const query = client.from("posts").update(values).eq("id", filter.id).eq("user_id", filter.userId);
+    return filter.workspaceId ? query.eq("workspace_id", filter.workspaceId) : query;
+  };
+  const { error } = await run(payload);
+  if (!error) return null;
+  if (!("image_credit" in payload) || !missingColumn(error.message, "image_credit")) return error.message;
+
+  logger.warn("Kolonnen image_credit mangler, lagrer uten. Kjør migrering 022_image_credits.sql", { postId: filter.id });
+  const withoutCredit = Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "image_credit"));
+  const retry = await run(withoutCredit);
+  return retry.error?.message ?? null;
+};
+
+export const replacePostMedia = async (
+  client: SupabaseClient,
+  postId: string,
+  imageUrls: string[],
+  credits?: Array<string | undefined>,
+): Promise<string | null> => {
+  const { error: deleteError } = await client.from("post_media_assets").delete().eq("post_id", postId);
+  if (deleteError && !deleteError.message.toLowerCase().includes("post_media_assets")) return deleteError.message;
+  if (imageUrls.length === 0) return null;
+
+  const rows = imageUrls.map((url, index) => ({ post_id: postId, file_url: url, sort_order: index }));
+  const { error } = await client
+    .from("post_media_assets")
+    .insert(rows.map((row, index) => ({ ...row, credit: credits?.[index]?.trim() || null })));
+  if (!error) return null;
+  if (!missingColumn(error.message, "credit")) return error.message;
+
+  logger.warn("Kolonnen post_media_assets.credit mangler, lagrer uten. Kjør migrering 022_image_credits.sql", { postId });
+  const retry = await client.from("post_media_assets").insert(rows);
+  return retry.error?.message ?? null;
+};
 
 const toPostDraft = (row: DbPostRow): PostDraft => ({
   id: row.id,
@@ -315,38 +361,8 @@ export const setPostAdditionalImages = async (
     throw toAppError("POST_NOT_FOUND", "Fant ikke post for oppdatering av ekstra bilder.", postError?.message);
   }
 
-  const { error: deleteError } = await supabase
-    .from("post_media_assets")
-    .delete()
-    .eq("post_id", postId);
-
-  if (deleteError && !deleteError.message.toLowerCase().includes("post_media_assets")) {
-    throw toAppError("POST_MEDIA_DELETE_FAILED", "Kunne ikke oppdatere ekstra bilder.", deleteError.message);
-  }
-
-  if (imageUrls.length === 0) {
-    return;
-  }
-
-  const rows = imageUrls.map((url, index) => ({
-    post_id: postId,
-    file_url: url,
-    sort_order: index,
-    credit: credits?.[index]?.trim() || null,
-  }));
-
-  let { error: insertError } = await supabase.from("post_media_assets").insert(rows);
-  if (insertError && missingColumn(insertError.message, "credit")) {
-    ({ error: insertError } = await supabase.from("post_media_assets").insert(
-      imageUrls.map((url, index) => ({
-        post_id: postId,
-        file_url: url,
-        sort_order: index,
-      })),
-    ));
-  }
-
-  if (insertError) {
-    throw toAppError("POST_MEDIA_SAVE_FAILED", "Kunne ikke lagre ekstra bilder.", insertError.message);
+  const mediaError = await replacePostMedia(supabase, postId, imageUrls, credits);
+  if (mediaError) {
+    throw toAppError("POST_MEDIA_SAVE_FAILED", "Kunne ikke lagre ekstra bilder.", mediaError);
   }
 };

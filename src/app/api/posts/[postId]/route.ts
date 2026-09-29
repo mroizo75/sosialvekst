@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { fallbackAngle } from "@/lib/ai/generatePlan";
-import { creditRecordsFromText, generatePost, replaceCreditLine } from "@/lib/ai/generatePost";
+import { appVersion, creditRecordsFromText, generatePost, replaceCreditLine } from "@/lib/ai/generatePost";
 import { assignPostStrategy } from "@/lib/ai/postStrategy";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { requireUserId } from "@/lib/auth";
@@ -14,7 +14,7 @@ import { logger } from "@/lib/logger";
 import { getPostById, savePost, setPostAdditionalImages } from "@/lib/posts/repository";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { TopicWindow } from "@/lib/types";
+import type { GenerationStep, TopicWindow } from "@/lib/types";
 
 const REGENERATE_TIMEOUT_MS = 180_000;
 
@@ -171,6 +171,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     let updatedAdditionalImageUrls = payload.additionalImageUrls ?? post.additionalImageUrls ?? [];
     let updatedImageCredit = post.imageCredit;
     let updatedAdditionalImageCredits = post.additionalImageCredits ?? [];
+    let generationTrace: GenerationStep[] = [];
     const fallbackTopic = brandContext?.companyDescription?.slice(0, 180)
       ?? fallbackAngle(brandContext);
     const action = payload.action ?? (payload.regenerate ? "regenerate_all" : "save");
@@ -321,6 +322,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         `${regenAction}/${post.channel}`,
       );
 
+      generationTrace = regenerated.generationTrace ?? [];
       logger.info("[post/patch] generatePost ferdig", {
         postId, action, channel: post.channel,
         hasText: Boolean(regenerated.text),
@@ -329,14 +331,24 @@ export async function PATCH(request: Request, context: RouteContext) {
         durationMs: Date.now() - t0,
       });
 
+      const needsNewImage = regenAction === "regenerate_image"
+        || ((regenAction === "regenerate_all" || regenAction === "rewrite_topic") && post.channel !== "tiktok");
+      if (needsNewImage && !regenerated.imageUrl) {
+        const reasons = generationTrace
+          .filter((item) => !item.ok)
+          .map((item) => `${item.step}: ${item.detail ?? "feilet"}`);
+        logger.warn("[post/patch] Bildegenerering feilet", { postId, channel: post.channel, reasons });
+        return NextResponse.json(
+          toAppError(
+            "IMAGE_GENERATION_FAILED",
+            `Nye bilder kunne ikke lages, så innlegget er ikke endret. Årsak: ${reasons.join(" | ") || "ukjent"}`,
+            { version: appVersion(), steps: generationTrace },
+          ),
+          { status: 502 },
+        );
+      }
+
       if (regenAction === "regenerate_image") {
-        if (!regenerated.imageUrl) {
-          logger.warn("[post/patch] Bildegenerering feilet", { postId, channel: post.channel });
-          return NextResponse.json(
-            toAppError("IMAGE_GENERATION_FAILED", "Bildegenerering feilet. Ingen kreditt ble brukt. Prøv igjen."),
-            { status: 502 },
-          );
-        }
         updatedImageUrl = regenerated.imageUrl;
         updatedVideoUrl = regenerated.videoUrl;
         updatedAdditionalImageUrls = regenerated.additionalImageUrls ?? [];
@@ -355,22 +367,12 @@ export async function PATCH(request: Request, context: RouteContext) {
         updatedAdditionalImageUrls = post.additionalImageUrls ?? [];
       }
       if (regenAction === "regenerate_all" || regenAction === "rewrite_topic") {
-        if (!regenerated.imageUrl && post.channel !== "tiktok") {
-          logger.warn("[post/patch] regenerate_all uten bilde, beholder eksisterende", {
-            postId, channel: post.channel,
-          });
-          updatedText = replaceCreditLine(regenerated.text, keptCredits);
-          updatedImageUrl = post.imageUrl;
-          updatedVideoUrl = post.videoUrl;
-          updatedAdditionalImageUrls = post.additionalImageUrls ?? [];
-        } else {
-          updatedText = regenerated.text;
-          updatedImageUrl = regenerated.imageUrl;
-          updatedVideoUrl = regenerated.videoUrl;
-          updatedAdditionalImageUrls = regenerated.additionalImageUrls ?? [];
-          updatedImageCredit = regenerated.imageCredit;
-          updatedAdditionalImageCredits = regenerated.additionalImageCredits ?? [];
-        }
+        updatedText = regenerated.text;
+        updatedImageUrl = regenerated.imageUrl;
+        updatedVideoUrl = regenerated.videoUrl;
+        updatedAdditionalImageUrls = regenerated.additionalImageUrls ?? [];
+        updatedImageCredit = regenerated.imageCredit;
+        updatedAdditionalImageCredits = regenerated.additionalImageCredits ?? [];
       }
 
       if (oldImageUrl && oldImageUrl !== updatedImageUrl) {
@@ -406,7 +408,9 @@ export async function PATCH(request: Request, context: RouteContext) {
     await setPostAdditionalImages(userId, post.id, updatedAdditionalImageUrls, updatedAdditionalImageCredits);
 
     const refreshedPost = await getPostById(userId, post.id);
-    return NextResponse.json(refreshedPost);
+    return NextResponse.json(
+      generationTrace.length > 0 ? { ...refreshedPost, generationTrace, version: appVersion() } : refreshedPost,
+    );
   } catch (error) {
     const appError = toUnknownAppError(error);
     const status = appError.code === "AI_EDIT_LIMIT_REACHED" ? 403

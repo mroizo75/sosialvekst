@@ -7,6 +7,7 @@ import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
 import { deleteFilesByUrls } from "@/lib/cloudflare/r2";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
+import { replacePostMedia, updatePostRow } from "@/lib/posts/repository";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -348,41 +349,22 @@ async function regenerateSlots(
         feedIndex: strategy.feedIndex,
       });
 
-      const { error } = await admin
-        .from("posts")
-        .update({
-          text_content: post.text,
-          image_url: post.imageUrl ?? null,
-          video_url: post.videoUrl ?? null,
-          image_credit: post.imageCredit ?? null,
-          status: post.status,
-          quality_score: post.quality,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", slot.id)
-        .eq("user_id", userId);
+      const error = await updatePostRow(admin, { id: slot.id, userId }, {
+        text_content: post.text,
+        image_url: post.imageUrl ?? null,
+        video_url: post.videoUrl ?? null,
+        image_credit: post.imageCredit ?? null,
+        status: post.status,
+        quality_score: post.quality,
+        updated_at: new Date().toISOString(),
+      });
 
       if (error) {
-        console.error(`[regenerate-all] DB-oppdatering feilet for ${slot.id}:`, error.message);
-      }
-
-      if (!error) {
-        await admin.from("post_media_assets").delete().eq("post_id", slot.id);
-
-        if (post.additionalImageUrls && post.additionalImageUrls.length > 0) {
-          const mediaRows = post.additionalImageUrls.map((url, idx) => ({
-            post_id: slot.id,
-            file_url: url,
-            sort_order: idx + 1,
-            credit: post.additionalImageCredits?.[idx] || null,
-          }));
-          const { error: mediaErr } = await admin
-            .from("post_media_assets")
-            .insert(mediaRows);
-
-          if (mediaErr) {
-            console.error(`[regenerate-all] Karusell-lagring feilet for ${slot.id}:`, mediaErr.message);
-          }
+        console.error(`[regenerate-all] DB-oppdatering feilet for ${slot.id}:`, error);
+      } else {
+        const mediaErr = await replacePostMedia(admin, slot.id, post.additionalImageUrls ?? [], post.additionalImageCredits);
+        if (mediaErr) {
+          console.error(`[regenerate-all] Karusell-lagring feilet for ${slot.id}:`, mediaErr);
         }
       }
 

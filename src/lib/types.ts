@@ -100,6 +100,12 @@ export type OnboardingInput = {
   preferredLanguage: "nb-NO" | "en-US";
 };
 
+export type GenerationStep = {
+  step: string;
+  ok: boolean;
+  detail?: string;
+};
+
 export type PostDraft = {
   id: string;
   channel: SocialChannel;
@@ -114,4 +120,5 @@ export type PostDraft = {
   quality: QualityScore;
   intent?: PostIntent;
   format?: PostFormat;
+  generationTrace?: GenerationStep[];
 };

@@ -7,7 +7,7 @@ import { assignPostStrategy } from "@/lib/ai/postStrategy";
 import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
-import { createContentPlan } from "@/lib/posts/repository";
+import { createContentPlan, replacePostMedia, updatePostRow } from "@/lib/posts/repository";
 import {
   addCalendarDays,
   audienceHoursForCountry,
@@ -271,16 +271,15 @@ async function updatePostWithRetry(
   payload: Record<string, unknown>,
 ): Promise<boolean> {
   for (let attempt = 1; attempt <= DB_RETRY_ATTEMPTS; attempt += 1) {
-    const { error } = await supabase
-      .from("posts")
-      .update({ ...payload, updated_at: new Date().toISOString() })
-      .eq("id", postId)
-      .eq("user_id", userId)
-      .eq("workspace_id", workspaceId);
+    const error = await updatePostRow(
+      supabase,
+      { id: postId, userId, workspaceId },
+      { ...payload, updated_at: new Date().toISOString() },
+    );
 
     if (!error) return true;
 
-    console.error(`[generate] DB forsøk ${attempt}/${DB_RETRY_ATTEMPTS} feilet for ${postId}:`, error.message);
+    console.error(`[generate] DB forsøk ${attempt}/${DB_RETRY_ATTEMPTS} feilet for ${postId}:`, error);
 
     if (attempt < DB_RETRY_ATTEMPTS) {
       await new Promise((resolve) => setTimeout(resolve, DB_RETRY_DELAY_MS * attempt));
@@ -353,22 +352,9 @@ async function generateSingleSlot(
     });
 
     if (dbOk) {
-      await supabase.from("post_media_assets").delete().eq("post_id", slot.id);
-
-      if (post.additionalImageUrls && post.additionalImageUrls.length > 0) {
-        const mediaRows = post.additionalImageUrls.map((url, idx) => ({
-          post_id: slot.id,
-          file_url: url,
-          sort_order: idx + 1,
-          credit: post.additionalImageCredits?.[idx] || null,
-        }));
-        const { error: mediaErr } = await supabase
-          .from("post_media_assets")
-          .insert(mediaRows);
-
-        if (mediaErr) {
-          console.error(`[generate] Karusell-lagring feilet for ${slot.id.slice(0, 8)}:`, mediaErr.message);
-        }
+      const mediaErr = await replacePostMedia(supabase, slot.id, post.additionalImageUrls ?? [], post.additionalImageCredits);
+      if (mediaErr) {
+        console.error(`[generate] Karusell-lagring feilet for ${slot.id.slice(0, 8)}:`, mediaErr);
       }
     }
 

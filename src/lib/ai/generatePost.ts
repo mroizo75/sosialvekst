@@ -26,6 +26,7 @@ import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
 import type {
   BrandContext,
+  GenerationStep,
   ImageProfile,
   MediaMode,
   PostDraft,
@@ -60,7 +61,16 @@ type GeneratePostInput = {
   logoBytes?: Promise<Buffer | undefined>;
   placePhotoUsed?: Set<string>;
   placeLook?: string | null;
+  trace?: GenerationStep[];
 };
+
+export const appVersion = (): string => process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "lokal";
+
+const note = (input: GeneratePostInput, step: string, ok: boolean, detail?: string): void => {
+  input.trace?.push({ step, ok, ...(detail ? { detail } : {}) });
+};
+
+const errorText = (error: unknown): string => (error instanceof Error ? error.message : "ukjent feil");
 
 type SlideImage = {
   url: string;
@@ -561,14 +571,20 @@ const findSlidePhoto = async (
   brief: VisualBrief,
   slideIndex: number,
 ): Promise<SlidePhoto> => {
+  const step = `slide${slideIndex}.foto`;
   if (brief.placeName) {
     const subject = slideIndex > 0 ? design.cards[slideIndex - 1]?.title : undefined;
     const found = await findPlacePhoto(brief.placeName, subject, input.placePhotoUsed ?? new Set());
-    if (found) return { bytes: found.bytes, attribution: found.attribution };
+    if (found) {
+      note(input, step, true, `ekte foto av ${brief.placeName} (${found.credit})`);
+      return { bytes: found.bytes, attribution: found.attribution };
+    }
+    note(input, step, false, `fant ikke ekte foto av ${brief.placeName}${subject ? ` / ${subject}` : ""}`);
     logger.warn("Fant ikke ekte foto av stedet", { place: brief.placeName, subject });
     return { skip: slideIndex === 0 };
   }
   if (brief.world === "travel") {
+    note(input, step, false, "reisetema uten stedsnavn, ingen foto");
     logger.warn("Reiseinnlegg uten stedsnavn, hopper over oppdiktet bilde", { topic: input.topic });
     return { skip: true };
   }
@@ -576,7 +592,10 @@ const findSlidePhoto = async (
   if (slideIndex === 0 && productImages.length > 0) {
     const productUrl = await tryProductImageGeneration(input, productImages);
     const productBytes = await loadBuffer(productUrl, "produktfoto");
-    if (productBytes) return { bytes: productBytes };
+    if (productBytes) {
+      note(input, step, true, "produktbilde");
+      return { bytes: productBytes };
+    }
   }
   try {
     const photoUrl = await generateProfessionalImage({
@@ -585,13 +604,16 @@ const findSlidePhoto = async (
       profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
       size: slideShapeFor(input.channel) === "square" ? "1024x1024" : "1024x1536",
     });
-    return { bytes: await loadBuffer(photoUrl, "slidefoto") };
+    const bytes = await loadBuffer(photoUrl, "slidefoto");
+    note(input, step, Boolean(bytes), bytes ? "AI-foto" : "AI-foto kunne ikke hentes");
+    return { bytes };
   } catch (error) {
+    note(input, step, false, `AI-foto feilet: ${errorText(error)}`);
     if (slideIndex === 0) throw error;
     logger.warn("Slidefoto feilet, bruker fargekort", {
       userId: input.userId,
       slideIndex,
-      error: error instanceof Error ? error.message : "ukjent",
+      error: errorText(error),
     });
     return {};
   }
@@ -619,18 +641,22 @@ const composeAndUpload = async (
     secondaryColor: input.brandContext?.brandColors?.secondary,
     accentColor: input.brandContext?.brandColors?.accent,
   };
+  const step = `slide${slideIndex}.${layout}`;
   let jpeg: Buffer;
   try {
     jpeg = await composeDesignedSlide({ ...slide, logo });
+    note(input, step, true, logo ? `${slide.shape}, med logo` : `${slide.shape}, UTEN logo (logo ikke hentet)`);
   } catch (error) {
+    note(input, step, false, `komposisjon feilet: ${errorText(error)}`);
     if (!logo) throw error;
     logger.warn("Komposisjon med logo feilet, prøver uten logo", {
       userId: input.userId,
       slideIndex,
       logoBytes: logo.byteLength,
-      error: error instanceof Error ? error.message : "ukjent",
+      error: errorText(error),
     });
     jpeg = await composeDesignedSlide(slide);
+    note(input, step, true, `${slide.shape}, UTEN logo (logo feilet)`);
   }
   const uploaded = await uploadUserFile({
     userId: input.userId,
@@ -785,12 +811,13 @@ const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<SlideI
       }
       throw new Error("Bildegenerator returnerte tomt resultat.");
     } catch (error) {
+      note(input, `forside.forsøk${attempt}`, false, errorText(error));
       logger.warn("AI image generation attempt failed", {
         userId: input.userId,
         channel: input.channel,
         topic: input.topic,
         attempt,
-        error: error instanceof Error ? error.message : "unknown",
+        error: errorText(error),
       });
     }
 
@@ -1033,7 +1060,10 @@ const uniqueAttributions = (slides: Array<SlideImage | undefined>): PhotoAttribu
 
 export const generatePost = async (input: GeneratePostInput): Promise<PostDraft> => {
   const logoRef = describeMediaUrl(input.brandContext?.logoUrl);
+  const trace: GenerationStep[] = [];
+  const tracked: GeneratePostInput = { ...input, trace };
   logger.info("Postgenerering startet", {
+    version: appVersion(),
     userId: input.userId,
     channel: input.channel,
     mediaMode: input.mediaMode,
@@ -1066,27 +1096,37 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     if (brief.placeName) {
       socialDesign = placeGuideCopy(socialDesign, brief.placeName);
     }
+    note(tracked, "design", true, `${socialDesign.mode}, ${socialDesign.cards.length} slides, forside «${socialDesign.coverTitle}»${brief.placeName ? `, sted ${brief.placeName}` : ""}`);
+  } else {
+    note(tracked, "design", false, textOnly ? "kun tekst, beholder bildet" : `ingen design for ${input.channel}/${input.mediaMode}`);
   }
 
+  const logoBytes = loadBuffer(input.brandContext?.logoUrl, "logo");
   const imageInput: GeneratePostInput = {
-    ...input,
+    ...tracked,
     socialDesign,
     visualBrief: brief,
-    logoBytes: loadBuffer(input.brandContext?.logoUrl, "logo"),
+    logoBytes,
     placePhotoUsed: new Set<string>(),
     placeLook: await placeLookPromise,
   };
+  if (socialDesign) {
+    const logo = await logoBytes;
+    note(tracked, "logo", Boolean(logo), logo ? `${logo.byteLength} bytes` : input.brandContext?.logoUrl ? "logoUrl finnes, men filen kunne ikke hentes" : "ingen logo i merkevareprofilen");
+  }
 
   let primary: SlideImage | undefined = textOnly ? asSlideImage(input.textOnlyForImageUrl) : undefined;
   if (!textOnly && input.channel !== "tiktok") {
     try {
       primary = await createImageUrlWithRetry(imageInput);
+      note(tracked, "forside", true, primary?.url.split("/").pop());
     } catch (error) {
+      note(tracked, "forside", false, errorText(error));
       logger.warn("AI image generation failed, continuing without image", {
         userId: input.userId,
         channel: input.channel,
         topic: input.topic,
-        error: error instanceof Error ? error.message : "unknown",
+        error: errorText(error),
       });
     }
   }
@@ -1151,12 +1191,14 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   let rawText = fallbackCaption;
   try {
     rawText = await createText(input, fallbackCaption, visual, brief.world, imageUrl);
+    note(tracked, "tekst", rawText !== fallbackCaption, rawText !== fallbackCaption ? `${rawText.length} tegn` : "reservetekst brukt");
   } catch (error) {
+    note(tracked, "tekst", false, `reservetekst brukt: ${errorText(error)}`);
     logger.warn("AI text generation failed, using fallback text", {
       userId: input.userId,
       channel: input.channel,
       topic: input.topic,
-      error: error instanceof Error ? error.message : "unknown",
+      error: errorText(error),
     });
   }
 
@@ -1199,12 +1241,16 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     placeName: brief.placeName,
   });
 
-  logger.info("Postgenerering ferdig", {
+  note(tracked, "kreditt", true, credits || "ingen fotokreditt (ingen ekte foto brukt)");
+  logger.info("Genereringsrapport", {
+    version: appVersion(),
     userId: input.userId,
     channel: input.channel,
+    topic: input.topic,
     hasImage: Boolean(imageUrl),
     extraImages: additionalImageUrls?.length ?? 0,
-    designMode: socialDesign?.mode ?? null,
+    failedSteps: trace.filter((item) => !item.ok).length,
+    steps: trace,
     ...logoRef,
   });
 
@@ -1224,5 +1270,6 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     quality: decision.quality,
     intent: input.intent,
     format: input.format,
+    generationTrace: trace,
   };
 };
