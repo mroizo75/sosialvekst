@@ -24,6 +24,32 @@ describe("assembleCaption", () => {
     expect(caption.startsWith("Kvelden ligger over gaten.")).toBe(true);
   });
 
+  it("gir emneknagger uten firkant et #, én lenke, og fotograf til slutt", () => {
+    const caption = assembleCaption({
+      body: [
+        "Se hva som finnes akkurat nå.",
+        "https://www.sydenklar.no/",
+        "",
+        "reiseinspirasjon",
+        "hotellvalg",
+        "hotelldestinasjoner",
+      ].join("\n"),
+      link: "https://www.sydenklar.no/",
+      credits: "Foto: Ada, CC BY 2.0",
+    });
+
+    expect(caption).toBe([
+      "Se hva som finnes akkurat nå.",
+      "",
+      "https://www.sydenklar.no/",
+      "",
+      "#reiseinspirasjon #hotellvalg #hotelldestinasjoner",
+      "",
+      "Foto: Ada, CC BY 2.0",
+    ].join("\n"));
+    expect(caption.match(/sydenklar\.no/g)).toHaveLength(1);
+  });
+
   it("sender bildet til copy-modellen og bruker en sterkere standardmodell", () => {
     expect(resolveCopyModel(undefined)).toBe("gpt-4.1");
     expect(resolveCopyModel("  gpt-5  ")).toBe("gpt-5");

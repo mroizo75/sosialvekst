@@ -88,7 +88,7 @@ describe("slideDesign", () => {
 
     expect(svg).toContain("Maspalomas");
     expect(svg).toContain("Dyner ned til sjøen");
-    expect(svg).toContain("offset=\"0.6\"");
+    expect(svg).toContain("offset=\"0.42\"");
     expect(svg).toContain("fade");
     expect(svg).toContain("#F6E27A");
     expect(svg).not.toContain("Lange strender");
@@ -183,6 +183,28 @@ describe("slideDesign", () => {
     expect(resolveSlideLayout("instagram", "guide", 1, true)).toBe("photo");
     expect(resolveSlideLayout("facebook", "headline", 0)).toBe("single");
     expect(resolveSlideLayout("instagram", "guide", 1)).toBe("card");
+  });
+
+  it("viser hele undertittelen i stor tekst, med kreditering", () => {
+    const svg = buildSlideSvg({
+      photo: Buffer.alloc(0),
+      design: {
+        ...guide,
+        coverTitle: "Gouvia",
+        coverSubline: "Rolig område med marina og gode restauranter",
+      },
+      slideIndex: 0,
+      layout: "photo",
+      companyName: "Sydenklar",
+      credit: "Foto: Ada, CC BY 2.0",
+      accentColor: "#E6B325",
+    });
+
+    expect(svg).toContain("Gouvia");
+    expect(svg).toContain('font-size="120"');
+    expect(svg).toContain("gode restauranter");
+    expect(svg).toContain("Foto: Ada, CC BY 2.0");
+    expect(svg).toContain("Sydenklar");
   });
 
   it("ber om stedet, ikke et oppdiktet hotell", () => {

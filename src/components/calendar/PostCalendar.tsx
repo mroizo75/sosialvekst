@@ -10,6 +10,12 @@ import { localeToPreferredLanguage } from "@/lib/i18n/config";
 import type { PostDraft, SocialChannel } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+const captionWithCredit = (text: string, credit?: string): string => {
+  const line = credit?.trim();
+  if (!line || text.includes(line)) return text;
+  return `${text.trim()}\n\n${line}`;
+};
+
 /* ─── Inline SVG icon components ─── */
 
 const ic = (d: string) => {
@@ -465,7 +471,7 @@ const DetailPanel = ({
   const statusLabels = dictionary.calendar.statuses as Record<string, string>;
   const jobStatusLabels = dictionary.calendar.jobStatuses as Record<string, string>;
   const scheduledDate = new Date(post.scheduledAt);
-  const [textDraft, setTextDraft] = useState(post.text);
+  const [textDraft, setTextDraft] = useState(captionWithCredit(post.text, post.imageCredit));
   const [imageUrlDraft, setImageUrlDraft] = useState(post.imageUrl ?? "");
   const [videoUrlDraft, setVideoUrlDraft] = useState(post.videoUrl ?? "");
   const [additionalImageUrlsDraft, setAdditionalImageUrlsDraft] = useState<string[]>(
@@ -507,7 +513,7 @@ const DetailPanel = ({
   const prevPostRef = useRef(post);
   useEffect(() => {
     if (prevPostRef.current !== post) {
-      setTextDraft(post.text);
+      setTextDraft(captionWithCredit(post.text, post.imageCredit));
       setImageUrlDraft(post.imageUrl ?? "");
       setVideoUrlDraft(post.videoUrl ?? "");
       setAdditionalImageUrlsDraft(post.additionalImageUrls ?? []);

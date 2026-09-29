@@ -6,6 +6,12 @@
       "sourceType": "github",
       "skillPath": "plugins/llm-application-dev/skills/prompt-engineering-patterns/SKILL.md",
       "computedHash": "3cfeff53f7cbc7b33a5ea1624c1d38563f22c6f7e52ad00b5c9a8b822a763a44"
+    },
+    "prompt-optimizer": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/prompt-optimizer/SKILL.md",
+      "computedHash": "cf0137840f9b6dcc1f6feab9dfae4de838699bb39af1c588e290069f2d7015b7"
     }
   }
 }

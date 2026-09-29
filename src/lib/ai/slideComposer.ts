@@ -27,6 +27,8 @@ type ComposeInput = {
   slideIndex: number;
   layout: SlideLayout;
   logo?: Buffer;
+  companyName?: string;
+  credit?: string;
   primaryColor?: string;
   secondaryColor?: string;
   accentColor?: string;
@@ -126,32 +128,60 @@ const photoOverlaySvg = (
   title: string,
   subline: string,
   colors: { primary?: string; secondary?: string; accent?: string },
+  credit?: string,
+  brandLabel?: string,
 ): string => {
   const font = "Segoe UI, Arial, Helvetica, sans-serif";
   const ink = photoTextColors(colors);
-  const titleLines = wrap(title, 12, 2).map(escapeXml);
-  const sub = wrap(subline, 28, 1)[0] ?? "";
-  const titleStart = titleLines.length > 1 ? 920 : 1020;
-  const titleSvg = titleLines.map((line, index) =>
-    `<text x="64" y="${titleStart + index * 108}" fill="${ink.title}" font-family="${font}" font-size="96" font-weight="800">${line}</text>`,
-  ).join("");
-  const subY = titleStart + Math.max(titleLines.length - 1, 0) * 108 + 88;
-  const pillWidth = Math.min(WIDTH - 128, Math.max(320, sub.length * 26 + 64));
+  const subFont = 50;
+  const subChars = Math.floor((WIDTH - 184) / (subFont * 0.62));
+  const subLines = wrap(subline, subChars, 2);
+  const titleFont = 120;
+  const titleLines = wrap(title, 12, 2);
+  const creditLine = credit?.trim() ?? "";
+  const bottom = HEIGHT - 72;
+  const creditY = creditLine ? bottom : bottom;
+  const subLineH = 68;
+  const subLastY = creditLine ? creditY - 80 : bottom;
+  const subFirstY = subLastY - Math.max(subLines.length - 1, 0) * subLineH;
+  const titleLineH = 128;
+  const titleLastY = subLines.length > 0 ? subFirstY - 150 : (creditLine ? creditY - 150 : bottom);
+  const titleFirstY = titleLastY - Math.max(titleLines.length - 1, 0) * titleLineH;
+  const longest = subLines.reduce((max, line) => Math.max(max, line.length), 0);
+  const pillWidth = Math.min(WIDTH - 128, Math.max(360, Math.ceil(longest * subFont * 0.62) + 72));
+  const pillTop = subLines.length > 0 ? subFirstY - subFont - 8 : 0;
+  const pillHeight = subLines.length * subLineH + 28;
   const accent = parseHex(ink.accent);
   const pillInk = accent && luminance(accent) > 0.62 ? "#142018" : "#FFFFFF";
-  const pill = sub
-    ? `<rect x="64" y="${subY - 52}" width="${pillWidth}" height="78" rx="28" fill="${ink.accent}"/><text x="92" y="${subY}" fill="${pillInk}" font-family="${font}" font-size="36" font-weight="700">${escapeXml(sub)}</text>`
+  const titleSvg = titleLines.map((line, index) =>
+    `<text x="64" y="${titleFirstY + index * titleLineH}" fill="${ink.title}" font-family="${font}" font-size="${titleFont}" font-weight="800">${escapeXml(line)}</text>`,
+  ).join("");
+  const subSvg = subLines.map((line, index) =>
+    `<text x="96" y="${subFirstY + index * subLineH}" fill="${pillInk}" font-family="${font}" font-size="${subFont}" font-weight="700">${escapeXml(line)}</text>`,
+  ).join("");
+  const pill = subLines.length > 0
+    ? `<rect x="64" y="${pillTop}" width="${pillWidth}" height="${pillHeight}" rx="28" fill="${ink.accent}"/>`
+    : "";
+  const creditSvg = creditLine
+    ? `<text x="64" y="${creditY}" fill="#FFFFFF" font-family="${font}" font-size="28" font-weight="600">${escapeXml(creditLine)}</text>`
+    : "";
+  const brandSvg = brandLabel?.trim()
+    ? `<rect x="48" y="40" width="${Math.min(520, brandLabel.trim().length * 22 + 48)}" height="84" rx="22" fill="rgba(255,255,255,0.96)"/><text x="72" y="94" fill="#142018" font-family="${font}" font-size="36" font-weight="800">${escapeXml(brandLabel.trim())}</text>`
     : "";
   return `<svg width="${WIDTH}" height="${HEIGHT}" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0.6" stop-color="rgba(0,0,0,0)"/>
-        <stop offset="1" stop-color="rgba(0,0,0,0.6)"/>
+        <stop offset="0.42" stop-color="rgba(0,0,0,0)"/>
+        <stop offset="1" stop-color="rgba(0,0,0,0.72)"/>
       </linearGradient>
     </defs>
     <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#fade)"/>
+    <rect x="0" y="0" width="16" height="${HEIGHT}" fill="${ink.accent}"/>
+    ${brandSvg}
     ${titleSvg}
     ${pill}
+    ${subSvg}
+    ${creditSvg}
   </svg>`;
 };
 
@@ -166,6 +196,8 @@ export const buildSlideSvg = (input: ComposeInput): string => {
       card?.title ?? input.design.coverTitle,
       subline,
       { primary: input.primaryColor, secondary: input.secondaryColor, accent: input.accentColor },
+      input.credit,
+      input.logo ? undefined : input.companyName,
     );
   }
   if (input.layout === "card") {
@@ -210,7 +242,7 @@ const isSvg = (logo: Buffer): boolean =>
 
 const fitLogo = async (logo: Buffer): Promise<Buffer> =>
   sharp(logo, isSvg(logo) ? { density: 300 } : undefined)
-    .resize({ width: 168, height: 168, fit: "inside", withoutEnlargement: false })
+    .resize({ width: 360, height: 120, fit: "inside", withoutEnlargement: false })
     .png()
     .toBuffer();
 

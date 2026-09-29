@@ -102,7 +102,7 @@ export const parseSocialDesign = (raw: string, mode: "guide" | "headline"): Soci
   if (!record) return null;
 
   const coverTitle = clampWords(String(record.coverTitle ?? ""), 4, 28);
-  const coverSubline = clampWords(String(record.coverSubline ?? ""), 8, 42);
+  const coverSubline = clampWords(String(record.coverSubline ?? ""), 14, 64);
   const rawHook = String(record.hook ?? "").replace(/\s+/g, " ").trim();
   const hook = rawHook.endsWith("?") ? "" : clampWords(rawHook, 22, 140);
   const question = clampWords(String(record.question ?? ""), 10, 48);

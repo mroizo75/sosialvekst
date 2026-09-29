@@ -114,9 +114,11 @@ const getMaxOutputTokens = (channel: SocialChannel): number => {
 };
 
 const HASHTAG_TOKEN = /#([\p{L}\p{N}_]+)/gu;
+const BARE_TAG = /^[\p{Ll}\p{N}_]{4,40}$/u;
 
 const endsWithHashtagLine = (text: string): boolean =>
-  /(?:^|\n)\s*#(?:[\p{L}\p{N}_]+)(?:[ \t]+#[\p{L}\p{N}_]+)*[ \t]*$/u.test(text);
+  /(?:^|\n)\s*#(?:[\p{L}\p{N}_]+)(?:[ \t]+#[\p{L}\p{N}_]+)*[ \t]*$/u.test(text)
+  || BARE_TAG.test(text.trim().split("\n").at(-1)?.trim().replace(/[.,!?;:]+$/u, "") ?? "");
 
 const splitHashtags = (text: string): { body: string; hashtags: string[] } => {
   const tags: string[] = [];
@@ -138,9 +140,34 @@ const containsWebsiteUrl = (text: string, websiteUrl?: string): boolean => {
   return text.includes(websiteUrl);
 };
 
-const withoutTrailingLink = (text: string, websiteUrl: string): string => {
-  const escaped = websiteUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return text.replace(new RegExp(`\\n*${escaped}\\s*$`), "").trim();
+const peelBareHashtagLines = (text: string): { body: string; hashtags: string[] } => {
+  const lines = text.split("\n");
+  const tags: string[] = [];
+  while (tags.length < 3 && lines.length > 0) {
+    const raw = lines[lines.length - 1]?.trim() ?? "";
+    if (!raw) {
+      lines.pop();
+      continue;
+    }
+    const token = raw.replace(/[.,!?;:]+$/u, "");
+    if (raw.includes(" ") || !BARE_TAG.test(token)) break;
+    lines.pop();
+    tags.unshift(`#${token}`);
+  }
+  return { body: lines.join("\n").trim(), hashtags: tags };
+};
+
+const stripStandaloneUrl = (text: string, websiteUrl: string): string => {
+  const target = websiteUrl.trim().replace(/\/$/, "");
+  return text
+    .split("\n")
+    .filter((line) => {
+      const value = line.trim().replace(/\/$/, "");
+      return value !== target && value !== websiteUrl.trim();
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 };
 
 export const ensureCompleteEnding = (text: string): string => {
@@ -158,15 +185,15 @@ export const ensureWebsiteLinkInText = (
   includeWebsiteLink: boolean,
   _pillar?: ContentPillar,
 ): string => {
-  if (!includeWebsiteLink || !websiteUrl) return text.trim();
-
-  const { body, hashtags } = splitHashtags(text);
-  const prose = containsWebsiteUrl(body, websiteUrl)
-    ? withoutTrailingLink(body, websiteUrl)
-    : body;
+  const hashed = splitHashtags(text);
+  const bare = peelBareHashtagLines(hashed.body);
+  const tags = [...hashed.hashtags, ...bare.hashtags].slice(0, 3);
+  const prose = websiteUrl ? stripStandaloneUrl(bare.body, websiteUrl) : bare.body;
   const complete = ensureCompleteEnding(prose);
-  const withLink = complete ? `${complete}\n\n${websiteUrl}` : websiteUrl;
-  return hashtags.length > 0 ? `${withLink}\n\n${hashtags.join(" ")}` : withLink;
+  const withLink = includeWebsiteLink && websiteUrl && !containsWebsiteUrl(complete, websiteUrl)
+    ? (complete ? `${complete}\n\n${websiteUrl}` : websiteUrl)
+    : complete;
+  return tags.length > 0 ? `${withLink}\n\n${tags.join(" ")}` : withLink;
 };
 
 export type CaptionAssembly = {
@@ -177,11 +204,11 @@ export type CaptionAssembly = {
 };
 
 export const assembleCaption = ({ body, link, hashtags, credits }: CaptionAssembly): string => {
-  const split = splitHashtags(`${body}${hashtags?.trim() ? `\n${hashtags.trim()}` : ""}`);
-  const linked = ensureWebsiteLinkInText(split.body, link?.trim(), Boolean(link?.trim()));
-  const withTags = split.hashtags.length > 0 ? `${linked}\n\n${split.hashtags.join(" ")}` : linked;
+  const combined = `${body}${hashtags?.trim() ? `\n${hashtags.trim()}` : ""}`;
+  const linked = ensureWebsiteLinkInText(combined, link?.trim(), Boolean(link?.trim()));
   const creditLine = credits?.trim();
-  return creditLine ? `${withTags}\n\n${creditLine}` : withTags;
+  if (!creditLine || linked.includes(creditLine)) return linked;
+  return `${linked}\n\n${creditLine}`;
 };
 
 const isOwnedImageUrl = (url: string): boolean => {
@@ -494,6 +521,8 @@ const renderDesignedSlide = async (
     slideIndex,
     layout,
     logo,
+    companyName: input.brandContext?.companyName,
+    credit: attribution ? photoCreditRecord(attribution) : undefined,
     primaryColor: input.brandContext?.brandColors?.primary,
     secondaryColor: input.brandContext?.brandColors?.secondary,
     accentColor: input.brandContext?.brandColors?.accent,
