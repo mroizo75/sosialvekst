@@ -44,9 +44,11 @@ const guide = {
 
 describe("slideDesign", () => {
   it("lager guide for nyttig innhold og cover for inspirasjon", () => {
-    expect(resolveDesignMode("useful", "people")).toBe("guide");
+    expect(resolveDesignMode("useful", "people")).toBe("headline");
+    expect(resolveDesignMode("useful", "people", { world: "travel", placeName: "Rhodos" })).toBe("guide");
     expect(resolveDesignMode("inspiration", "people")).toBe("headline");
     expect(resolveDesignMode("inspiration", "comparison")).toBe("guide");
+    expect(resolveDesignMode("commercial", "price", { world: "generic", placeName: null })).toBe("headline");
   });
 
   it("lar fotoet være ekte og setter teksten i layouten", () => {

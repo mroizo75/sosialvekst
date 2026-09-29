@@ -1,4 +1,5 @@
 import type { ContentPillar, VisualMotif } from "@/lib/ai/postStrategy";
+import { findCopyIssues } from "@/lib/ai/validateCopy";
 import type { VisualBrief } from "@/lib/ai/visualDirection";
 import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
@@ -53,11 +54,12 @@ export const slideLineForImage = (slideLine: string | undefined, title: string):
 };
 
 export const resolveDesignMode = (
-  pillar?: ContentPillar,
+  _pillar?: ContentPillar,
   motif?: VisualMotif,
+  brief?: Pick<VisualBrief, "world" | "placeName">,
 ): "guide" | "headline" => {
-  if (pillar === "useful" || pillar === "commercial") return "guide";
-  if (motif === "guide" || motif === "comparison" || motif === "price") return "guide";
+  if (brief?.world === "travel" && brief.placeName) return "guide";
+  if (motif === "guide" || motif === "comparison") return "guide";
   return "headline";
 };
 
@@ -205,16 +207,75 @@ const useFallback = (input: DesignInput, reason: FallbackReason): SocialDesign =
   return fallbackSocialDesign(input);
 };
 
+const designCopyIssues = (design: SocialDesign, input: DesignInput): string[] => {
+  const check = { placeName: input.brief.placeName, pillar: input.contentPillar };
+  const caption = findCopyIssues(composeGuideCaption(design), check);
+  const cards = design.cards.flatMap((card) => findCopyIssues(
+    [card.title, card.summary, card.slideLine ?? ""].filter(Boolean).join(". "),
+    check,
+  ));
+  return [...caption, ...cards];
+};
+
+const designUserPrompt = (input: DesignInput, mode: "guide" | "headline", issues: string[]): string => {
+  const company = input.brandContext?.companyName ?? "bedriften";
+  const industry = input.brandContext?.industry ?? "ukjent bransje";
+  const travel = input.brief.world === "travel" && Boolean(input.brief.placeName);
+  const shared = [
+    `Bedrift: ${company}. Bransje: ${industry}.`,
+    `Tema: ${input.topic}.`,
+    travel
+      ? `Sted: ${input.brief.placeName}.`
+      : "Ikke finn på et feriested, et land eller en by. Dette er ikke et reiseinnlegg.",
+    `Modus: ${mode}.`,
+    "JSON-form:",
+    '{"hook":"","coverTitle":"","coverSubline":"","question":"","cta":"","cards":[{"title":"","summary":"","slideLine":"","bullets":["","",""]}]}',
+  ];
+  const travelLines = [
+    "hook er én setning, ikke et spørsmål, og konkret om stedet.",
+    "coverTitle er kun stedsnavnet. Aldri hotell, downtown, pris eller bestill.",
+    "question kommer rett etter hook og er et valg mellom områder i det låste stedet. cta skal være et spørsmål, uten nettadresse.",
+    mode === "guide"
+      ? [
+        "cards skal ha nøyaktig 3 ekte områder i det låste stedet. Ikke finn på bydeler og ikke bruk en annen by.",
+        "title er det lokale navnet, uoversatt.",
+        "summary: To korte setninger. Setning 1: én konkret, verifiserbar detalj om området (severdighet, type strand, avstand). Setning 2: «For deg som …». Ingen adjektiver som vakker, flott, sjarmerende, livlig, fantastisk. Er du usikker på en detalj, dropp den og skriv bare hvem området passer for.",
+        "slideLine: maks 5 ord, en komplett frase, ingen adjektiver som vakre, flotte eller sjarmerende.",
+        "Hvert bullet maks 3 ord.",
+        "Eksempel for Rhodos: Lindos, Faliraki, Rhodos by. Ikke Downtown Rhodos, Magisk strand eller Hotellområdet.",
+        "Samme regel for Kos, Hurghada og alle andre steder: kjente områder, ellers sentrum, strand og havn.",
+      ].join(" ")
+      : "cards skal være en tom liste.",
+  ];
+  const genericLines = [
+    "hook er én setning, ikke et spørsmål, og konkret om temaet i kundens fag. Ikke et stedsnavn.",
+    "coverTitle er temaet i 1–4 ord. Ikke et sted.",
+    "question er et konkret valg i kundens verden. cta skal være et spørsmål, uten nettadresse.",
+    mode === "guide"
+      ? [
+        "cards skal ha nøyaktig 3 konkrete alternativer, steg eller tips i kundens fag. Ikke områder, byer eller strender.",
+        "title er navnet på alternativet, steget eller tipset.",
+        "summary: To korte setninger om hva kunden faktisk gjør eller velger. Ingen adjektiver som vakker, flott, sjarmerende, livlig, fantastisk.",
+        "slideLine: maks 5 ord, en komplett frase.",
+        "Hvert bullet maks 3 ord.",
+      ].join(" ")
+      : "cards skal være en tom liste.",
+  ];
+  return [
+    ...shared,
+    ...(travel ? travelLines : genericLines),
+    ...(issues.length > 0 ? [`Forrige utkast ble avvist fordi: ${issues.join(" ")}`] : []),
+  ].join("\n");
+};
+
 export const createSocialDesign = async (input: DesignInput): Promise<SocialDesign> => {
-  const mode = input.forceGuide ? "guide" : resolveDesignMode(input.contentPillar, input.visualMotif);
+  const mode = input.forceGuide
+    ? "guide"
+    : resolveDesignMode(input.contentPillar, input.visualMotif, input.brief);
   const client = getOpenAiClient();
   if (!client) return useFallback(input, "no_client");
 
-  const company = input.brandContext?.companyName ?? "bedriften";
-  const industry = input.brandContext?.industry ?? "ukjent bransje";
-  const place = input.brief.placeName ? `Sted: ${input.brief.placeName}.` : "Ikke finn på et feriested hvis bedriften ikke er i reisebransjen.";
-
-  try {
+  const ask = async (issues: string[]): Promise<SocialDesign | null> => {
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
       max_output_tokens: 800,
@@ -228,40 +289,19 @@ export const createSocialDesign = async (input: DesignInput): Promise<SocialDesi
             "Teksten skal hjelpe leseren å velge, i kundens verden, ikke forklare bedriftens funksjoner.",
           ].join(" "),
         },
-        {
-          role: "user",
-          content: [
-            `Bedrift: ${company}. Bransje: ${industry}.`,
-            `Tema: ${input.topic}.`,
-            place,
-            `Modus: ${mode}.`,
-            "JSON-form:",
-            '{"hook":"","coverTitle":"","coverSubline":"","question":"","cta":"","cards":[{"title":"","summary":"","slideLine":"","bullets":["","",""]}]}',
-            "hook er én setning, ikke et spørsmål, og konkret om stedet.",
-            "coverTitle er kun stedsnavnet. Aldri hotell, downtown, pris eller bestill.",
-            "question kommer rett etter hook og er et valg mellom områder i det låste stedet. cta skal være et spørsmål, uten nettadresse.",
-            mode === "guide"
-              ? [
-                "cards skal ha nøyaktig 3 ekte områder i det låste stedet. Ikke finn på bydeler og ikke bruk en annen by.",
-                "title er det lokale navnet, uoversatt.",
-                "summary: To korte setninger. Setning 1: én konkret, verifiserbar detalj om området (severdighet, type strand, avstand). Setning 2: «For deg som …». Ingen adjektiver som vakker, flott, sjarmerende, livlig, fantastisk. Er du usikker på en detalj, dropp den og skriv bare hvem området passer for.",
-                "slideLine: maks 5 ord, en komplett frase, ingen adjektiver som vakre, flotte eller sjarmerende.",
-                "Hvert bullet maks 3 ord.",
-                ...(input.brief.world === "travel"
-                  ? [
-                    "Eksempel for Rhodos: Lindos, Faliraki, Rhodos by. Ikke Downtown Rhodos, Magisk strand eller Hotellområdet.",
-                    "Samme regel for Kos, Hurghada og alle andre steder: kjente områder, ellers sentrum, strand og havn.",
-                  ]
-                  : []),
-              ].join(" ")
-              : "cards skal være en tom liste.",
-          ].join("\n"),
-        },
+        { role: "user", content: designUserPrompt(input, mode, issues) },
       ],
     });
+    return parseSocialDesign(response.output_text || "", mode);
+  };
 
-    const parsed = parseSocialDesign(response.output_text || "", mode);
-    return parsed ?? useFallback(input, "parse_null");
+  try {
+    const first = await ask([]);
+    if (!first) return useFallback(input, "parse_null");
+    if (mode !== "guide") return first;
+    const issues = designCopyIssues(first, input);
+    if (issues.length === 0) return first;
+    return (await ask(issues)) ?? first;
   } catch (error) {
     logger.warn("Kunne ikke planlegge slide-tekst", {
       reason: "exception",

@@ -834,7 +834,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
 
   let socialDesign: SocialDesign | undefined;
   if (input.channel !== "tiktok" && input.mediaMode !== "owned_only") {
-    const mode = resolveDesignMode(input.contentPillar, input.visualMotif);
+    const mode = resolveDesignMode(input.contentPillar, input.visualMotif, brief);
     socialDesign = await createSocialDesign({
       topic: input.topic,
       channel: input.channel,
