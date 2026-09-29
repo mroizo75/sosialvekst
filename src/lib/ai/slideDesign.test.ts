@@ -282,4 +282,32 @@ describe("slideDesign", () => {
     expect(svg).toContain("Segoe UI");
     expect(rendered.length).toBeGreaterThan(0);
   });
+
+  it("legger logoen oppe til venstre på bildet", async () => {
+    const photo = await sharp({
+      create: { width: 200, height: 200, channels: 3, background: "#224466" },
+    }).jpeg().toBuffer();
+    const logo = await sharp({
+      create: { width: 48, height: 48, channels: 4, background: { r: 220, g: 20, b: 20, alpha: 1 } },
+    }).png().toBuffer();
+    const design = {
+      mode: "headline" as const,
+      coverTitle: "Sicilia",
+      coverSubline: "Kveldssol",
+      question: "Sicilia",
+      cards: [],
+      cta: "",
+    };
+    const rendered = await composeDesignedSlide({
+      photo,
+      design,
+      slideIndex: 0,
+      layout: "photo",
+      logo,
+    });
+    const pixel = await sharp(rendered).extract({ left: 80, top: 80, width: 1, height: 1 }).raw().toBuffer();
+
+    expect(pixel[0]).toBeGreaterThan(180);
+    expect(pixel[1]).toBeLessThan(80);
+  });
 });

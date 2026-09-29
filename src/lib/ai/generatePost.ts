@@ -21,7 +21,7 @@ import {
   resolvePlaceLook,
   type SocialDesign,
 } from "@/lib/ai/slideDesign";
-import { uploadUserFile, listUserFiles } from "@/lib/cloudflare/r2";
+import { downloadObjectByPublicUrl, uploadUserFile, listUserFiles } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
 import type {
@@ -316,11 +316,34 @@ const createText = async (input: GeneratePostInput, visual?: CopyVisual): Promis
   return secondIssues.length < firstIssues.length ? second : first;
 };
 
+const publicFileUrl = (url: string): string => {
+  const publicBase = process.env.CLOUDFLARE_R2_PUBLIC_BASE_URL?.replace(/\/+$/, "");
+  if (!publicBase || url.startsWith(publicBase)) return url;
+  const match = url.match(/\/users\/.+$/);
+  return match ? `${publicBase}${match[0]}` : url;
+};
+
 const loadBuffer = async (url?: string): Promise<Buffer | undefined> => {
   if (!url) return undefined;
-  const response = await fetch(url);
-  if (!response.ok) return undefined;
-  return Buffer.from(await response.arrayBuffer());
+  const target = publicFileUrl(url);
+  try {
+    const response = await fetch(target);
+    if (response.ok) return Buffer.from(await response.arrayBuffer());
+    logger.warn("Kunne ikke hente fil via URL", { status: response.status });
+  } catch (error) {
+    logger.warn("Kunne ikke hente fil via URL", {
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+  }
+
+  try {
+    return await downloadObjectByPublicUrl(target);
+  } catch (error) {
+    logger.warn("Kunne ikke hente fil fra lagring", {
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    return undefined;
+  }
 };
 
 const renderDesignedSlide = async (
@@ -367,7 +390,11 @@ const renderDesignedSlide = async (
     photo = await loadBuffer(photoUrl);
   }
   if (!photo) return undefined;
-  const logo = await loadBuffer(input.brandContext?.logoUrl);
+  const logoUrl = input.brandContext?.logoUrl;
+  const logo = await loadBuffer(logoUrl);
+  if (logoUrl && !logo) {
+    logger.warn("Logo ble ikke lagt på bildet", { userId: input.userId, slideIndex });
+  }
   const jpeg = await composeDesignedSlide({
     photo,
     design,
@@ -751,7 +778,6 @@ const buildCopyVisual = (
 });
 
 export const generatePost = async (input: GeneratePostInput): Promise<PostDraft> => {
-  const instagramCarousel = input.channel === "instagram" && !input.reelScript && input.mediaMode !== "owned_only";
   const brief = buildVisualBrief({
     topic: input.topic,
     brandContext: input.brandContext,
@@ -763,8 +789,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
 
   let socialDesign: SocialDesign | undefined;
   if (input.channel !== "tiktok" && input.mediaMode !== "owned_only") {
-    const forceGuide = instagramCarousel || input.contentPillar === "useful";
-    const mode = forceGuide ? "guide" : resolveDesignMode(input.contentPillar, input.visualMotif);
+    const mode = resolveDesignMode(input.contentPillar, input.visualMotif);
     socialDesign = await createSocialDesign({
       topic: input.topic,
       channel: input.channel,
@@ -843,7 +868,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       ? input.brandContext?.websiteUrl?.trim()
       : undefined;
     rawText = composeGuideCaption(socialDesign, link);
-  } else if (!instagramCarousel) {
+  } else {
     const visual = socialDesign
       ? buildCopyVisual(brief, socialDesign)
       : brief.placeName

@@ -192,8 +192,14 @@ export const buildSlideSvg = (input: ComposeInput): string => {
   </svg>`;
 };
 
+const isSvg = (logo: Buffer): boolean =>
+  logo.subarray(0, 300).toString("utf8").includes("<svg");
+
 const fitLogo = async (logo: Buffer): Promise<Buffer> =>
-  sharp(logo).resize({ width: 168, height: 168, fit: "inside", withoutEnlargement: false }).png().toBuffer();
+  sharp(logo, isSvg(logo) ? { density: 300 } : undefined)
+    .resize({ width: 168, height: 168, fit: "inside", withoutEnlargement: false })
+    .png()
+    .toBuffer();
 
 export const composeDesignedSlide = async (input: ComposeInput): Promise<Buffer> => {
   const onPhoto = input.layout === "photo";

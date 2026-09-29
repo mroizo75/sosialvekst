@@ -1,6 +1,7 @@
 import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
+  GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
@@ -126,6 +127,21 @@ export const uploadUserFile = async (input: DirectUploadInput) => {
     key,
     publicUrl: `${getPublicBaseUrl()}/${key}`,
   };
+};
+
+export const downloadObjectByPublicUrl = async (url: string): Promise<Buffer | undefined> => {
+  const match = url.match(/users\/[^\s?#]+/);
+  const key = match?.[0] ? decodeURIComponent(match[0]) : "";
+  if (!key.startsWith("users/")) return undefined;
+
+  const client = createR2Client();
+  const response = await client.send(new GetObjectCommand({
+    Bucket: getBucket(),
+    Key: key,
+  }));
+  const bytes = await response.Body?.transformToByteArray();
+  if (!bytes || bytes.byteLength === 0) return undefined;
+  return Buffer.from(bytes);
 };
 
 export const listUserFiles = async (userId: string): Promise<ListedFile[]> => {
