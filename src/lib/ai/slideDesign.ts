@@ -447,7 +447,9 @@ export const buildPhotoPrompt = (
     industry ? `Industry: ${industry}. Show the real environment of this trade, not an office.` : null,
     place
       ? `Location: ${place}.${look ? ` It must be recognizable: ${look}.` : ""} Do not switch to another country or city. Do not invent a hotel or a hotel name.`
-      : "Setting: realistic Norwegian or Scandinavian surroundings. Do not invent a holiday resort.",
+      : brief.world === "travel"
+        ? "Setting: an unnamed sunny holiday scene, such as a hotel terrace, a pool, a beach or a narrow old-town street. No recognizable landmark, city or country. Do not invent a hotel name."
+        : "Setting: realistic Norwegian or Scandinavian surroundings. Do not invent a holiday resort.",
     `One strong focal point in the upper part of the frame. Keep the ${textZone} simple and slightly darker, because a headline is placed there.`,
     "Keep the top-left corner free of important detail. A logo is added there later.",
     "No stock-photo clichés: no handshakes, no people posing at a laptop, no headsets, no 3D render, no illustration.",

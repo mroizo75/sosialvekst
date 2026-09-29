@@ -140,6 +140,15 @@ describe("slideDesign", () => {
     expect(knownPlaceLook("Sicilia")).toBeNull();
   });
 
+  it("lager et anonymt feriemotiv når reisetemaet mangler sted", () => {
+    const prompt = buildPhotoPrompt(plumbing, { ...travelBrief, placeName: null }, 0);
+
+    expect(prompt).toContain("unnamed sunny holiday scene");
+    expect(prompt).toContain("No recognizable landmark");
+    expect(prompt).not.toContain("Scandinavian");
+    expect(prompt).not.toContain("Location:");
+  });
+
   it("beholder en slagkraftig reisetittel, men fjerner salg", () => {
     const punchy = placeGuideCopy({ ...plumbing, coverTitle: "Gran Canaria på tre måter" }, "Gran Canaria");
     const sales = placeGuideCopy({ ...plumbing, coverTitle: "Hotell på Gran Canaria", cta: "Bestill nå" }, "Gran Canaria");

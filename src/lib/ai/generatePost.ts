@@ -64,7 +64,8 @@ type GeneratePostInput = {
   trace?: GenerationStep[];
 };
 
-export const appVersion = (): string => process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "lokal";
+export const appVersion = (): string =>
+  process.env.APP_VERSION || process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || "ukjent";
 
 const note = (input: GeneratePostInput, step: string, ok: boolean, detail?: string): void => {
   input.trace?.push({ step, ok, ...(detail ? { detail } : {}) });
@@ -80,7 +81,6 @@ type SlideImage = {
 type SlidePhoto = {
   bytes?: Buffer;
   attribution?: PhotoAttribution;
-  skip?: boolean;
 };
 
 type ImageQualityPolicy = {
@@ -579,14 +579,8 @@ const findSlidePhoto = async (
       note(input, step, true, `ekte foto av ${brief.placeName} (${found.credit})`);
       return { bytes: found.bytes, attribution: found.attribution };
     }
-    note(input, step, false, `fant ikke ekte foto av ${brief.placeName}${subject ? ` / ${subject}` : ""}`);
-    logger.warn("Fant ikke ekte foto av stedet", { place: brief.placeName, subject });
-    return { skip: slideIndex === 0 };
-  }
-  if (brief.world === "travel") {
-    note(input, step, false, "reisetema uten stedsnavn, ingen foto");
-    logger.warn("Reiseinnlegg uten stedsnavn, hopper over oppdiktet bilde", { topic: input.topic });
-    return { skip: true };
+    note(input, step, false, `fant ikke ekte foto av ${brief.placeName}${subject ? ` / ${subject}` : ""}, bruker AI-foto`);
+    logger.warn("Fant ikke ekte foto av stedet, bruker AI-foto", { place: brief.placeName, subject });
   }
   const productImages = input.brandContext?.productImages ?? [];
   if (slideIndex === 0 && productImages.length > 0) {
@@ -675,7 +669,6 @@ const renderDesignedSlide = async (
   slideIndex: number,
 ): Promise<SlideImage | undefined> => {
   const photo = await findSlidePhoto(input, design, brief, slideIndex);
-  if (photo.skip) return undefined;
   if (slideIndex === 0 && !photo.bytes) return undefined;
   const layout: SlideLayout = slideIndex === 0 ? "cover" : photo.bytes ? "slide" : "card";
   return composeAndUpload(input, design, slideIndex, layout, photo);

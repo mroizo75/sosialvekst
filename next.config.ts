@@ -1,6 +1,20 @@
+import { execSync } from "node:child_process";
+
 import type { NextConfig } from "next";
 
+const buildVersion = (): string => {
+  try {
+    const sha = execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    return `${sha} ${new Date().toISOString().slice(0, 16)}`;
+  } catch {
+    return `ukjent ${new Date().toISOString().slice(0, 16)}`;
+  }
+};
+
 const nextConfig: NextConfig = {
+  env: {
+    APP_VERSION: buildVersion(),
+  },
   outputFileTracingIncludes: {
     "/api/**/*": ["./assets/fonts/**/*"],
   },
