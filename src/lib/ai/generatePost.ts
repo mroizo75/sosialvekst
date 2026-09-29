@@ -5,7 +5,7 @@ import { generateImageToVideo, isFalAvailable } from "@/lib/ai/falClient";
 import { generateProfessionalImage, overlayLogoOnImage } from "@/lib/ai/imageGeneration";
 import { generateProductImage } from "@/lib/ai/imageEngine";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
-import { composeDesignedSlide, resolveSlideLayout } from "@/lib/ai/slideComposer";
+import { composeDesignedSlide, resolveSlideLayout, solidSlideBackground } from "@/lib/ai/slideComposer";
 import { buildCarouselVariantPrompt, buildVisualBrief, type VisualBrief, type VisualWorld } from "@/lib/ai/visualDirection";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import type { ContentPillar, VisualMotif } from "@/lib/ai/postStrategy";
@@ -428,21 +428,29 @@ const renderDesignedSlide = async (
   slideIndex: number,
 ): Promise<string | undefined> => {
   const onPhoto = design.mode === "guide" || Boolean(brief.placeName) || brief.world === "travel";
-  const layout = resolveSlideLayout(input.channel, design.mode, slideIndex, onPhoto);
+  let layout = resolveSlideLayout(input.channel, design.mode, slideIndex, onPhoto);
   let photo: Buffer | undefined;
   let attribution: PhotoAttribution | undefined;
   if (brief.placeName) {
     const subject = slideIndex > 0 ? design.cards[slideIndex - 1]?.title : undefined;
     const found = await findPlacePhoto(brief.placeName, subject, input.placePhotoUsed ?? new Set());
-    if (!found) {
+    if (!found && subject) {
+      logger.warn("Fant ikke motivfoto, bruker kort-layout", {
+        place: brief.placeName,
+        subject,
+      });
+      layout = "card";
+      photo = await solidSlideBackground(input.brandContext?.brandColors?.primary);
+    } else if (!found) {
       logger.warn("Fant ikke ekte foto av stedet", {
         place: brief.placeName,
         subject,
       });
       return undefined;
+    } else {
+      photo = found.bytes;
+      attribution = found.attribution;
     }
-    photo = found.bytes;
-    attribution = found.attribution;
   } else if (brief.world === "travel") {
     logger.warn("Reiseinnlegg uten stedsnavn, hopper over oppdiktet bilde", {
       topic: input.topic,

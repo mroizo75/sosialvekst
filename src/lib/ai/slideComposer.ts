@@ -5,6 +5,11 @@ import type { SocialChannel } from "@/lib/types";
 
 export type SlideLayout = "photo" | "card" | "single";
 
+export const solidSlideBackground = (color = "#E7E1D6"): Promise<Buffer> =>
+  sharp({
+    create: { width: 1080, height: 1350, channels: 3, background: color },
+  }).jpeg().toBuffer();
+
 export const resolveSlideLayout = (
   channel: SocialChannel,
   mode: SocialDesign["mode"],

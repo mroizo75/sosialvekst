@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPlaceQuery, formatPhotoCredits, rankPlacePhotos } from "@/lib/ai/placePhoto";
+import { buildPlaceQuery, formatPhotoCredits, placeSearchQueries, rankPlacePhotos } from "@/lib/ai/placePhoto";
 
 const payload = {
   results: [
@@ -45,8 +45,10 @@ describe("placePhoto", () => {
     expect(buildPlaceQuery("Dubrovnik", "Gamlebyen")).toBe("Dubrovnik old town");
     expect(buildPlaceQuery("Dubrovnik", "Lapad")).toBe("Dubrovnik Lapad");
     expect(buildPlaceQuery("Rhodos")).toBe("Rhodes Greece cityscape");
-    expect(buildPlaceQuery("Hurghada", "Downtown Hurghada")).toBe("Hurghada Egypt cityscape");
+    expect(buildPlaceQuery("Korfu", "Korfu by")).toBe("Corfu Greece old town");
     expect(buildPlaceQuery("Kos", "Kardamena")).toBe("Kos Greece Kardamena");
+    expect(placeSearchQueries("Hurghada", "Downtown Hurghada")).toEqual([]);
+    expect(placeSearchQueries("Dubrovnik", "Lapad").some((item) => item.query.includes("cityscape"))).toBe(false);
   });
 
   it("velger et ekte bybilde og hopper over hotell og for små filer", () => {

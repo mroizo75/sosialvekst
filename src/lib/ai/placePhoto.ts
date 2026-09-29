@@ -47,6 +47,8 @@ const PLACE_EN: Record<string, string> = {
 const SUBJECT_EN: Record<string, string> = {
   gamlebyen: "old town",
   gamleby: "old town",
+  by: "old town",
+  byen: "old town",
   stranden: "beach",
   strand: "beach",
   havnen: "harbour",
@@ -79,17 +81,14 @@ const specificSubject = (place: string, subject?: string): string | null => {
 export const placeSearchQueries = (place: string, subject?: string): { query: string; subject?: string }[] => {
   const placeEn = placeLabel(place);
   const specific = specificSubject(place, subject);
-  if (!specific) {
-    return [
-      { query: `${placeEn} cityscape` },
-      { query: `${placeEn} beach` },
-      { query: placeEn },
-    ];
+  if (subject?.trim()) {
+    if (!specific) return [];
+    return [{ query: `${placeEn} ${specific}`, subject: specific }];
   }
   return [
-    { query: `${placeEn} ${specific}`, subject: specific },
     { query: `${placeEn} cityscape` },
     { query: `${placeEn} beach` },
+    { query: placeEn },
   ];
 };
 
