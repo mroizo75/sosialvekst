@@ -34,8 +34,8 @@ const buildBrandBlock = (ctx: BrandContext): string => {
 const SHARED_RULES = [
   "NO text overlays, NO subtitles, NO floating text, NO captions, NO written words anywhere in the frame.",
   "Do NOT open on a logo, title card, or company name. The first frame is the hook.",
+  "Do NOT invent a logo, wordmark or company name. The real logo file is not part of this prompt and is added in code when the source is a still image.",
   "Show real people in the situation. Do not film empty architecture, empty pools, or product-only shots unless the scene is explicitly a product detail.",
-  "Company name or logo ONLY visible when naturally part of the scene: printed on uniforms, signage, vehicles, product packaging, or building facades.",
   "Cinematic quality with smooth, professional camera movements.",
   "Professional, natural lighting that matches the setting.",
   "Background music and ambient sound effects only. NO speech, NO voiceover, NO narration, NO dialogue.",

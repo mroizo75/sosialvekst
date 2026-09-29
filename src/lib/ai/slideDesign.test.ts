@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import sharp from "sharp";
 
-import { buildSlideSvg, composeDesignedSlide, photoTextColors, resolveSlideLayout } from "@/lib/ai/slideComposer";
+import { buildSlideSvg, composeDesignedSlide, contrastPlateFill, photoTextColors, resolveSlideLayout } from "@/lib/ai/slideComposer";
 import { buildPhotoPrompt, buildPhotoSubject, composeGuideCaption, fallbackSocialDesign, headlineFromCaption, knownPlaceLook, overlaySentence, parseSocialDesign, placeGuideCopy, resolveDesignMode, slideLineForImage } from "@/lib/ai/slideDesign";
 import type { VisualBrief } from "@/lib/ai/visualDirection";
 
@@ -312,7 +312,9 @@ describe("slideDesign", () => {
   it("bruker kjent stedsutseende og lar ukjente steder være tomme", () => {
     expect(knownPlaceLook("Dubrovnik")).toContain("limestone");
     expect(knownPlaceLook("Sicilia")).toBeNull();
-    expect(buildPhotoPrompt(guide, brief, 0, "slide", "stone lanes and the sea")).toContain("stone lanes and the sea");
+    const photoPrompt = buildPhotoPrompt(guide, brief, 0, "slide", "stone lanes and the sea");
+    expect(photoPrompt).toContain("stone lanes and the sea");
+    expect(photoPrompt).toContain("top-left");
   });
 
   it("rendrer æ, ø og å i overlayet", async () => {
@@ -365,5 +367,17 @@ describe("slideDesign", () => {
 
     expect(pixel[0]).toBeGreaterThan(180);
     expect(pixel[1]).toBeLessThan(80);
+  });
+
+  it("legger mørk plate bak lys logo og lys plate bak mørk logo", async () => {
+    const white = await sharp({
+      create: { width: 20, height: 20, channels: 3, background: "#ffffff" },
+    }).png().toBuffer();
+    const red = await sharp({
+      create: { width: 20, height: 20, channels: 3, background: "#cc1414" },
+    }).png().toBuffer();
+
+    expect(await contrastPlateFill(white)).toContain("20,24,28");
+    expect(await contrastPlateFill(red)).toContain("255,255,255");
   });
 });

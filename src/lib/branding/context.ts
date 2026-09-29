@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { listUserFiles } from "@/lib/cloudflare/r2";
+import { logger } from "@/lib/logger";
 import type { BrandColors, BrandContext, ProductImage } from "@/lib/types";
 
 type ProfileRow = {
@@ -75,7 +76,11 @@ const pickLatestLogoUrl = async (userId: string): Promise<string | undefined> =>
       .filter((file) => file.key.toLowerCase().includes("/logos/"))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     return logoFiles[0]?.url;
-  } catch {
+  } catch (error) {
+    logger.warn("Kunne ikke slå opp logo i fillager", {
+      userId,
+      error: error instanceof Error ? error.message : "ukjent",
+    });
     return undefined;
   }
 };
@@ -122,7 +127,14 @@ export const getBrandContext = async (userId: string, workspaceId?: string): Pro
   const profile = profileResult.data as ProfileRow | null;
   const brand = brandResult.data as BrandProfileRow | null;
 
-  const logoUrl = brand?.logo_url ?? await pickLatestLogoUrl(userId);
+  const storedLogoUrl = brand?.logo_url?.trim() || undefined;
+  const logoUrl = storedLogoUrl ?? await pickLatestLogoUrl(userId);
+  if (!logoUrl) {
+    logger.warn("Ingen logo i merkevareprofil", {
+      userId,
+      workspaceId: workspaceId ?? null,
+    });
+  }
 
   return {
     companyName: profile?.company_name ?? undefined,

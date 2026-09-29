@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { toAppError } from "@/lib/errors";
 import { getAppUrl } from "@/lib/env";
+import { logger } from "@/lib/logger";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -44,14 +45,22 @@ export const signInAction = async (formData: FormData): Promise<void> => {
   const password = getStringValue(formData, "password");
   const supabase = await createSupabaseServerClient();
 
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) {
+    logger.warn("Innlogging avvist", {
+      code: error.code ?? "unknown",
+      status: error.status,
+      message: error.message,
+    });
     const errorMessage = error.message.toLowerCase();
     if (errorMessage.includes("email not confirmed")) {
       redirect(`/login?error=email_not_confirmed&email=${encodeURIComponent(email)}`);
     }
-    redirect(`/login?error=signin_failed&email=${encodeURIComponent(email)}`);
+    const code = encodeURIComponent(error.code ?? "unknown");
+    redirect(`/login?error=signin_failed&code=${code}&email=${encodeURIComponent(email)}`);
   }
+
+  logger.info("Innlogging godkjent av Auth", { userId: data.user?.id ?? null });
 
   redirect("/dashboard");
 };

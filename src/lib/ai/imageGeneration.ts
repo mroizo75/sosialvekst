@@ -3,7 +3,8 @@ import { promisify } from "node:util";
 
 import sharp from "sharp";
 
-import { uploadUserFile } from "@/lib/cloudflare/r2";
+import { contrastPlateFill } from "@/lib/ai/slideComposer";
+import { downloadObjectByPublicUrl, uploadUserFile } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
 import type { ImageProfile } from "@/lib/types";
@@ -292,28 +293,81 @@ export const generateProfessionalImage = async (
 const LOGO_MAX_WIDTH_RATIO = 0.14;
 const LOGO_PADDING_RATIO = 0.045;
 
+export const describeMediaUrl = (url?: string): { hasLogoUrl: boolean; logoHost?: string; logoPath?: string } => {
+  if (!url) return { hasLogoUrl: false };
+  try {
+    const parsed = new URL(url);
+    return { hasLogoUrl: true, logoHost: parsed.host, logoPath: parsed.pathname };
+  } catch {
+    return { hasLogoUrl: true, logoPath: "ugyldig" };
+  }
+};
+
+const loadRemoteBuffer = async (url: string, purpose: string): Promise<Buffer | undefined> => {
+  const ref = describeMediaUrl(url);
+  try {
+    const response = await fetch(url);
+    if (response.ok) {
+      const buffer = Buffer.from(await response.arrayBuffer());
+      logger.info("Fil hentet for branding", {
+        purpose,
+        bytes: buffer.byteLength,
+        contentType: response.headers.get("content-type"),
+        ...ref,
+      });
+      return buffer;
+    }
+    logger.warn("Fil-URL feilet for branding", { purpose, status: response.status, ...ref });
+  } catch (error) {
+    logger.warn("Fil-URL kastet for branding", {
+      purpose,
+      error: error instanceof Error ? error.message : "ukjent",
+      ...ref,
+    });
+  }
+
+  try {
+    const stored = await downloadObjectByPublicUrl(url);
+    if (stored && stored.byteLength > 0) {
+      logger.info("Fil hentet fra lagring for branding", { purpose, bytes: stored.byteLength, ...ref });
+      return stored;
+    }
+    logger.warn("Fil fantes ikke i lagring", { purpose, ...ref });
+  } catch (error) {
+    logger.warn("Lagring-henting feilet for branding", {
+      purpose,
+      error: error instanceof Error ? error.message : "ukjent",
+      ...ref,
+    });
+  }
+
+  return undefined;
+};
+
 export const overlayLogoOnImage = async (
   imageUrl: string,
   logoUrl: string,
   userId: string,
 ): Promise<string | undefined> => {
+  const imageRef = describeMediaUrl(imageUrl);
+  const logoRef = describeMediaUrl(logoUrl);
   try {
-    const [imageResponse, logoResponse] = await Promise.all([
-      fetch(imageUrl),
-      fetch(logoUrl),
+    const [imageBuffer, logoBuffer] = await Promise.all([
+      loadRemoteBuffer(imageUrl, "bilde"),
+      loadRemoteBuffer(logoUrl, "logo"),
     ]);
 
-    if (!imageResponse.ok || !logoResponse.ok) {
+    if (!imageBuffer || !logoBuffer) {
       logger.warn("overlayLogoOnImage: kunne ikke laste bilde/logo", {
         userId,
-        imageStatus: imageResponse.status,
-        logoStatus: logoResponse.status,
+        imageBytes: imageBuffer?.byteLength ?? 0,
+        logoBytes: logoBuffer?.byteLength ?? 0,
+        imagePath: imageRef.logoPath,
+        logoHost: logoRef.logoHost,
+        logoPath: logoRef.logoPath,
       });
       return undefined;
     }
-
-    const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
-    const logoBuffer = Buffer.from(await logoResponse.arrayBuffer());
 
     const baseImage = sharp(imageBuffer);
     const metadata = await baseImage.metadata();
@@ -324,7 +378,7 @@ export const overlayLogoOnImage = async (
     const padding = Math.round(width * LOGO_PADDING_RATIO);
 
     const resizedLogo = await sharp(logoBuffer)
-      .resize({ width: maxLogoWidth, withoutEnlargement: true })
+      .resize({ width: maxLogoWidth, withoutEnlargement: false })
       .png()
       .toBuffer();
 
@@ -333,12 +387,12 @@ export const overlayLogoOnImage = async (
     const logoH = logoMeta.height ?? maxLogoWidth;
 
     const platePad = Math.round(width * 0.012);
+    const plateFill = await contrastPlateFill(resizedLogo);
     const plate = Buffer.from(
-      `<svg width="${logoW + platePad * 2}" height="${logoH + platePad * 2}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" rx="${platePad}" fill="rgba(255,255,255,0.94)"/></svg>`,
+      `<svg width="${logoW + platePad * 2}" height="${logoH + platePad * 2}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" rx="${platePad}" fill="${plateFill}"/></svg>`,
     );
-    const plateH = logoH + platePad * 2;
     const left = padding;
-    const top = height - plateH - padding;
+    const top = padding;
 
     const composited = await baseImage
       .composite([
@@ -361,12 +415,20 @@ export const overlayLogoOnImage = async (
       body: new Uint8Array(composited),
     });
 
-    logger.info("Logo-overlay lagt til på bilde", { userId });
+    logger.info("Logo-overlay lagt til på bilde", {
+      userId,
+      logoBytes: logoBuffer.byteLength,
+      plateFill,
+      logoHost: logoRef.logoHost,
+      logoPath: logoRef.logoPath,
+    });
     return uploaded.publicUrl;
   } catch (error) {
     logger.warn("overlayLogoOnImage feilet", {
       userId,
       error: error instanceof Error ? error.message : "ukjent",
+      logoHost: logoRef.logoHost,
+      logoPath: logoRef.logoPath,
     });
     return undefined;
   }

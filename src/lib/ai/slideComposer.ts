@@ -1,6 +1,7 @@
 import sharp from "sharp";
 
 import { overlaySentence, type SocialDesign } from "@/lib/ai/slideDesign";
+import { logger } from "@/lib/logger";
 import type { SocialChannel } from "@/lib/types";
 
 export type SlideLayout = "photo" | "card" | "single";
@@ -263,6 +264,21 @@ const fitLogo = async (logo: Buffer): Promise<Buffer> => {
     .toBuffer();
 };
 
+export const contrastPlateFill = async (png: Buffer): Promise<string> => {
+  try {
+    const stats = await sharp(png).ensureAlpha().stats();
+    const [red, green, blue] = stats.channels;
+    const luminance = ((red?.mean ?? 0) + (green?.mean ?? 0) + (blue?.mean ?? 0)) / 3;
+    if (luminance > 210) return "rgba(20,24,28,0.92)";
+  } catch (error) {
+    logger.warn("Kunne ikke måle logokontrast", {
+      error: error instanceof Error ? error.message : "ukjent",
+      bytes: png.byteLength,
+    });
+  }
+  return "rgba(255,255,255,0.96)";
+};
+
 export const composeDesignedSlide = async (input: ComposeInput): Promise<Buffer> => {
   const onPhoto = input.layout === "photo";
   const photo = await sharp(input.photo)
@@ -285,9 +301,19 @@ export const composeDesignedSlide = async (input: ComposeInput): Promise<Buffer>
     const left = onPhoto ? 48 : WIDTH - logoW - 48;
     const top = onPhoto ? 48 : 792;
     const platePad = 14;
+    const plateFill = await contrastPlateFill(logo);
     const plate = Buffer.from(
-      `<svg width="${logoW + platePad * 2}" height="${logoH + platePad * 2}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" rx="22" fill="rgba(255,255,255,0.96)"/></svg>`,
+      `<svg width="${logoW + platePad * 2}" height="${logoH + platePad * 2}" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" rx="22" fill="${plateFill}"/></svg>`,
     );
+    logger.info("Logo komponeres på slide", {
+      bytes: input.logo.byteLength,
+      logoW,
+      logoH,
+      left,
+      top,
+      plateFill,
+      layout: input.layout,
+    });
     layers.push({ input: plate, left: left - platePad, top: top - platePad });
     layers.push({ input: logo, left, top });
   }

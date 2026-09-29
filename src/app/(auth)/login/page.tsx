@@ -22,6 +22,7 @@ const pickString = (value: string | string[] | undefined): string => {
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const query = await searchParams;
   const error = pickString(query.error);
+  const authCode = pickString(query.code);
   const message = pickString(query.message);
   const confirmed = pickString(query.confirmed);
   const email = pickString(query.email);
@@ -83,7 +84,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
             {error === "signin_failed" ? (
               <div className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">
-                {a.signinFailed}
+                <p>{a.signinFailed}</p>
+                {authCode ? <p className="mt-1 text-xs">Kode: {authCode}</p> : null}
               </div>
             ) : null}
 

@@ -2,7 +2,7 @@ import { buildNorwegianCopyPrompt, type CopyVisual } from "@/lib/ai/copyPromptBu
 import { autoFixCopy, findCopyIssues } from "@/lib/ai/validateCopy";
 import { mergeBrandRules } from "@/lib/ai/brandRules";
 import { generateImageToVideo, isFalAvailable } from "@/lib/ai/falClient";
-import { generateProfessionalImage, overlayLogoOnImage } from "@/lib/ai/imageGeneration";
+import { describeMediaUrl, generateProfessionalImage, overlayLogoOnImage } from "@/lib/ai/imageGeneration";
 import { generateProductImage } from "@/lib/ai/imageEngine";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
 import { composeDesignedSlide, resolveSlideLayout, solidSlideBackground } from "@/lib/ai/slideComposer";
@@ -441,24 +441,74 @@ const publicFileUrl = (url: string): string => {
   return match ? `${publicBase}${match[0]}` : url;
 };
 
-const loadBuffer = async (url?: string): Promise<Buffer | undefined> => {
+const applyBrandLogo = async (
+  imageUrl: string | undefined,
+  input: GeneratePostInput,
+  stage: string,
+): Promise<string | undefined> => {
+  if (!imageUrl) return undefined;
+  const logoUrl = input.brandContext?.logoUrl;
+  const ref = describeMediaUrl(logoUrl);
+  if (!logoUrl) {
+    logger.warn("Logo hoppet over", {
+      stage,
+      userId: input.userId,
+      reason: "ingen logoUrl",
+    });
+    return imageUrl;
+  }
+
+  const branded = await overlayLogoOnImage(imageUrl, logoUrl, input.userId);
+  if (!branded) {
+    logger.warn("Logo ble ikke lagt på", {
+      stage,
+      userId: input.userId,
+      reason: "overlay feilet",
+      ...ref,
+    });
+    return imageUrl;
+  }
+
+  logger.info("Logo lagt på", { stage, userId: input.userId, ...ref });
+  return branded;
+};
+
+const loadBuffer = async (url: string | undefined, purpose: string): Promise<Buffer | undefined> => {
   if (!url) return undefined;
   const target = publicFileUrl(url);
+  const ref = describeMediaUrl(target);
   try {
     const response = await fetch(target);
-    if (response.ok) return Buffer.from(await response.arrayBuffer());
-    logger.warn("Kunne ikke hente fil via URL", { status: response.status });
+    if (response.ok) {
+      const buffer = Buffer.from(await response.arrayBuffer());
+      logger.info("Fil hentet", {
+        purpose,
+        bytes: buffer.byteLength,
+        contentType: response.headers.get("content-type"),
+        ...ref,
+      });
+      return buffer;
+    }
+    logger.warn("Kunne ikke hente fil via URL", { purpose, status: response.status, ...ref });
   } catch (error) {
     logger.warn("Kunne ikke hente fil via URL", {
+      purpose,
       error: error instanceof Error ? error.message : "ukjent",
+      ...ref,
     });
   }
 
   try {
-    return await downloadObjectByPublicUrl(target);
+    const stored = await downloadObjectByPublicUrl(target);
+    if (!stored) {
+      logger.warn("Kunne ikke hente fil fra lagring", { purpose, reason: "tom", ...ref });
+    }
+    return stored;
   } catch (error) {
     logger.warn("Kunne ikke hente fil fra lagring", {
+      purpose,
       error: error instanceof Error ? error.message : "ukjent",
+      ...ref,
     });
     return undefined;
   }
@@ -513,26 +563,54 @@ const renderDesignedSlide = async (
       size: "1024x1536",
     });
     if (!photoUrl) return undefined;
-    photo = await loadBuffer(photoUrl);
+    photo = await loadBuffer(photoUrl, "slidefoto");
   }
   if (!photo) return undefined;
   const logoUrl = input.brandContext?.logoUrl;
-  const logo = await loadBuffer(logoUrl);
+  const logo = await loadBuffer(logoUrl, "logo");
   if (logoUrl && !logo) {
-    logger.warn("Logo ble ikke lagt på bildet", { userId: input.userId, slideIndex });
+    logger.warn("Logofil kunne ikke lastes", {
+      userId: input.userId,
+      slideIndex,
+      ...describeMediaUrl(logoUrl),
+    });
   }
-  const jpeg = await composeDesignedSlide({
-    photo,
-    design,
-    slideIndex,
-    layout,
-    logo,
-    companyName: input.brandContext?.companyName,
-    credit: attribution ? photoCreditRecord(attribution) : undefined,
-    primaryColor: input.brandContext?.brandColors?.primary,
-    secondaryColor: input.brandContext?.brandColors?.secondary,
-    accentColor: input.brandContext?.brandColors?.accent,
-  });
+  let jpeg: Buffer;
+  let logoComposed = false;
+  try {
+    jpeg = await composeDesignedSlide({
+      photo,
+      design,
+      slideIndex,
+      layout,
+      logo,
+      companyName: input.brandContext?.companyName,
+      credit: attribution ? photoCreditRecord(attribution) : undefined,
+      primaryColor: input.brandContext?.brandColors?.primary,
+      secondaryColor: input.brandContext?.brandColors?.secondary,
+      accentColor: input.brandContext?.brandColors?.accent,
+    });
+    logoComposed = Boolean(logo);
+  } catch (error) {
+    logger.warn("Komposisjon med logo feilet", {
+      userId: input.userId,
+      slideIndex,
+      logoBytes: logo?.byteLength ?? 0,
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    if (!logo) throw error;
+    jpeg = await composeDesignedSlide({
+      photo,
+      design,
+      slideIndex,
+      layout,
+      companyName: input.brandContext?.companyName,
+      credit: attribution ? photoCreditRecord(attribution) : undefined,
+      primaryColor: input.brandContext?.brandColors?.primary,
+      secondaryColor: input.brandContext?.brandColors?.secondary,
+      accentColor: input.brandContext?.brandColors?.accent,
+    });
+  }
   const uploaded = await uploadUserFile({
     userId: input.userId,
     fileName: `ai-slide-${crypto.randomUUID()}.jpg`,
@@ -543,12 +621,13 @@ const renderDesignedSlide = async (
   if (attribution && input.photoCredits && !input.photoCredits.some((item) => photoCreditRecord(item) === photoCreditRecord(attribution))) {
     input.photoCredits.push(attribution);
   }
-  return uploaded.publicUrl;
+  if (logoComposed) return uploaded.publicUrl;
+  return applyBrandLogo(uploaded.publicUrl, input, `slide-${slideIndex}`);
 };
 
 const createImageUrl = async (input: GeneratePostInput): Promise<string | undefined> => {
   if (input.mediaMode === "owned_only") {
-    return pickOwnedImageUrl(input);
+    return applyBrandLogo(await pickOwnedImageUrl(input), input, "owned_only");
   }
 
   if (input.socialDesign) {
@@ -565,7 +644,7 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
   const productImages = input.brandContext?.productImages ?? [];
   if (productImages.length > 0) {
     const productResult = await tryProductImageGeneration(input, productImages);
-    if (productResult) return productResult;
+    if (productResult) return applyBrandLogo(productResult, input, "product");
   }
 
   if (input.mediaMode === "hybrid") {
@@ -573,7 +652,7 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     if (ownedImageUrl) {
       const shouldUseOwned = shouldUseOwnedInHybrid(input.userId);
       if (shouldUseOwned) {
-        return ownedImageUrl;
+        return applyBrandLogo(ownedImageUrl, input, "hybrid_owned");
       }
     }
   }
@@ -607,20 +686,13 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     reelScript: input.reelScript,
   });
 
-  let imageUrl = await generateProfessionalImage({
+  const imageUrl = await generateProfessionalImage({
     userId: input.userId,
     prompt: imagePrompt,
     profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
   });
 
-  if (imageUrl && logoUrl) {
-    const branded = await overlayLogoOnImage(imageUrl, logoUrl, input.userId);
-    if (branded) {
-      imageUrl = branded;
-    }
-  }
-
-  return imageUrl;
+  return applyBrandLogo(imageUrl, input, "generated");
 };
 
 const tryProductImageGeneration = async (
@@ -658,7 +730,7 @@ const tryProductImageGeneration = async (
 
 const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<string | undefined> => {
   if (input.mediaMode === "owned_only") {
-    return pickOwnedImageUrl(input);
+    return applyBrandLogo(await pickOwnedImageUrl(input), input, "owned_only");
   }
 
   const maxAttempts = getOpenAiClient()
@@ -719,7 +791,6 @@ const generateCarouselImages = async (
   const range = Math.max(1, policy.maxCarouselExtras - policy.minCarouselExtras + 1);
   const extraCount = policy.minCarouselExtras + Math.floor(Math.random() * range);
   const urls: string[] = [];
-  const logoUrl = input.brandContext?.logoUrl;
 
   if (input.mediaMode === "owned_only") {
     for (let i = 0; i < extraCount + 1; i += 1) {
@@ -727,8 +798,10 @@ const generateCarouselImages = async (
       if (!owned || usedUrls.has(owned)) {
         continue;
       }
+      const branded = await applyBrandLogo(owned, input, "carousel_owned");
+      if (!branded) continue;
       usedUrls.add(owned);
-      urls.push(owned);
+      urls.push(branded);
       if (urls.length >= extraCount) {
         break;
       }
@@ -745,16 +818,12 @@ const generateCarouselImages = async (
   const generateSlide = async (i: number): Promise<string | undefined> => {
     const variantPrompt = buildCarouselVariantPrompt(primaryImagePrompt, visualBrief, i);
     try {
-      let url = await generateProfessionalImage({
+      const url = await generateProfessionalImage({
         userId: input.userId,
         prompt: variantPrompt,
         profile: policy.imageProfile,
       });
-      if (url && logoUrl) {
-        const branded = await overlayLogoOnImage(url, logoUrl, input.userId);
-        if (branded) url = branded;
-      }
-      return url ?? undefined;
+      return applyBrandLogo(url, input, `carousel-${i}`);
     } catch (error) {
       logger.warn("Karusellbilde generering feilet", {
         userId: input.userId,
@@ -784,8 +853,10 @@ const generateCarouselImages = async (
       if (!owned || usedUrls.has(owned)) {
         continue;
       }
+      const branded = await applyBrandLogo(owned, input, "carousel_hybrid_owned");
+      if (!branded) continue;
       usedUrls.add(owned);
-      urls.push(owned);
+      urls.push(branded);
       if (urls.length >= extraCount) {
         break;
       }
@@ -908,6 +979,16 @@ const buildCopyVisual = (
 });
 
 export const generatePost = async (input: GeneratePostInput): Promise<PostDraft> => {
+  const logoRef = describeMediaUrl(input.brandContext?.logoUrl);
+  logger.info("Postgenerering startet", {
+    userId: input.userId,
+    channel: input.channel,
+    mediaMode: input.mediaMode,
+    format: input.format ?? null,
+    topic: input.topic,
+    ...logoRef,
+  });
+
   const brief = buildVisualBrief({
     topic: input.topic,
     brandContext: input.brandContext,
@@ -1057,6 +1138,15 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     profileTerms,
     pillar: input.contentPillar,
     placeName: brief.placeName,
+  });
+
+  logger.info("Postgenerering ferdig", {
+    userId: input.userId,
+    channel: input.channel,
+    hasImage: Boolean(imageUrl),
+    extraImages: additionalImageUrls?.length ?? 0,
+    designMode: socialDesign?.mode ?? null,
+    ...logoRef,
   });
 
   return {

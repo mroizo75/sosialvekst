@@ -10,7 +10,7 @@ const buildVisualIdentity = (ctx: BrandContext): string => {
   const lines: string[] = [];
 
   if (ctx.logoUrl) {
-    lines.push("Logo: Tilgjengelig (brukes i branded bildemodus).");
+    lines.push("Logo: finnes som fil og legges på bildet i koden etterpå. Ikke beskriv eller nevn logoen i teksten.");
   }
 
   if (ctx.brandColors) {

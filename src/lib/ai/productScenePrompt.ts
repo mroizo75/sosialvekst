@@ -66,7 +66,7 @@ export const buildProductScenePrompt = (input: ProductSceneInput): string => {
     "- The product must NOT be obscured, cropped, distorted, or altered in any way.",
     "- If the product has text/labels, they must remain legible and correctly oriented.",
     "- The product should occupy at least 25-40% of the image area.",
-    "- No other competing products or brand logos in the scene.",
+    "- No competing products. Keep this product's own label exactly as in the reference.",
   ].join("\n"));
 
   sections.push([
@@ -114,7 +114,7 @@ export const buildProductScenePrompt = (input: ProductSceneInput): string => {
   sections.push([
     "STRICT PROHIBITIONS:",
     "- Do NOT change the product's appearance, color, or packaging.",
-    "- Do NOT add text, logos, or overlays to the image.",
+    "- Do NOT draw extra logos, wordmarks, watermarks or overlays. The real logo is composited afterwards in the top-left, so keep that corner clear.",
     "- Do NOT create a collage or split-screen layout.",
     "- Do NOT use neon colors, fantasy elements, or surreal styling.",
     "- Do NOT generate a generic stock photo — this must clearly feature THIS specific product.",

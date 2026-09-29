@@ -171,7 +171,7 @@ export const buildImagePrompt = (input: ImagePromptInput): string => {
       "- Ingen firmanavn, ingen slagord, ingen overskrifter, ingen vannmerker med tekst.",
       "- Hvis det er skilt, plakater eller skjermer i scenen, skal de vaere uten lesbar tekst.",
       "- Dette kravet er UFRAVIKELIG. Ethvert bilde med synlig tekst er feil.",
-      "- Logoen legges pa programmatisk etterpaa — IKKE tegn den inn i bildet.",
+      "- La ovre venstre hjorne vaere rolig. Den ekte logoen legges pa i koden etterpaa. IKKE tegn logo, ordmerke eller firmanavn.",
     ].join("\n"),
   );
 

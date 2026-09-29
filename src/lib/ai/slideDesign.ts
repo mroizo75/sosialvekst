@@ -422,7 +422,8 @@ export const buildPhotoPrompt = (
     "Show streets, coast, square or landscape with people in the scene.",
     "Do not invent a hotel, a hotel name, or center the frame on one made-up hotel facade.",
     "One clear scene, natural light, correct anatomy.",
-    "ABSOLUTELY NO text, letters, numbers, watermarks, logos or captions anywhere in the image.",
-    "Keep the lower third visually calm. Type and the logo are added later, outside the photograph.",
+    "Leave the top-left corner visually empty. A real logo badge is composited there after generation.",
+    "Keep the lower third visually calm. Typography is added later, outside the photograph.",
+    "ABSOLUTELY NO text, letters, numbers, watermarks, logos, wordmarks or captions anywhere in the photograph.",
   ].join(" ");
 };
