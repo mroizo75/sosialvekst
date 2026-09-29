@@ -7,12 +7,42 @@ import {
   creditRecordsFromText,
   ensureCompleteEnding,
   ensureWebsiteLinkInText,
+  getImageQualityPolicy,
   postStatusForMedia,
   replaceCreditLine,
   resolveCopyModel,
+  runInQueue,
   slideShapeFor,
   stripCreditLines,
 } from "@/lib/ai/generatePost";
+
+describe("bildetempo", () => {
+  it("bruker rask kvalitet på Instagram med mindre final er bedt om", () => {
+    expect(getImageQualityPolicy("instagram").imageProfile).toBe("preview");
+    expect(getImageQualityPolicy("instagram", "final").imageProfile).toBe("final");
+    expect(getImageQualityPolicy("instagram").imageRetryAttempts).toBe(2);
+  });
+
+  it("kjører stedsoppslag ett om gangen i rekkefølge", async () => {
+    const queue = { tail: Promise.resolve() as Promise<unknown> };
+    const order: string[] = [];
+    const task = (name: string, ms: number) => () =>
+      new Promise<string>((resolve) => setTimeout(() => {
+        order.push(name);
+        resolve(name);
+      }, ms));
+    await Promise.all([runInQueue(queue, task("forside", 20)), runInQueue(queue, task("slide1", 1))]);
+    expect(order).toEqual(["forside", "slide1"]);
+  });
+
+  it("fortsetter køen etter at et oppslag feiler", async () => {
+    const queue = { tail: Promise.resolve() as Promise<unknown> };
+    const failed = runInQueue(queue, () => Promise.reject(new Error("nede")));
+    const next = runInQueue(queue, () => Promise.resolve("ok"));
+    await expect(failed).rejects.toThrow("nede");
+    await expect(next).resolves.toBe("ok");
+  });
+});
 
 describe("fotokreditering", () => {
   it("samler kreditt fra alle bilder på én linje uten duplikater", () => {

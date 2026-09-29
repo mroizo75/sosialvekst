@@ -21,7 +21,7 @@ import {
   resolvePlaceLook,
   type SocialDesign,
 } from "@/lib/ai/slideDesign";
-import { downloadObjectByPublicUrl, uploadUserFile, listUserFiles } from "@/lib/cloudflare/r2";
+import { deleteFilesByUrls, downloadObjectByPublicUrl, uploadUserFile, listUserFiles } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
 import type {
@@ -60,8 +60,17 @@ type GeneratePostInput = {
   visualBrief?: VisualBrief;
   logoBytes?: Promise<Buffer | undefined>;
   placePhotoUsed?: Set<string>;
+  placeLookupQueue?: { tail: Promise<unknown> };
   placeLook?: string | null;
   trace?: GenerationStep[];
+};
+
+// Slides render in parallel; place lookups share one "used" set and must run one at a time to avoid duplicates.
+export const runInQueue = <T>(queue: { tail: Promise<unknown> } | undefined, task: () => Promise<T>): Promise<T> => {
+  if (!queue) return task();
+  const run = queue.tail.then(task, task);
+  queue.tail = run.catch(() => undefined);
+  return run;
 };
 
 export const appVersion = (): string =>
@@ -90,21 +99,14 @@ type ImageQualityPolicy = {
   maxCarouselExtras: number;
 };
 
-const getImageQualityPolicy = (channel: SocialChannel, requested?: ImageProfile): ImageQualityPolicy => {
-  if (channel === "instagram") {
-    // instagram_high_quality: prioritize visual quality over cost/time
-    return {
-      imageProfile: "final",
-      imageRetryAttempts: 5,
-      minCarouselExtras: 2,
-      maxCarouselExtras: 3,
-    };
-  }
+// "final" (high) takes over two minutes per image with gpt-image-2, so it is only used on explicit request.
+export const getImageQualityPolicy = (channel: SocialChannel, requested?: ImageProfile): ImageQualityPolicy => {
+  const instagram = channel === "instagram";
   return {
     imageProfile: requested ?? "preview",
-    imageRetryAttempts: 3,
-    minCarouselExtras: 1,
-    maxCarouselExtras: 2,
+    imageRetryAttempts: 2,
+    minCarouselExtras: instagram ? 2 : 1,
+    maxCarouselExtras: instagram ? 3 : 2,
   };
 };
 
@@ -574,7 +576,9 @@ const findSlidePhoto = async (
   const step = `slide${slideIndex}.foto`;
   if (brief.placeName) {
     const subject = slideIndex > 0 ? design.cards[slideIndex - 1]?.title : undefined;
-    const found = await findPlacePhoto(brief.placeName, subject, input.placePhotoUsed ?? new Set());
+    const placeName = brief.placeName;
+    const found = await runInQueue(input.placeLookupQueue, () =>
+      findPlacePhoto(placeName, subject, input.placePhotoUsed ?? new Set()));
     if (found) {
       note(input, step, true, `ekte foto av ${brief.placeName} (${found.credit})`);
       return { bytes: found.bytes, attribution: found.attribution };
@@ -938,14 +942,7 @@ const generateDesignedSlides = async (
   };
 
   const indices = design.cards.map((_, index) => index + 1);
-  const slides: Array<SlideImage | undefined> = [];
-  if (brief.placeName) {
-    for (const slideIndex of indices) {
-      slides.push(await renderSafely(slideIndex));
-    }
-  } else {
-    slides.push(...await Promise.all(indices.map(renderSafely)));
-  }
+  const slides: Array<SlideImage | undefined> = await Promise.all(indices.map(renderSafely));
 
   try {
     slides.push(await composeAndUpload(input, design, indices.length + 1, "cta"));
@@ -1101,6 +1098,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     visualBrief: brief,
     logoBytes,
     placePhotoUsed: new Set<string>(),
+    placeLookupQueue: { tail: Promise.resolve() },
     placeLook: await placeLookPromise,
   };
   if (socialDesign) {
@@ -1109,9 +1107,15 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   }
 
   let primary: SlideImage | undefined = textOnly ? asSlideImage(input.textOnlyForImageUrl) : undefined;
-  if (!textOnly && input.channel !== "tiktok") {
+  const createsImages = !textOnly && input.channel !== "tiktok";
+  // The cover is started first so it gets the first real place photo from the lookup queue.
+  const coverTask = createsImages ? createImageUrlWithRetry(imageInput) : undefined;
+  const slidesTask = createsImages && socialDesign?.mode === "guide" && socialDesign.cards.length > 0
+    ? generateDesignedSlides(imageInput, socialDesign, brief)
+    : Promise.resolve<SlideImage[]>([]);
+  if (coverTask) {
     try {
-      primary = await createImageUrlWithRetry(imageInput);
+      primary = await coverTask;
       note(tracked, "forside", true, primary?.url.split("/").pop());
     } catch (error) {
       note(tracked, "forside", false, errorText(error));
@@ -1125,9 +1129,14 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   }
   const imageUrl = primary?.url;
 
-  let extraSlides: SlideImage[] = [];
-  if (imageUrl && socialDesign?.mode === "guide" && socialDesign.cards.length > 0) {
-    extraSlides = await generateDesignedSlides(imageInput, socialDesign, brief);
+  const renderedSlides = await slidesTask;
+  const extraSlides: SlideImage[] = imageUrl ? renderedSlides : [];
+  if (!imageUrl && renderedSlides.length > 0) {
+    await deleteFilesByUrls(renderedSlides.map((slide) => slide.url)).catch((error: unknown) => {
+      logger.warn("Kunne ikke slette slides uten forside", { userId: input.userId, error: errorText(error) });
+    });
+  }
+  if (extraSlides.length > 0) {
     logger.info("Karusell generert", {
       userId: input.userId,
       channel: input.channel,

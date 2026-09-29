@@ -21,7 +21,11 @@ const REGENERATE_TIMEOUT_MS = 180_000;
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Timeout etter ${ms / 1000}s: ${label}`)), ms);
+    timer = setTimeout(() => reject(toAppError(
+      "GENERATION_TIMEOUT",
+      `Genereringen brukte mer enn ${ms / 1000} sekunder og ble avbrutt. Prøv igjen.`,
+      { label, version: appVersion() },
+    )), ms);
   });
   try {
     return await Promise.race([promise, timeout]);
@@ -415,7 +419,16 @@ export async function PATCH(request: Request, context: RouteContext) {
     const appError = toUnknownAppError(error);
     const status = appError.code === "AI_EDIT_LIMIT_REACHED" ? 403
       : appError.code === "SUBSCRIPTION_REQUIRED" ? 402
+      : appError.code === "GENERATION_TIMEOUT" ? 504
+      : appError.code === "INTERNAL_ERROR" ? 500
       : 400;
+    logger.error("[post/patch] Feilet", {
+      postId: (await context.params).postId,
+      code: appError.code,
+      message: appError.message,
+      details: appError.details,
+      status,
+    });
     return NextResponse.json(appError, { status });
   }
 }
