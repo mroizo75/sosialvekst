@@ -11,6 +11,12 @@ describe("validateCopy", () => {
     expect(fixed).not.toContain("#ekstra");
   });
 
+  it("godtar spørsmål på forsiden når formen krever det", () => {
+    const issues = findCopyIssues("Strand eller gamleby? Du velger.", { allowQuestion: true });
+
+    expect(issues).not.toContain("Første setning slutter med spørsmålstegn.");
+  });
+
   it("avviser åpningsspørsmål og manglende sted", () => {
     const issues = findCopyIssues("Visste du dette? Send dette til en venn.", {
       placeName: "Sicilia",

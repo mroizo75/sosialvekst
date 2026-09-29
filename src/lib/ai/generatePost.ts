@@ -18,6 +18,7 @@ import {
   composeGuideCaption,
   createSocialDesign,
   placeGuideCopy,
+  resolveDesignStyle,
   resolvePlaceLook,
   type SocialDesign,
 } from "@/lib/ai/slideDesign";
@@ -1080,13 +1081,15 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       brandContext: input.brandContext,
       contentPillar: input.contentPillar,
       visualMotif: input.visualMotif,
+      format: input.format,
+      feedIndex: input.feedIndex,
       brief,
       avoidRepeating: input.avoidRepeating,
     });
     if (brief.placeName) {
       socialDesign = placeGuideCopy(socialDesign, brief.placeName);
     }
-    note(tracked, "design", true, `${socialDesign.mode}, ${socialDesign.cards.length} slides, forside «${socialDesign.coverTitle}»${brief.placeName ? `, sted ${brief.placeName}` : ""}`);
+    note(tracked, "design", true, `${resolveDesignStyle(input.format, input.feedIndex)}/${socialDesign.mode}, ${socialDesign.cards.length} slides, forside «${socialDesign.coverTitle}»${brief.placeName ? `, sted ${brief.placeName}` : ""}`);
   } else {
     note(tracked, "design", false, textOnly ? "kun tekst, beholder bildet" : `ingen design for ${input.channel}/${input.mediaMode}`);
   }

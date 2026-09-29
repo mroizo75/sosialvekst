@@ -22,6 +22,7 @@ import {
   parseSocialDesign,
   placeGuideCopy,
   resolveDesignMode,
+  resolveDesignStyle,
   sentencesWithin,
   type SocialDesign,
 } from "@/lib/ai/slideDesign";
@@ -82,6 +83,28 @@ describe("slideDesign", () => {
     expect(resolveDesignMode("facebook")).toBe("guide");
     expect(resolveDesignMode("linkedin")).toBe("headline");
     expect(resolveDesignMode("tiktok")).toBe("headline");
+    expect(resolveDesignMode("instagram", "single")).toBe("headline");
+    expect(resolveDesignMode("facebook", "myth")).toBe("guide");
+  });
+
+  it("velger postform ut fra formatet og varierer uten format", () => {
+    expect(resolveDesignStyle("how_to")).toBe("steps");
+    expect(resolveDesignStyle("myth_busting")).toBe("myth");
+    expect(resolveDesignStyle("opinion")).toBe("versus");
+    expect(resolveDesignStyle("question")).toBe("single");
+    const rotated = new Set([0, 1, 2, 3, 4, 5].map((index) => resolveDesignStyle(undefined, index)));
+    expect(rotated.size).toBe(6);
+  });
+
+  it("gir modellen formens egne regler i stedet for en fast guide", () => {
+    const myth = designUserPrompt({ topic: "Charterferie", channel: "facebook", format: "myth_busting", brief: craftBrief }, "guide", []);
+    const moment = designUserPrompt({ topic: "Høstferie", channel: "instagram", format: "insight", brief: travelBrief }, "guide", []);
+
+    expect(myth).toContain("Myte mot fakta");
+    expect(myth).toContain("«Faktisk:»");
+    expect(moment).toContain("Stemning og drøm");
+    expect(moment).not.toContain("ekte, kjente områder");
+    expect(moment).toContain("Sted: Gran Canaria");
   });
 
   it("beholder hele setninger fra modellen og krever tre kort i en karusell", () => {

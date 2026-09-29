@@ -22,6 +22,7 @@ const CATALOG_COUNT = /\d[^\n]{0,24}\b(?:hoteller|land)\b|\b(?:hoteller|land)\b[
 export type CopyCheck = {
   placeName?: string | null;
   pillar?: ContentPillar;
+  allowQuestion?: boolean;
 };
 
 export const autoFixCopy = (text: string): string => {
@@ -53,7 +54,7 @@ const mentionsPlace = (text: string, placeName: string): boolean => {
 
 export const findCopyIssues = (text: string, check: CopyCheck): string[] => {
   const issues: string[] = [];
-  if (firstSentence(text).endsWith("?")) {
+  if (!check.allowQuestion && firstSentence(text).endsWith("?")) {
     issues.push("Første setning slutter med spørsmålstegn.");
   }
 

@@ -4,7 +4,7 @@ import { findCopyIssues } from "@/lib/ai/validateCopy";
 import type { VisualBrief, VisualWorld } from "@/lib/ai/visualDirection";
 import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
-import type { BrandContext, SocialChannel } from "@/lib/types";
+import type { BrandContext, PostFormat, SocialChannel } from "@/lib/types";
 
 export type GuideCard = {
   title: string;
@@ -30,8 +30,61 @@ type DesignInput = {
   brandContext?: BrandContext;
   contentPillar?: ContentPillar;
   visualMotif?: VisualMotif;
+  format?: PostFormat;
+  feedIndex?: number;
   brief: VisualBrief;
   avoidRepeating?: string[];
+};
+
+export type DesignStyle = "steps" | "picks" | "myth" | "versus" | "moment" | "single";
+
+const FORMAT_STYLE: Record<PostFormat, DesignStyle> = {
+  how_to: "steps",
+  behind_the_scenes: "steps",
+  tip: "picks",
+  fact: "picks",
+  myth_busting: "myth",
+  opinion: "versus",
+  insight: "moment",
+  case_study: "moment",
+  question: "single",
+};
+
+const STYLE_ROTATION: DesignStyle[] = ["picks", "moment", "steps", "versus", "single", "myth"];
+
+export const resolveDesignStyle = (format?: PostFormat, feedIndex = 0): DesignStyle =>
+  format ? FORMAT_STYLE[format] : STYLE_ROTATION[Math.abs(feedIndex) % STYLE_ROTATION.length];
+
+const STYLE_BRIEFS: Record<DesignStyle, string[]> = {
+  steps: [
+    "Form: Slik gjør du det.",
+    "coverTitle lover et konkret resultat, for eksempel «Slik pakker du bare håndbagasje».",
+    "cards er tre steg i riktig rekkefølge. title starter med et verb.",
+  ],
+  picks: [
+    "Form: Tre valg.",
+    "coverTitle navngir hva leseren velger mellom, for eksempel «Tre strender for late dager».",
+    "cards er tre tydelig forskjellige alternativer. summary sier hva det er og hvem det passer for.",
+  ],
+  myth: [
+    "Form: Myte mot fakta.",
+    "coverTitle utfordrer en vanlig oppfatning, for eksempel «Tror du fortsatt dette om …?».",
+    "cards er tre vanlige misforståelser. title er misforståelsen kort. summary starter med «Faktisk:» og forklarer.",
+  ],
+  versus: [
+    "Form: Det ene eller det andre.",
+    "coverTitle er to alternativer med «eller» og spørsmålstegn, for eksempel «Strand eller gamleby?».",
+    "cards: 1 beskriver det første alternativet, 2 det andre, 3 hvem som bør velge hva.",
+  ],
+  moment: [
+    "Form: Stemning og drøm, ikke råd.",
+    "coverTitle er et øyeblikk leseren kjenner seg igjen i, for eksempel «Når kvelden endelig er din».",
+    "cards er tre sanselige øyeblikk i naturlig rekkefølge, som morgen, dag og kveld. Ingen tips, ingen «slik», ingen lister.",
+  ],
+  single: [
+    "Form: Ett sterkt bilde med én tanke. Ingen slides.",
+    "coverTitle er et enkelt spørsmål om leserens egne vaner eller drømmer, som alle kan svare på med ett ord eller et sted, for eksempel «Hvor våkner du helst i høst?» eller «Hva pakker du alltid først?». Ingen ordspill.",
+  ],
 };
 
 export const DESIGN_LIMITS = {
@@ -61,8 +114,8 @@ export const sentencesWithin = (value: string, maxWords: number): string => {
   return kept.join(" ");
 };
 
-export const resolveDesignMode = (channel: SocialChannel): "guide" | "headline" =>
-  channel === "instagram" || channel === "facebook" ? "guide" : "headline";
+export const resolveDesignMode = (channel: SocialChannel, style?: DesignStyle): "guide" | "headline" =>
+  (channel === "instagram" || channel === "facebook") && style !== "single" ? "guide" : "headline";
 
 const fallbackTitle = (value: string): string => {
   const words = value.replace(new RegExp(SALES_WORDS.source, "gi"), " ").split(/\s+/).filter(Boolean);
@@ -211,7 +264,7 @@ const designFallback = (input: DesignInput, reason: FallbackReason): SocialDesig
 };
 
 const designCopyIssues = (design: SocialDesign, input: DesignInput): string[] => {
-  const check = { placeName: input.brief.placeName, pillar: input.contentPillar };
+  const check = { placeName: input.brief.placeName, pillar: input.contentPillar, allowQuestion: true };
   const cover = findCopyIssues([design.coverTitle, design.coverSubline].join(". "), check);
   const cards = design.cards.flatMap((card) => findCopyIssues(
     `${card.title}. ${card.summary}`,
@@ -221,19 +274,18 @@ const designCopyIssues = (design: SocialDesign, input: DesignInput): string[] =>
 };
 
 export const DESIGN_SYSTEM_PROMPT = [
-  "Du er kreativ leder og tekstforfatter i et norsk SoMe-byrå. Du lager karuseller som stopper scrolling på Instagram og Facebook.",
-  "Svar kun med JSON etter skjemaet.",
+  "Du er kreativ leder og tekstforfatter i et norsk SoMe-byrå. Du lager innlegg som stopper scrolling på Instagram og Facebook.",
+  "Svar kun med JSON etter skjemaet. Følg formen i brukermeldingen nøyaktig. Feeden skal variere, så ikke gjør alt til en guide.",
   "",
   "FORSIDEN (viktigst):",
-  `- coverTitle: 2–${DESIGN_LIMITS.coverTitle} ord. Et konkret løfte, en kontrast, et antall eller en påstand som slidesene innfrir. Skal kunne leses på ett sekund.`,
-  "- Gode eksempler: «3 tegn på at røret lekker», «Søndagsmiddag uten oppvask», «Fristen mange glemmer i mars», «Rhodos på tre måter».",
-  "- Dårlige eksempler: «Velkommen til oss», «Kvalitet i alle ledd», «Vi hjelper deg», «Tips og triks».",
-  `- coverKicker: 1–${DESIGN_LIMITS.coverKicker} ord som etikett over tittelen, for eksempel «Våtrom», «Guide» eller «Før du bestiller».`,
+  `- coverTitle: 2–${DESIGN_LIMITS.coverTitle} ord i formen du får. Skal kunne leses på ett sekund.`,
+  "- Dårlige eksempler: «Velkommen til oss», «Kvalitet i alle ledd», «Vi hjelper deg», «Tips og triks», «Slik velger du riktig …» når formen ikke er steg.",
+  `- coverKicker: 1–${DESIGN_LIMITS.coverKicker} ord som etikett over tittelen og som passer formen, for eksempel «Myte», «Du velger», «Søndagsfølelse» eller «Før du reiser».`,
   `- coverSubline: én hel setning, maks ${DESIGN_LIMITS.coverSubline} ord, som sier hva leseren får ved å sveipe.`,
   "- coverPhotoSubject: ett konkret fotomotiv på engelsk for forsiden. Det sterkeste og mest menneskelige bildet i serien.",
   "",
   "SLIDES:",
-  `- cards: nøyaktig ${DESIGN_LIMITS.cards} når modus er guide, ellers en tom liste. Én idé per slide, i logisk rekkefølge.`,
+  `- cards: nøyaktig ${DESIGN_LIMITS.cards} når modus er guide, ellers en tom liste. Én idé per slide, slik formen beskriver.`,
   `- title: 2–${DESIGN_LIMITS.cardTitle} ord.`,
   `- summary: 1–2 korte setninger, maks ${DESIGN_LIMITS.summary} ord. Forklar konkret hva, hvorfor eller hvordan. Ingen fyllord.`,
   "- photoSubject: ett konkret fotomotiv på engelsk som viser akkurat denne sliden i bransjens virkelige miljø. Mennesker eller hender i handling der det passer. Ingen skjermer, skilt eller tekst.",
@@ -286,6 +338,10 @@ const listLine = (label: string, values: string[] | undefined): string | null =>
 export const designUserPrompt = (input: DesignInput, mode: "guide" | "headline", issues: string[]): string => {
   const ctx = input.brandContext ?? {};
   const place = input.brief.world === "travel" ? input.brief.placeName : null;
+  const style = resolveDesignStyle(input.format, input.feedIndex);
+  const placeCards = style === "picks"
+    ? `cards er ${DESIGN_LIMITS.cards} ekte, kjente områder i ${place}. title er det lokale navnet, uoversatt. summary: én konkret, sann detalj om området og «For deg som …». Er du usikker på en detalj, skriv bare hvem området passer for.`
+    : `cards handler om ekte, kjente sider ved ${place}. Ikke finn på navn eller detaljer du er usikker på.`;
   const lines = [
     `Bedrift: ${ctx.companyName ?? "bedriften"}. Bransje: ${ctx.industry ?? "ukjent bransje"}.`,
     ctx.targetAudience ? `Målgruppe: ${ctx.targetAudience}.` : null,
@@ -295,13 +351,12 @@ export const designUserPrompt = (input: DesignInput, mode: "guide" | "headline",
     `Tema: ${input.topic}.`,
     input.contentPillar ? `Innholdssøyle: ${input.contentPillar}.` : null,
     `Modus: ${mode}.`,
+    ...STYLE_BRIEFS[style],
     place
       ? [
         `Sted: ${place}. Hold deg i dette stedet.`,
         `coverTitle skal inneholde «${place}». Aldri hotell, pris eller bestill.`,
-        mode === "guide"
-          ? `cards er ${DESIGN_LIMITS.cards} ekte, kjente områder i ${place}. title er det lokale navnet, uoversatt. summary: én konkret, sann detalj om området og «For deg som …». Er du usikker på en detalj, skriv bare hvem området passer for.`
-          : null,
+        mode === "guide" ? placeCards : null,
       ].filter(Boolean).join(" ")
       : "Ikke finn på et feriested, et land eller en by. Hold deg i kundens fag og hverdag.",
     input.avoidRepeating?.length
@@ -313,7 +368,7 @@ export const designUserPrompt = (input: DesignInput, mode: "guide" | "headline",
 };
 
 export const createSocialDesign = async (input: DesignInput): Promise<SocialDesign> => {
-  const mode = resolveDesignMode(input.channel);
+  const mode = resolveDesignMode(input.channel, resolveDesignStyle(input.format, input.feedIndex));
   const client = getOpenAiClient();
   if (!client) return designFallback(input, "no_client");
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { fallbackAngle } from "@/lib/ai/generatePlan";
+import { fallbackAngle, planAngles } from "@/lib/ai/generatePlan";
 import { generatePost } from "@/lib/ai/generatePost";
 import { assignPostStrategy } from "@/lib/ai/postStrategy";
 import { requireUserId } from "@/lib/auth";
@@ -72,6 +72,32 @@ type PlaceholderSlot = {
   dayIndex: number;
   postsPerWeek: number;
   topic: string;
+  avoidRepeating?: string[];
+};
+
+// Each post gets its own angle within the week topic so a week does not repeat one idea.
+const assignAngles = async (
+  slots: PlaceholderSlot[],
+  topicWindows: TopicWindow[],
+  brandContext?: BrandContext,
+): Promise<PlaceholderSlot[]> => {
+  const used: string[] = [];
+  const topicById = new Map<string, { topic: string; avoidRepeating: string[] }>();
+  const weeks = [...new Set(slots.map((slot) => slot.weekIndex))];
+  for (const week of weeks) {
+    const weekSlots = slots.filter((slot) => slot.weekIndex === week);
+    const angles = await planAngles(topicWindows, brandContext, weekSlots.length, week + 1, used);
+    weekSlots.forEach((slot, index) => {
+      const angle = angles[index];
+      if (!angle) return;
+      topicById.set(slot.id, {
+        topic: angle.place ? `${angle.angle} Sted: ${angle.place}.` : angle.angle,
+        avoidRepeating: used.slice(-5),
+      });
+      used.push(angle.angle);
+    });
+  }
+  return slots.map((slot) => ({ ...slot, ...topicById.get(slot.id) }));
 };
 
 const buildSlots = (
@@ -223,7 +249,7 @@ export async function POST(request: Request) {
       post_count: slots.length,
     });
 
-    void processSlots(userId, workspaceId, slots, payload.mediaMode, brandContext);
+    void processSlots(userId, workspaceId, slots, payload.mediaMode, payload.topicWindows, brandContext);
 
     const placeholderPosts = slots.map((s) => ({
       id: s.id,
@@ -337,6 +363,7 @@ async function generateSingleSlot(
         reelScript: strategy.reelScript,
         includeWebsiteLink: strategy.includeWebsiteLink,
         feedIndex: strategy.feedIndex,
+        avoidRepeating: slot.avoidRepeating,
       }),
       timeoutMs,
       `${slot.channel}/${slot.id.slice(0, 8)}`,
@@ -373,11 +400,13 @@ async function generateSingleSlot(
 async function processSlots(
   userId: string,
   workspaceId: string,
-  slots: PlaceholderSlot[],
+  plannedSlots: PlaceholderSlot[],
   mediaMode: "ai_only" | "hybrid" | "owned_only",
+  topicWindows: TopicWindow[],
   brandContext?: BrandContext,
 ) {
   const supabase = createSupabaseAdminClient();
+  const slots = await assignAngles(plannedSlots, topicWindows, brandContext);
   let succeeded = 0;
   let completed = 0;
 
