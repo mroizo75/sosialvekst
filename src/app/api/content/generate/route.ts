@@ -360,7 +360,7 @@ async function generateSingleSlot(
           post_id: slot.id,
           file_url: url,
           sort_order: idx + 1,
-          credit: post.additionalImageCredits?.[idx] ?? null,
+          credit: post.additionalImageCredits?.[idx] || null,
         }));
         const { error: mediaErr } = await supabase
           .from("post_media_assets")

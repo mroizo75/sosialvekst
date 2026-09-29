@@ -5,19 +5,19 @@ import { generateImageToVideo, isFalAvailable } from "@/lib/ai/falClient";
 import { describeMediaUrl, generateProfessionalImage, overlayLogoOnImage } from "@/lib/ai/imageGeneration";
 import { generateProductImage } from "@/lib/ai/imageEngine";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
-import { composeDesignedSlide, resolveSlideLayout, solidSlideBackground } from "@/lib/ai/slideComposer";
+import { resolveCopyModel } from "@/lib/ai/models";
+import { composeDesignedSlide, type SlideLayout } from "@/lib/ai/slideComposer";
 import { buildCarouselVariantPrompt, buildVisualBrief, type VisualBrief, type VisualWorld } from "@/lib/ai/visualDirection";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import type { ContentPillar, VisualMotif } from "@/lib/ai/postStrategy";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
-import { findPlacePhoto, formatPhotoCredits, photoCreditRecord, type PhotoAttribution } from "@/lib/ai/placePhoto";
+import { findPlacePhoto, photoCreditRecord, type PhotoAttribution } from "@/lib/ai/placePhoto";
 import {
   buildPhotoPrompt,
   buildPhotoSubject,
   composeGuideCaption,
   createSocialDesign,
   placeGuideCopy,
-  resolveDesignMode,
   resolvePlaceLook,
   type SocialDesign,
 } from "@/lib/ai/slideDesign";
@@ -54,10 +54,23 @@ type GeneratePostInput = {
   includeWebsiteLink?: boolean;
   feedIndex?: number;
   avoidRepeating?: string[];
+  textOnlyForImageUrl?: string;
   socialDesign?: SocialDesign;
-  photoCredits?: PhotoAttribution[];
+  visualBrief?: VisualBrief;
+  logoBytes?: Promise<Buffer | undefined>;
   placePhotoUsed?: Set<string>;
   placeLook?: string | null;
+};
+
+type SlideImage = {
+  url: string;
+  attribution?: PhotoAttribution;
+};
+
+type SlidePhoto = {
+  bytes?: Buffer;
+  attribution?: PhotoAttribution;
+  skip?: boolean;
 };
 
 type ImageQualityPolicy = {
@@ -107,10 +120,10 @@ const fallbackText = (topic: string): string => {
 };
 
 const getMaxOutputTokens = (channel: SocialChannel): number => {
-  if (channel === "facebook") return 520;
-  if (channel === "linkedin") return 420;
-  if (channel === "tiktok") return 100;
-  return 280;
+  if (channel === "facebook") return 700;
+  if (channel === "linkedin") return 520;
+  if (channel === "tiktok") return 120;
+  return 520;
 };
 
 const HASHTAG_TOKEN = /#([\p{L}\p{N}_]+)/gu;
@@ -204,9 +217,25 @@ export type CaptionAssembly = {
   credits?: string;
 };
 
-export const placeCreditLine = (items: PhotoAttribution[]): string => {
-  if (items.length === 1) return photoCreditRecord(items[0]);
-  return formatPhotoCredits(items);
+const CREDIT_PREFIX = /^Foto:\s*/i;
+
+export const creditLineFromRecords = (records: Array<string | null | undefined>): string => {
+  const items = [...new Set(
+    records
+      .map((record) => record?.trim().replace(CREDIT_PREFIX, "").trim() ?? "")
+      .filter(Boolean),
+  )];
+  return items.length > 0 ? `Foto: ${items.join(" · ")}` : "";
+};
+
+export const replaceCreditLine = (text: string, records: Array<string | null | undefined>): string => {
+  const lines = text.trimEnd().split("\n");
+  while (lines.length > 0 && (CREDIT_PREFIX.test(lines[lines.length - 1]?.trim() ?? "") || !lines[lines.length - 1]?.trim())) {
+    lines.pop();
+  }
+  const body = lines.join("\n").trimEnd();
+  const creditLine = creditLineFromRecords(records);
+  return creditLine ? `${body}\n\n${creditLine}` : body;
 };
 
 export const assembleCaption = ({ body, link, hashtags, credits }: CaptionAssembly): string => {
@@ -350,8 +379,7 @@ export const postStatusForMedia = (
   return status;
 };
 
-export const resolveCopyModel = (envValue = process.env.COPY_MODEL): string =>
-  envValue?.trim() || "gpt-4.1";
+export { resolveCopyModel };
 
 export const buildCopyUserInput = (text: string, imageUrl?: string) => {
   if (!imageUrl) return text;
@@ -366,13 +394,14 @@ export const buildCopyUserInput = (text: string, imageUrl?: string) => {
 
 const createText = async (
   input: GeneratePostInput,
+  fallback: string,
   visual?: CopyVisual,
   world?: VisualWorld,
   imageUrl?: string,
 ): Promise<string> => {
   const client = getOpenAiClient();
   if (!client) {
-    return fallbackText(input.topic);
+    return fallback;
   }
 
   const brandRules = brandRulesFor(input);
@@ -402,7 +431,7 @@ const createText = async (
         { role: "user", content: buildCopyUserInput(prompt.user, imageUrl) },
       ],
     });
-    return autoFixCopy(response.output_text || fallbackText(input.topic));
+    return autoFixCopy(response.output_text || fallback);
   };
 
   const first = await ask();
@@ -514,102 +543,81 @@ const loadBuffer = async (url: string | undefined, purpose: string): Promise<Buf
   }
 };
 
-const renderDesignedSlide = async (
+const findSlidePhoto = async (
   input: GeneratePostInput,
   design: SocialDesign,
   brief: VisualBrief,
   slideIndex: number,
-): Promise<string | undefined> => {
-  const onPhoto = design.mode === "guide" || Boolean(brief.placeName) || brief.world === "travel";
-  let layout = resolveSlideLayout(input.channel, design.mode, slideIndex, onPhoto);
-  let photo: Buffer | undefined;
-  let attribution: PhotoAttribution | undefined;
+): Promise<SlidePhoto> => {
   if (brief.placeName) {
     const subject = slideIndex > 0 ? design.cards[slideIndex - 1]?.title : undefined;
     const found = await findPlacePhoto(brief.placeName, subject, input.placePhotoUsed ?? new Set());
-    if (!found && subject) {
-      logger.warn("Fant ikke motivfoto, bruker kort-layout", {
-        place: brief.placeName,
-        subject,
-      });
-      layout = "card";
-      photo = await solidSlideBackground(input.brandContext?.brandColors?.primary);
-    } else if (!found) {
-      logger.warn("Fant ikke ekte foto av stedet", {
-        place: brief.placeName,
-        subject,
-      });
-      return undefined;
-    } else {
-      photo = found.bytes;
-      attribution = found.attribution;
-    }
-  } else if (brief.world === "travel") {
-    logger.warn("Reiseinnlegg uten stedsnavn, hopper over oppdiktet bilde", {
-      topic: input.topic,
-    });
-    return undefined;
-  } else {
+    if (found) return { bytes: found.bytes, attribution: found.attribution };
+    logger.warn("Fant ikke ekte foto av stedet", { place: brief.placeName, subject });
+    return { skip: slideIndex === 0 };
+  }
+  if (brief.world === "travel") {
+    logger.warn("Reiseinnlegg uten stedsnavn, hopper over oppdiktet bilde", { topic: input.topic });
+    return { skip: true };
+  }
+  const productImages = input.brandContext?.productImages ?? [];
+  if (slideIndex === 0 && productImages.length > 0) {
+    const productUrl = await tryProductImageGeneration(input, productImages);
+    const productBytes = await loadBuffer(productUrl, "produktfoto");
+    if (productBytes) return { bytes: productBytes };
+  }
+  try {
     const photoUrl = await generateProfessionalImage({
       userId: input.userId,
-      prompt: buildPhotoPrompt(
-        design,
-        brief,
-        slideIndex,
-        layout === "single" ? "single" : "slide",
-        input.placeLook,
-      ),
+      prompt: buildPhotoPrompt(design, brief, slideIndex, input.placeLook, input.brandContext?.industry),
       profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
       size: "1024x1536",
     });
-    if (!photoUrl) return undefined;
-    photo = await loadBuffer(photoUrl, "slidefoto");
-  }
-  if (!photo) return undefined;
-  const logoUrl = input.brandContext?.logoUrl;
-  const logo = await loadBuffer(logoUrl, "logo");
-  if (logoUrl && !logo) {
-    logger.warn("Logofil kunne ikke lastes", {
-      userId: input.userId,
-      slideIndex,
-      ...describeMediaUrl(logoUrl),
-    });
-  }
-  let jpeg: Buffer;
-  let logoComposed = false;
-  try {
-    jpeg = await composeDesignedSlide({
-      photo,
-      design,
-      slideIndex,
-      layout,
-      logo,
-      companyName: input.brandContext?.companyName,
-      credit: attribution ? photoCreditRecord(attribution) : undefined,
-      primaryColor: input.brandContext?.brandColors?.primary,
-      secondaryColor: input.brandContext?.brandColors?.secondary,
-      accentColor: input.brandContext?.brandColors?.accent,
-    });
-    logoComposed = Boolean(logo);
+    return { bytes: await loadBuffer(photoUrl, "slidefoto") };
   } catch (error) {
-    logger.warn("Komposisjon med logo feilet", {
+    if (slideIndex === 0) throw error;
+    logger.warn("Slidefoto feilet, bruker fargekort", {
       userId: input.userId,
       slideIndex,
-      logoBytes: logo?.byteLength ?? 0,
       error: error instanceof Error ? error.message : "ukjent",
     });
+    return {};
+  }
+};
+
+const composeAndUpload = async (
+  input: GeneratePostInput,
+  design: SocialDesign,
+  slideIndex: number,
+  layout: SlideLayout,
+  photo: SlidePhoto = {},
+): Promise<SlideImage> => {
+  const logo = await (input.logoBytes ?? loadBuffer(input.brandContext?.logoUrl, "logo"));
+  const slide = {
+    photo: photo.bytes,
+    design,
+    slideIndex,
+    layout,
+    carousel: design.mode === "guide" && design.cards.length > 0,
+    companyName: input.brandContext?.companyName,
+    websiteUrl: input.brandContext?.websiteUrl,
+    credit: photo.attribution ? photoCreditRecord(photo.attribution) : undefined,
+    primaryColor: input.brandContext?.brandColors?.primary,
+    secondaryColor: input.brandContext?.brandColors?.secondary,
+    accentColor: input.brandContext?.brandColors?.accent,
+  };
+  let jpeg: Buffer;
+  try {
+    jpeg = await composeDesignedSlide({ ...slide, logo });
+  } catch (error) {
     if (!logo) throw error;
-    jpeg = await composeDesignedSlide({
-      photo,
-      design,
+    logger.warn("Komposisjon med logo feilet, prøver uten logo", {
+      userId: input.userId,
       slideIndex,
-      layout,
-      companyName: input.brandContext?.companyName,
-      credit: attribution ? photoCreditRecord(attribution) : undefined,
-      primaryColor: input.brandContext?.brandColors?.primary,
-      secondaryColor: input.brandContext?.brandColors?.secondary,
-      accentColor: input.brandContext?.brandColors?.accent,
+      logoBytes: logo.byteLength,
+      error: error instanceof Error ? error.message : "ukjent",
     });
+    jpeg = await composeDesignedSlide(slide);
   }
   const uploaded = await uploadUserFile({
     userId: input.userId,
@@ -618,20 +626,32 @@ const renderDesignedSlide = async (
     mediaKind: "image",
     body: new Uint8Array(jpeg),
   });
-  if (attribution && input.photoCredits && !input.photoCredits.some((item) => photoCreditRecord(item) === photoCreditRecord(attribution))) {
-    input.photoCredits.push(attribution);
-  }
-  if (logoComposed) return uploaded.publicUrl;
-  return applyBrandLogo(uploaded.publicUrl, input, `slide-${slideIndex}`);
+  return { url: uploaded.publicUrl, attribution: photo.attribution };
 };
 
-const createImageUrl = async (input: GeneratePostInput): Promise<string | undefined> => {
+const renderDesignedSlide = async (
+  input: GeneratePostInput,
+  design: SocialDesign,
+  brief: VisualBrief,
+  slideIndex: number,
+): Promise<SlideImage | undefined> => {
+  const photo = await findSlidePhoto(input, design, brief, slideIndex);
+  if (photo.skip) return undefined;
+  if (slideIndex === 0 && !photo.bytes) return undefined;
+  const layout: SlideLayout = slideIndex === 0 ? "cover" : photo.bytes ? "slide" : "card";
+  return composeAndUpload(input, design, slideIndex, layout, photo);
+};
+
+const asSlideImage = (url: string | undefined): SlideImage | undefined =>
+  url ? { url } : undefined;
+
+const createImageUrl = async (input: GeneratePostInput): Promise<SlideImage | undefined> => {
   if (input.mediaMode === "owned_only") {
-    return applyBrandLogo(await pickOwnedImageUrl(input), input, "owned_only");
+    return asSlideImage(await applyBrandLogo(await pickOwnedImageUrl(input), input, "owned_only"));
   }
 
   if (input.socialDesign) {
-    const brief = buildVisualBrief({
+    const brief = input.visualBrief ?? buildVisualBrief({
       topic: input.topic,
       brandContext: input.brandContext,
       format: input.format,
@@ -644,7 +664,7 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
   const productImages = input.brandContext?.productImages ?? [];
   if (productImages.length > 0) {
     const productResult = await tryProductImageGeneration(input, productImages);
-    if (productResult) return applyBrandLogo(productResult, input, "product");
+    if (productResult) return asSlideImage(await applyBrandLogo(productResult, input, "product"));
   }
 
   if (input.mediaMode === "hybrid") {
@@ -652,7 +672,7 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     if (ownedImageUrl) {
       const shouldUseOwned = shouldUseOwnedInHybrid(input.userId);
       if (shouldUseOwned) {
-        return applyBrandLogo(ownedImageUrl, input, "hybrid_owned");
+        return asSlideImage(await applyBrandLogo(ownedImageUrl, input, "hybrid_owned"));
       }
     }
   }
@@ -692,7 +712,7 @@ const createImageUrl = async (input: GeneratePostInput): Promise<string | undefi
     profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
   });
 
-  return applyBrandLogo(imageUrl, input, "generated");
+  return asSlideImage(await applyBrandLogo(imageUrl, input, "generated"));
 };
 
 const tryProductImageGeneration = async (
@@ -728,9 +748,9 @@ const tryProductImageGeneration = async (
   return undefined;
 };
 
-const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<string | undefined> => {
+const createImageUrlWithRetry = async (input: GeneratePostInput): Promise<SlideImage | undefined> => {
   if (input.mediaMode === "owned_only") {
-    return applyBrandLogo(await pickOwnedImageUrl(input), input, "owned_only");
+    return asSlideImage(await applyBrandLogo(await pickOwnedImageUrl(input), input, "owned_only"));
   }
 
   const maxAttempts = getOpenAiClient()
@@ -869,35 +889,41 @@ const generateCarouselImages = async (
 const generateDesignedSlides = async (
   input: GeneratePostInput,
   design: SocialDesign,
-  primaryImageUrl?: string,
-): Promise<string[]> => {
-  const brief = buildVisualBrief({
-    topic: input.topic,
-    brandContext: input.brandContext,
-    format: input.format,
-    motif: input.visualMotif,
-    feedIndex: input.feedIndex,
-  });
-  const used = new Set<string>(primaryImageUrl ? [primaryImageUrl] : []);
-  const urls: string[] = [];
-
-  for (let slideIndex = 1; slideIndex <= design.cards.length; slideIndex += 1) {
+  brief: VisualBrief,
+): Promise<SlideImage[]> => {
+  const renderSafely = async (slideIndex: number): Promise<SlideImage | undefined> => {
     try {
-      const url = await renderDesignedSlide(input, design, brief, slideIndex);
-      if (url && !used.has(url)) {
-        used.add(url);
-        urls.push(url);
-      }
+      return await renderDesignedSlide(input, design, brief, slideIndex);
     } catch (error) {
       logger.warn("Designslide feilet", {
         userId: input.userId,
         slideIndex,
         error: error instanceof Error ? error.message : "ukjent",
       });
+      return undefined;
     }
+  };
+
+  const indices = design.cards.map((_, index) => index + 1);
+  const slides: Array<SlideImage | undefined> = [];
+  if (brief.placeName) {
+    for (const slideIndex of indices) {
+      slides.push(await renderSafely(slideIndex));
+    }
+  } else {
+    slides.push(...await Promise.all(indices.map(renderSafely)));
   }
 
-  return urls;
+  try {
+    slides.push(await composeAndUpload(input, design, indices.length + 1, "cta"));
+  } catch (error) {
+    logger.warn("Avslutningsslide feilet", {
+      userId: input.userId,
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+  }
+
+  return slides.filter((slide): slide is SlideImage => slide !== undefined);
 };
 
 const buildVideoMotionPrompt = (input: GeneratePostInput): string => {
@@ -976,7 +1002,21 @@ const buildCopyVisual = (
   scene: buildPhotoSubject(design, brief, 0),
   overlayTitle: design.coverTitle,
   overlaySubline: design.coverSubline,
+  slides: design.cards.map((card) => ({ title: card.title, summary: card.summary })),
 });
+
+const uniqueAttributions = (slides: Array<SlideImage | undefined>): PhotoAttribution[] => {
+  const seen = new Set<string>();
+  return slides
+    .map((slide) => slide?.attribution)
+    .filter((item): item is PhotoAttribution => {
+      if (!item) return false;
+      const key = photoCreditRecord(item);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+};
 
 export const generatePost = async (input: GeneratePostInput): Promise<PostDraft> => {
   const logoRef = describeMediaUrl(input.brandContext?.logoUrl);
@@ -998,9 +1038,9 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   });
   const placeLookPromise = resolvePlaceLook(brief.placeName);
 
+  const textOnly = input.textOnlyForImageUrl !== undefined;
   let socialDesign: SocialDesign | undefined;
-  if (input.channel !== "tiktok" && input.mediaMode !== "owned_only") {
-    const mode = resolveDesignMode(input.contentPillar, input.visualMotif, brief);
+  if (!textOnly && input.channel !== "tiktok" && input.mediaMode !== "owned_only") {
     socialDesign = await createSocialDesign({
       topic: input.topic,
       channel: input.channel,
@@ -1008,9 +1048,9 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       contentPillar: input.contentPillar,
       visualMotif: input.visualMotif,
       brief,
-      forceGuide: mode === "guide",
+      avoidRepeating: input.avoidRepeating,
     });
-    if (brief.placeName && socialDesign.mode === "guide") {
+    if (brief.placeName) {
       socialDesign = placeGuideCopy(socialDesign, brief.placeName);
     }
   }
@@ -1018,17 +1058,16 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   const imageInput: GeneratePostInput = {
     ...input,
     socialDesign,
-    photoCredits: [],
+    visualBrief: brief,
+    logoBytes: loadBuffer(input.brandContext?.logoUrl, "logo"),
     placePhotoUsed: new Set<string>(),
     placeLook: await placeLookPromise,
   };
 
-  let imageUrl: string | undefined;
-  if (input.channel === "tiktok") {
-    imageUrl = undefined;
-  } else {
+  let primary: SlideImage | undefined = textOnly ? asSlideImage(input.textOnlyForImageUrl) : undefined;
+  if (!textOnly && input.channel !== "tiktok") {
     try {
-      imageUrl = await createImageUrlWithRetry(imageInput);
+      primary = await createImageUrlWithRetry(imageInput);
     } catch (error) {
       logger.warn("AI image generation failed, continuing without image", {
         userId: input.userId,
@@ -1036,14 +1075,24 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
         topic: input.topic,
         error: error instanceof Error ? error.message : "unknown",
       });
-      imageUrl = undefined;
     }
   }
+  const imageUrl = primary?.url;
 
-  let additionalImageUrls: string[] | undefined;
-  if (imageUrl && socialDesign?.mode === "guide" && input.channel !== "tiktok") {
-    additionalImageUrls = await generateDesignedSlides(imageInput, socialDesign, imageUrl);
-  } else if (imageUrl && input.mediaMode === "owned_only" && shouldGenerateCarousel(input.channel, input.format, input.reelScript)) {
+  let extraSlides: SlideImage[] = [];
+  if (imageUrl && socialDesign?.mode === "guide" && socialDesign.cards.length > 0) {
+    extraSlides = await generateDesignedSlides(imageInput, socialDesign, brief);
+    logger.info("Karusell generert", {
+      userId: input.userId,
+      channel: input.channel,
+      extraImages: extraSlides.length,
+    });
+  }
+
+  let additionalImageUrls: string[] | undefined = extraSlides.length > 0
+    ? extraSlides.map((slide) => slide.url)
+    : undefined;
+  if (!textOnly && !additionalImageUrls && imageUrl && input.mediaMode === "owned_only" && shouldGenerateCarousel(input.channel, input.format, input.reelScript)) {
     const carouselBrandRules = mergeBrandRules({
       targetAudience: input.brandContext?.targetAudience,
       brandVoice: input.brandContext?.brandVoice,
@@ -1073,33 +1122,29 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     }
   }
 
-  let rawText = fallbackText(input.topic);
-  if (socialDesign?.mode === "guide") {
-    const link = input.includeWebsiteLink && input.channel !== "tiktok"
-      ? input.brandContext?.websiteUrl?.trim()
+  const fallbackCaption = socialDesign?.mode === "guide" && socialDesign.cards.length > 0
+    ? composeGuideCaption(socialDesign)
+    : fallbackText(input.topic);
+  const visual = socialDesign
+    ? buildCopyVisual(brief, socialDesign)
+    : brief.placeName
+      ? {
+          placeName: brief.placeName,
+          scene: brief.subjectDirection,
+          overlayTitle: brief.placeName,
+          overlaySubline: "",
+        }
       : undefined;
-    rawText = composeGuideCaption(socialDesign, link);
-  } else {
-    const visual = socialDesign
-      ? buildCopyVisual(brief, socialDesign)
-      : brief.placeName
-        ? {
-            placeName: brief.placeName,
-            scene: brief.subjectDirection,
-            overlayTitle: brief.placeName,
-            overlaySubline: "",
-          }
-        : undefined;
-    try {
-      rawText = await createText(input, visual, brief.world, imageUrl);
-    } catch (error) {
-      logger.warn("AI text generation failed, using fallback text", {
-        userId: input.userId,
-        channel: input.channel,
-        topic: input.topic,
-        error: error instanceof Error ? error.message : "unknown",
-      });
-    }
+  let rawText = fallbackCaption;
+  try {
+    rawText = await createText(input, fallbackCaption, visual, brief.world, imageUrl);
+  } catch (error) {
+    logger.warn("AI text generation failed, using fallback text", {
+      userId: input.userId,
+      channel: input.channel,
+      topic: input.topic,
+      error: error instanceof Error ? error.message : "unknown",
+    });
   }
 
   const videoUrl: string | undefined = undefined;
@@ -1125,10 +1170,11 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     placeName: brief.placeName,
     maxAttempts: 2,
   });
+  const credits = creditLineFromRecords(uniqueAttributions([primary, ...extraSlides]).map(photoCreditRecord));
   const creditedText = assembleCaption({
     body: revision.finalText,
     link: input.includeWebsiteLink ? websiteUrl : undefined,
-    credits: placeCreditLine(imageInput.photoCredits ?? []) || undefined,
+    credits: credits || undefined,
   });
   const decision = evaluatePolicy({
     text: creditedText,
@@ -1156,8 +1202,10 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     text: creditedText,
     imageUrl,
     additionalImageUrls: additionalImageUrls?.length ? additionalImageUrls : undefined,
-    imageCredit: imageInput.photoCredits?.[0] ? photoCreditRecord(imageInput.photoCredits[0]) : undefined,
-    additionalImageCredits: imageInput.photoCredits?.slice(1).map(photoCreditRecord),
+    imageCredit: primary?.attribution ? photoCreditRecord(primary.attribution) : undefined,
+    additionalImageCredits: extraSlides.length > 0
+      ? extraSlides.map((slide) => (slide.attribution ? photoCreditRecord(slide.attribution) : ""))
+      : undefined,
     videoUrl,
     status: postStatusForMedia(input.channel, imageUrl, videoUrl, decision.status),
     quality: decision.quality,

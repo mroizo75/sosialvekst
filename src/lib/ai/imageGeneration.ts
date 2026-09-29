@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 
 import sharp from "sharp";
 
+import { FALLBACK_IMAGE_MODEL, resolveImageModel } from "@/lib/ai/models";
 import { contrastPlateFill } from "@/lib/ai/slideComposer";
 import { downloadObjectByPublicUrl, uploadUserFile } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
@@ -66,7 +67,9 @@ const extractJsonObject = (stdout: string): Record<string, unknown> | null => {
   }
 };
 
-const getBananaAspectRatio = (prompt: string): string => {
+const getBananaAspectRatio = (prompt: string, size?: GenerateImageInput["size"]): string => {
+  if (size === "1024x1536") return "4:5";
+  if (size === "1536x1024") return "16:9";
   const lower = prompt.toLowerCase();
   if (lower.includes("9:16") || lower.includes("story") || lower.includes("reel")) {
     return "9:16";
@@ -129,7 +132,7 @@ const tryGenerateWithBanana = async (input: GenerateImageInput): Promise<Uint8Ar
   const appRef = process.env.NANO_BANANA_APP_REF?.trim()
     || "google/gemini-3-1-flash-image-preview";
   const resolution = (input.profile ?? "final") === "preview" ? "1K" : "2K";
-  const aspectRatio = getBananaAspectRatio(input.prompt);
+  const aspectRatio = getBananaAspectRatio(input.prompt, input.size);
   const payload = {
     prompt: input.prompt,
     num_images: 1,
@@ -215,11 +218,18 @@ export const generateProfessionalImage = async (
   const imageSize = input.size ?? "1024x1024";
   const imageQuality = profile === "preview" ? ("medium" as const) : ("high" as const);
 
-  type ImageVariant = { size: "1024x1024" | "1536x1024" | "1024x1536"; quality: "low" | "medium" | "high" };
+  type ImageVariant = {
+    model: string;
+    size: "1024x1024" | "1536x1024" | "1024x1536";
+    quality: "low" | "medium" | "high";
+  };
+  const primaryModel = resolveImageModel();
   const variants: ImageVariant[] = [
-    { size: imageSize, quality: imageQuality },
-    { size: "1024x1024", quality: "medium" },
-    { size: "1024x1024", quality: "low" },
+    { model: primaryModel, size: imageSize, quality: imageQuality },
+    ...(primaryModel === FALLBACK_IMAGE_MODEL
+      ? []
+      : [{ model: FALLBACK_IMAGE_MODEL, size: imageSize, quality: imageQuality }]),
+    { model: FALLBACK_IMAGE_MODEL, size: imageSize, quality: "medium" },
   ];
 
   let lastVariantError: string | undefined;
@@ -228,10 +238,10 @@ export const generateProfessionalImage = async (
   for (const variant of variants) {
     try {
       const response = await client.images.generate({
-        model: "gpt-image-1",
+        model: variant.model,
         prompt: input.prompt,
         size: variant.size,
-        quality: variant.quality as "low" | "medium" | "high",
+        quality: variant.quality,
       });
 
       const first = response.data?.[0];
@@ -268,6 +278,7 @@ export const generateProfessionalImage = async (
       lastVariantError = error instanceof Error ? error.message : "unknown";
       logger.warn("Image generation variant failed", {
         userId: input.userId,
+        model: variant.model,
         size: variant.size,
         quality: variant.quality,
         error: lastVariantError,

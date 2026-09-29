@@ -12,6 +12,7 @@ export type CopyVisual = {
   scene: string;
   overlayTitle: string;
   overlaySubline: string;
+  slides?: { title: string; summary: string }[];
 };
 
 type CopyPromptInput = {
@@ -98,6 +99,16 @@ const limitedBrandContext = (ctx: BrandContext): string => {
   return lines.join("\n");
 };
 
+const slideLines = (slides?: CopyVisual["slides"]): string[] => {
+  if (!slides?.length) return [];
+  return [
+    "KARUSELLEN (leseren sveiper gjennom disse):",
+    ...slides.map((slide, index) => `${index + 1}. ${slide.title}: ${slide.summary}`),
+    "Posteksten skal bygge videre på forsiden og gi mer forklaring enn slidene. Ikke kopier slide-tekstene ordrett.",
+    "Første linje skal matche forsidetittelen, men med egne ord. Få gjerne med ett konkret poeng per slide.",
+  ];
+};
+
 const visualLines = (visual?: CopyVisual): string[] => {
   if (!visual) return [];
   const place = visual.placeName ?? "ikke et navngitt sted";
@@ -107,9 +118,9 @@ const visualLines = (visual?: CopyVisual): string[] => {
     `Scene: ${visual.scene}`,
     `Overlay-tittel: ${visual.overlayTitle}`,
     `Overlay-undertekst: ${visual.overlaySubline}`,
-    "Overlay-underteksten er en hel setning. Gjenta den ikke i avkuttet form.",
+    ...slideLines(visual.slides),
     "Ikke skriv fotografkreditt. Den settes inn etter hashtags.",
-    "Nevn stedet hvis det finnes. Beskriv bare det scenen viser. Ikke motsi tittelen eller underteksten.",
+    "Nevn stedet hvis det finnes. Beskriv bare det bildene viser. Ikke motsi tittelen eller underteksten.",
     "",
   ];
 };

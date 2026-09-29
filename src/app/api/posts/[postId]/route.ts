@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { fallbackAngle } from "@/lib/ai/generatePlan";
-import { generatePost } from "@/lib/ai/generatePost";
+import { generatePost, replaceCreditLine } from "@/lib/ai/generatePost";
 import { assignPostStrategy } from "@/lib/ai/postStrategy";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { requireUserId } from "@/lib/auth";
@@ -279,11 +279,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       const topic = regenAction === "rewrite_topic"
         ? payload.topic ?? topicFromPlan ?? fallbackTopic
         : topicFromPlan ?? fallbackTopic;
-      const mediaMode = regenAction === "regenerate_text"
-        ? "owned_only"
-        : effectiveMediaMode === "owned_only"
-          ? "owned_only"
-          : "ai_only";
+      const mediaMode = effectiveMediaMode === "owned_only" ? "owned_only" : "ai_only";
       const imageProfile = regenAction === "regenerate_image" ? "final" : "preview";
       const scheduled = new Date(post.scheduledAt);
       const strategy = assignPostStrategy({
@@ -319,6 +315,7 @@ export async function PATCH(request: Request, context: RouteContext) {
           reelScript: strategy.reelScript,
           includeWebsiteLink: strategy.includeWebsiteLink,
           feedIndex: strategy.feedIndex,
+          textOnlyForImageUrl: regenAction === "regenerate_text" ? post.imageUrl ?? "" : undefined,
         }),
         REGENERATE_TIMEOUT_MS,
         `${regenAction}/${post.channel}`,
@@ -345,9 +342,13 @@ export async function PATCH(request: Request, context: RouteContext) {
         updatedAdditionalImageUrls = regenerated.additionalImageUrls ?? [];
         updatedImageCredit = regenerated.imageCredit;
         updatedAdditionalImageCredits = regenerated.additionalImageCredits ?? [];
+        updatedText = replaceCreditLine(post.text, [updatedImageCredit, ...updatedAdditionalImageCredits]);
       }
       if (regenAction === "regenerate_text") {
-        updatedText = regenerated.text;
+        updatedText = replaceCreditLine(
+          regenerated.text,
+          [post.imageCredit, ...(post.additionalImageCredits ?? [])],
+        );
         updatedImageUrl = post.imageUrl;
         updatedVideoUrl = post.videoUrl;
         updatedAdditionalImageUrls = post.additionalImageUrls ?? [];
@@ -357,7 +358,10 @@ export async function PATCH(request: Request, context: RouteContext) {
           logger.warn("[post/patch] regenerate_all uten bilde, beholder eksisterende", {
             postId, channel: post.channel,
           });
-          updatedText = regenerated.text;
+          updatedText = replaceCreditLine(
+            regenerated.text,
+            [post.imageCredit, ...(post.additionalImageCredits ?? [])],
+          );
           updatedImageUrl = post.imageUrl;
           updatedVideoUrl = post.videoUrl;
           updatedAdditionalImageUrls = post.additionalImageUrls ?? [];

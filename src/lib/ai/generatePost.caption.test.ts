@@ -1,6 +1,36 @@
 import { describe, expect, it } from "vitest";
 
-import { assembleCaption, buildCopyUserInput, ensureCompleteEnding, ensureWebsiteLinkInText, postStatusForMedia, resolveCopyModel } from "@/lib/ai/generatePost";
+import {
+  assembleCaption,
+  buildCopyUserInput,
+  creditLineFromRecords,
+  ensureCompleteEnding,
+  ensureWebsiteLinkInText,
+  postStatusForMedia,
+  replaceCreditLine,
+  resolveCopyModel,
+} from "@/lib/ai/generatePost";
+
+describe("fotokreditering", () => {
+  it("samler kreditt fra alle bilder på én linje uten duplikater", () => {
+    expect(creditLineFromRecords([
+      "Foto: Ada, CC BY 2.0",
+      "",
+      "Foto: Bo, CC0",
+      "Foto: Ada, CC BY 2.0",
+      undefined,
+    ])).toBe("Foto: Ada, CC BY 2.0 · Bo, CC0");
+    expect(creditLineFromRecords(["", undefined])).toBe("");
+  });
+
+  it("bytter ut gammel kreditt når bildene byttes, og fjerner den når nye bilder er AI", () => {
+    const text = "Kvelden er rolig.\n\n#rhodos\n\nFoto: Ada, CC BY 2.0";
+
+    expect(replaceCreditLine(text, ["Foto: Bo, CC0"])).toBe("Kvelden er rolig.\n\n#rhodos\n\nFoto: Bo, CC0");
+    expect(replaceCreditLine(text, [""])).toBe("Kvelden er rolig.\n\n#rhodos");
+    expect(replaceCreditLine("Ny tekst.", ["Foto: Ada, CC BY 2.0"])).toBe("Ny tekst.\n\nFoto: Ada, CC BY 2.0");
+  });
+});
 
 describe("assembleCaption", () => {
   it("setter ikke punktum etter hashtags, og lenken kommer før dem", () => {

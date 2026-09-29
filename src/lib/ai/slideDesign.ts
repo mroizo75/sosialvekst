@@ -1,6 +1,7 @@
+import { resolveCopyModel } from "@/lib/ai/models";
 import type { ContentPillar, VisualMotif } from "@/lib/ai/postStrategy";
 import { findCopyIssues } from "@/lib/ai/validateCopy";
-import type { VisualBrief } from "@/lib/ai/visualDirection";
+import type { VisualBrief, VisualWorld } from "@/lib/ai/visualDirection";
 import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
 import type { BrandContext, SocialChannel } from "@/lib/types";
@@ -8,15 +9,16 @@ import type { BrandContext, SocialChannel } from "@/lib/types";
 export type GuideCard = {
   title: string;
   summary: string;
-  slideLine?: string;
-  bullets: string[];
+  photoSubject: string;
 };
 
 export type SocialDesign = {
   mode: "guide" | "headline";
   hook: string;
+  coverKicker: string;
   coverTitle: string;
   coverSubline: string;
+  coverPhotoSubject: string;
   question: string;
   cards: GuideCard[];
   cta: string;
@@ -29,73 +31,56 @@ type DesignInput = {
   contentPillar?: ContentPillar;
   visualMotif?: VisualMotif;
   brief: VisualBrief;
-  forceGuide?: boolean;
+  avoidRepeating?: string[];
 };
 
-const clampWords = (value: string, maxWords: number, maxChars: number): string => {
-  const cleaned = value.replace(/\s+/g, " ").replace(/[«»"]/g, "").trim();
-  const words = cleaned.split(" ").filter(Boolean);
+export const DESIGN_LIMITS = {
+  coverKicker: 3,
+  coverTitle: 7,
+  coverSubline: 14,
+  cardTitle: 5,
+  summary: 24,
+  cta: 9,
+  cards: 3,
+} as const;
+
+const SALES_WORDS = /\b(?:hoteller|hotell|pris|priser|bestill|booking|rabatt)\b/i;
+
+const clean = (value: unknown): string =>
+  String(value ?? "").replace(/\s+/g, " ").replace(/[«»"]/g, "").trim();
+
+const wordCount = (value: string): number => value.split(" ").filter(Boolean).length;
+
+export const sentencesWithin = (value: string, maxWords: number): string => {
+  const sentences = clean(value).split(/(?<=[.!?])\s+/).filter(Boolean);
   const kept: string[] = [];
-  for (const word of words) {
-    if (kept.length >= maxWords) break;
-    const next = kept.length === 0 ? word : `${kept.join(" ")} ${word}`;
-    if (next.length > maxChars) break;
-    kept.push(word);
+  for (const sentence of sentences) {
+    if (kept.length > 0 && wordCount([...kept, sentence].join(" ")) > maxWords) break;
+    kept.push(sentence);
   }
   return kept.join(" ");
 };
 
-const DANGLING_END = /(?:^|\s)(?:og|eller|med|for|til|av|som|den|det|en|et|i|på|flotte?|vakre?|fine?|gode?|store?|små|nye?)$/iu;
+export const resolveDesignMode = (channel: SocialChannel): "guide" | "headline" =>
+  channel === "instagram" || channel === "facebook" ? "guide" : "headline";
 
-export const overlaySentence = (primary: string, fallback = ""): string => {
-  const accept = (value: string): string => {
-    const clean = value.replace(/\s+/g, " ").trim();
-    if (!clean) return "";
-    const sentence = clean.match(/^.*?[.!?]/)?.[0]?.trim() ?? clean;
-    const bare = sentence.replace(/[.!?]+$/u, "").trim();
-    if (!bare || DANGLING_END.test(bare)) return "";
-    return /[.!?]$/u.test(sentence) ? sentence : `${bare}.`;
-  };
-  return accept(primary) || accept(fallback);
+const fallbackTitle = (value: string): string => {
+  const words = value.replace(new RegExp(SALES_WORDS.source, "gi"), " ").split(/\s+/).filter(Boolean);
+  const title = words.slice(0, 6).join(" ");
+  return title ? `${title.charAt(0).toUpperCase()}${title.slice(1)}` : "Verdt å vite";
 };
 
-export const slideLineForImage = (slideLine: string | undefined, title: string): string => {
-  const cleaned = (slideLine ?? "").replace(/\s+/g, " ").trim();
-  const words = cleaned.split(" ").filter(Boolean);
-  if (words.length === 0 || words.length > 5) return title;
-  if (cleaned.length > 42) return title;
-  return cleaned;
-};
-
-export const resolveDesignMode = (
-  _pillar?: ContentPillar,
-  motif?: VisualMotif,
-  brief?: Pick<VisualBrief, "world" | "placeName">,
-): "guide" | "headline" => {
-  if (brief?.world === "travel" && brief.placeName) return "guide";
-  if (motif === "guide" || motif === "comparison") return "guide";
-  return "headline";
-};
-
-const SALES_WORDS = /\b(?:hoteller|hotell|pris|bestill|booking)\b/gi;
-
-const coverTitleFrom = (value: string): string => {
-  const stripped = value.replace(SALES_WORDS, " ").replace(/\s+/g, " ").trim();
-  return clampWords(stripped || "Verdt en tur", 3, 22).toUpperCase();
-};
-
-export const fallbackSocialDesign = (input: DesignInput): SocialDesign => {
-  const titleSource = input.brief.placeName ?? input.topic;
-  return {
-    mode: "headline",
-    hook: "",
-    coverTitle: coverTitleFrom(titleSource),
-    coverSubline: input.contentPillar === "useful" ? "Dette bør du vite" : "Verdt å se nærmere på",
-    question: "Hva passer deg?",
-    cards: [],
-    cta: "Se utvalget",
-  };
-};
+export const fallbackSocialDesign = (input: DesignInput): SocialDesign => ({
+  mode: "headline",
+  hook: "",
+  coverKicker: "",
+  coverTitle: fallbackTitle(input.brief.placeName ?? input.topic),
+  coverSubline: input.contentPillar === "useful" ? "Dette bør du vite." : "Verdt å se nærmere på.",
+  coverPhotoSubject: "",
+  question: "Hva passer deg?",
+  cards: [],
+  cta: "Hva velger du?",
+});
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value !== null && typeof value === "object" ? value as Record<string, unknown> : null;
@@ -115,76 +100,78 @@ export const parseSocialDesign = (raw: string, mode: "guide" | "headline"): Soci
   const record = asRecord(parsed);
   if (!record) return null;
 
-  const coverTitle = clampWords(String(record.coverTitle ?? ""), 4, 28);
-  const coverSubline = clampWords(String(record.coverSubline ?? ""), 16, 140);
-  const rawHook = String(record.hook ?? "").replace(/\s+/g, " ").trim();
-  const hook = rawHook.endsWith("?") ? "" : clampWords(rawHook, 22, 140);
-  const question = clampWords(String(record.question ?? ""), 16, 120);
-  const cta = clampWords(String(record.cta ?? ""), 6, 32);
+  const coverTitle = clean(record.coverTitle);
+  const coverSubline = clean(record.coverSubline);
   if (!coverTitle || !coverSubline) return null;
 
   const cardsRaw = Array.isArray(record.cards) ? record.cards : [];
-  const cards = cardsRaw.slice(0, 3).map((item) => {
-    const card = asRecord(item);
-    if (!card) return null;
-    const title = clampWords(String(card.title ?? ""), 4, 24);
-    const summary = clampWords(String(card.summary ?? ""), 28, 180);
-    const slideLine = slideLineForImage(String(card.slideLine ?? ""), title);
-    const bullets = Array.isArray(card.bullets)
-      ? card.bullets.map((bullet) => clampWords(String(bullet), 4, 24)).filter(Boolean).slice(0, 3)
-      : [];
-    if (!title || !summary || bullets.length < 3) return null;
-    const built: GuideCard = { title, summary, slideLine, bullets };
-    return built;
-  }).filter((card): card is GuideCard => card !== null);
+  const cards = cardsRaw
+    .map((item): GuideCard | null => {
+      const card = asRecord(item);
+      if (!card) return null;
+      const title = clean(card.title);
+      const summary = clean(card.summary);
+      if (!title || !summary) return null;
+      return { title, summary, photoSubject: clean(card.photoSubject) };
+    })
+    .filter((card): card is GuideCard => card !== null)
+    .slice(0, DESIGN_LIMITS.cards);
 
-  if (mode === "guide" && cards.length < 3) return null;
+  if (mode === "guide" && cards.length < DESIGN_LIMITS.cards) return null;
+  const rawHook = clean(record.hook);
 
   return {
-    mode: mode === "guide" && cards.length >= 3 ? "guide" : "headline",
-    hook,
+    mode,
+    hook: rawHook.endsWith("?") ? "" : rawHook,
+    coverKicker: clean(record.coverKicker),
     coverTitle,
     coverSubline,
-    question: question || "Hva passer deg?",
+    coverPhotoSubject: clean(record.coverPhotoSubject),
+    question: clean(record.question) || "Hva passer deg?",
     cards: mode === "guide" ? cards : [],
-    cta: cta || "Se utvalget",
+    cta: clean(record.cta) || "Hva velger du?",
   };
 };
 
-export const headlineFromCaption = (caption: string): { coverTitle: string; coverSubline: string } => {
-  const cleaned = caption
-    .replace(/https?:\/\/\S+/g, "")
-    .replace(/[#@]\S+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const blocks = caption
-    .replace(/https?:\/\/\S+/g, "")
-    .split(/\n+/)
-    .map((line) => line.replace(/[#@]\S+/g, "").trim())
-    .filter(Boolean);
-  const firstBlock = blocks[0] ?? cleaned;
-  const sentences = firstBlock.split(/(?<=[.!?])\s+/).map((sentence) => sentence.trim()).filter(Boolean);
-  const coverTitle = clampWords(sentences[0] ?? firstBlock, 8, 46);
-  const second = sentences[1] ?? blocks[1] ?? "";
-  return {
-    coverTitle: coverTitle || "Se dette",
-    coverSubline: clampWords(second, 12, 64),
-  };
+const overLimit = (label: string, value: string, max: number): string | null => {
+  const count = wordCount(value);
+  return count > max ? `${label} har ${count} ord, maks ${max}.` : null;
 };
+
+export const designLengthIssues = (design: SocialDesign): string[] => [
+  overLimit("coverKicker", design.coverKicker, DESIGN_LIMITS.coverKicker),
+  overLimit("coverTitle", design.coverTitle, DESIGN_LIMITS.coverTitle),
+  overLimit("coverSubline", design.coverSubline, DESIGN_LIMITS.coverSubline),
+  overLimit("cta", design.cta, DESIGN_LIMITS.cta),
+  ...design.cards.flatMap((card, index) => [
+    overLimit(`cards[${index}].title`, card.title, DESIGN_LIMITS.cardTitle),
+    overLimit(`cards[${index}].summary`, card.summary, DESIGN_LIMITS.summary),
+  ]),
+].filter((issue): issue is string => issue !== null);
+
+export const fitDesignToLimits = (design: SocialDesign): SocialDesign => ({
+  ...design,
+  coverKicker: wordCount(design.coverKicker) > DESIGN_LIMITS.coverKicker ? "" : design.coverKicker,
+  coverSubline: sentencesWithin(design.coverSubline, DESIGN_LIMITS.coverSubline),
+  cards: design.cards.map((card) => ({
+    ...card,
+    summary: sentencesWithin(card.summary, DESIGN_LIMITS.summary),
+  })),
+});
 
 export const placeGuideCopy = (design: SocialDesign, placeName: string): SocialDesign => {
-  const sales = /hotell|pris|bestill|booking|rabatt/i;
-  const question = design.question && !sales.test(design.question)
+  const question = design.question && !SALES_WORDS.test(design.question)
     ? design.question
     : `Hvor vil du bo i ${placeName}?`;
+  const titleKeepsPlace = design.coverTitle.toLowerCase().includes(placeName.toLowerCase())
+    && !SALES_WORDS.test(design.coverTitle);
   const written = design.coverSubline.trim();
-  const coverSubline = written && !sales.test(written) ? written : question;
   return {
     ...design,
-    coverTitle: placeName,
-    coverSubline,
+    coverTitle: titleKeepsPlace ? design.coverTitle : placeName,
+    coverSubline: written && !SALES_WORDS.test(written) ? written : question,
     question,
-    cta: design.cta && !sales.test(design.cta) ? design.cta : "Hvilken ville du valgt?",
+    cta: design.cta && !SALES_WORDS.test(design.cta) ? design.cta : "Hvilken ville du valgt?",
   };
 };
 
@@ -214,7 +201,7 @@ export const composeGuideCaption = (design: SocialDesign, websiteUrl?: string): 
 
 type FallbackReason = "no_client" | "exception" | "parse_null";
 
-const useFallback = (input: DesignInput, reason: FallbackReason): SocialDesign => {
+const designFallback = (input: DesignInput, reason: FallbackReason): SocialDesign => {
   logger.warn("Fallback-design brukes", {
     reason,
     placeName: input.brief.placeName ?? "mangler",
@@ -225,89 +212,125 @@ const useFallback = (input: DesignInput, reason: FallbackReason): SocialDesign =
 
 const designCopyIssues = (design: SocialDesign, input: DesignInput): string[] => {
   const check = { placeName: input.brief.placeName, pillar: input.contentPillar };
-  const caption = findCopyIssues(composeGuideCaption(design), check);
+  const cover = findCopyIssues([design.coverTitle, design.coverSubline].join(". "), check);
   const cards = design.cards.flatMap((card) => findCopyIssues(
-    [card.title, card.summary, card.slideLine ?? ""].filter(Boolean).join(". "),
-    check,
+    `${card.title}. ${card.summary}`,
+    { pillar: input.contentPillar },
   ));
-  return [...caption, ...cards];
+  return [...new Set([...designLengthIssues(design), ...cover, ...cards])];
 };
 
-const designUserPrompt = (input: DesignInput, mode: "guide" | "headline", issues: string[]): string => {
-  const company = input.brandContext?.companyName ?? "bedriften";
-  const industry = input.brandContext?.industry ?? "ukjent bransje";
-  const travel = input.brief.world === "travel" && Boolean(input.brief.placeName);
-  const shared = [
-    `Bedrift: ${company}. Bransje: ${industry}.`,
+export const DESIGN_SYSTEM_PROMPT = [
+  "Du er kreativ leder og tekstforfatter i et norsk SoMe-byrå. Du lager karuseller som stopper scrolling på Instagram og Facebook.",
+  "Svar kun med JSON etter skjemaet.",
+  "",
+  "FORSIDEN (viktigst):",
+  `- coverTitle: 2–${DESIGN_LIMITS.coverTitle} ord. Et konkret løfte, en kontrast, et antall eller en påstand som slidesene innfrir. Skal kunne leses på ett sekund.`,
+  "- Gode eksempler: «3 tegn på at røret lekker», «Søndagsmiddag uten oppvask», «Fristen mange glemmer i mars», «Rhodos på tre måter».",
+  "- Dårlige eksempler: «Velkommen til oss», «Kvalitet i alle ledd», «Vi hjelper deg», «Tips og triks».",
+  `- coverKicker: 1–${DESIGN_LIMITS.coverKicker} ord som etikett over tittelen, for eksempel «Våtrom», «Guide» eller «Før du bestiller».`,
+  `- coverSubline: én hel setning, maks ${DESIGN_LIMITS.coverSubline} ord, som sier hva leseren får ved å sveipe.`,
+  "- coverPhotoSubject: ett konkret fotomotiv på engelsk for forsiden. Det sterkeste og mest menneskelige bildet i serien.",
+  "",
+  "SLIDES:",
+  `- cards: nøyaktig ${DESIGN_LIMITS.cards} når modus er guide, ellers en tom liste. Én idé per slide, i logisk rekkefølge.`,
+  `- title: 2–${DESIGN_LIMITS.cardTitle} ord.`,
+  `- summary: 1–2 korte setninger, maks ${DESIGN_LIMITS.summary} ord. Forklar konkret hva, hvorfor eller hvordan. Ingen fyllord.`,
+  "- photoSubject: ett konkret fotomotiv på engelsk som viser akkurat denne sliden i bransjens virkelige miljø. Mennesker eller hender i handling der det passer. Ingen skjermer, skilt eller tekst.",
+  "",
+  "AVSLUTNING:",
+  `- cta: maks ${DESIGN_LIMITS.cta} ord. Et konkret spørsmål eller neste steg. Ingen nettadresse, ikke «kontakt oss».`,
+  "- hook: første setning i posteksten. Ikke et spørsmål. Konkret.",
+  "- question: et konkret valg-spørsmål til leseren.",
+  "",
+  "ALLTID:",
+  "- Korrekt norsk bokmål. Snakk til leseren med «du».",
+  "- Ingen priser, prosenter, «best», garantier eller oppdiktede kunder og tall. Et tall i tittelen kan bare være antall slides.",
+  "- Verdi for leseren først. Bedriften er avsender, ikke tema.",
+  "- Bare ferdige setninger. Aldri stopp midt i en setning.",
+].join("\n");
+
+const DESIGN_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["hook", "coverKicker", "coverTitle", "coverSubline", "coverPhotoSubject", "question", "cta", "cards"],
+  properties: {
+    hook: { type: "string" },
+    coverKicker: { type: "string" },
+    coverTitle: { type: "string" },
+    coverSubline: { type: "string" },
+    coverPhotoSubject: { type: "string" },
+    question: { type: "string" },
+    cta: { type: "string" },
+    cards: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["title", "summary", "photoSubject"],
+        properties: {
+          title: { type: "string" },
+          summary: { type: "string" },
+          photoSubject: { type: "string" },
+        },
+      },
+    },
+  },
+} as const;
+
+const listLine = (label: string, values: string[] | undefined): string | null => {
+  const items = (values ?? []).map((value) => value.trim()).filter(Boolean).slice(0, 5);
+  return items.length > 0 ? `${label}: ${items.join(", ")}.` : null;
+};
+
+export const designUserPrompt = (input: DesignInput, mode: "guide" | "headline", issues: string[]): string => {
+  const ctx = input.brandContext ?? {};
+  const place = input.brief.world === "travel" ? input.brief.placeName : null;
+  const lines = [
+    `Bedrift: ${ctx.companyName ?? "bedriften"}. Bransje: ${ctx.industry ?? "ukjent bransje"}.`,
+    ctx.targetAudience ? `Målgruppe: ${ctx.targetAudience}.` : null,
+    listLine("Produkter og tjenester", [...(ctx.products ?? []), ...(ctx.services ?? [])]),
+    listLine("Det som skiller bedriften ut", ctx.uniqueSellingPoints),
+    listLine("Kundenes typiske problemer", ctx.customerPainPoints),
     `Tema: ${input.topic}.`,
-    travel
-      ? `Sted: ${input.brief.placeName}.`
-      : "Ikke finn på et feriested, et land eller en by. Dette er ikke et reiseinnlegg.",
+    input.contentPillar ? `Innholdssøyle: ${input.contentPillar}.` : null,
     `Modus: ${mode}.`,
-    "JSON-form:",
-    '{"hook":"","coverTitle":"","coverSubline":"","question":"","cta":"","cards":[{"title":"","summary":"","slideLine":"","bullets":["","",""]}]}',
-  ];
-  const travelLines = [
-    "hook er én setning, ikke et spørsmål, og konkret om stedet.",
-    "coverTitle er kun stedsnavnet. Aldri hotell, downtown, pris eller bestill.",
-    "coverSubline er én ferdig setning på maks 12 ord om stedet. Hele setningen skal få plass på bildet. Ikke kutt den.",
-    "question kommer rett etter hook og er et valg mellom områder i det låste stedet. cta skal være et spørsmål, uten nettadresse.",
-    mode === "guide"
+    place
       ? [
-        "cards skal ha nøyaktig 3 ekte områder i det låste stedet. Ikke finn på bydeler og ikke bruk en annen by.",
-        "title er det lokale navnet, uoversatt.",
-        "summary: To korte setninger. Setning 1: én konkret, verifiserbar detalj om området (severdighet, type strand, avstand). Setning 2: «For deg som …». Ingen adjektiver som vakker, flott, sjarmerende, livlig, fantastisk. Er du usikker på en detalj, dropp den og skriv bare hvem området passer for.",
-        "slideLine: én ferdig setning som slutter med punktum. Ikke stopp etter et adjektiv som flott eller vakker.",
-        "Hvert bullet maks 3 ord.",
-        "Eksempel for Rhodos: Lindos, Faliraki, Rhodos by. Ikke Downtown Rhodos, Magisk strand eller Hotellområdet.",
-        "Samme regel for Kos, Hurghada og alle andre steder: kjente områder, ellers sentrum, strand og havn.",
-      ].join(" ")
-      : "cards skal være en tom liste.",
+        `Sted: ${place}. Hold deg i dette stedet.`,
+        `coverTitle skal inneholde «${place}». Aldri hotell, pris eller bestill.`,
+        mode === "guide"
+          ? `cards er ${DESIGN_LIMITS.cards} ekte, kjente områder i ${place}. title er det lokale navnet, uoversatt. summary: én konkret, sann detalj om området og «For deg som …». Er du usikker på en detalj, skriv bare hvem området passer for.`
+          : null,
+      ].filter(Boolean).join(" ")
+      : "Ikke finn på et feriested, et land eller en by. Hold deg i kundens fag og hverdag.",
+    input.avoidRepeating?.length
+      ? `Ikke gjenta vinkler eller titler fra disse innleggene: ${input.avoidRepeating.slice(-5).join(" | ")}`
+      : null,
+    issues.length > 0 ? `Forrige utkast ble avvist fordi: ${issues.join(" ")}` : null,
   ];
-  const genericLines = [
-    "hook er én setning, ikke et spørsmål, og konkret om temaet i kundens fag. Ikke et stedsnavn.",
-    "coverTitle er temaet i 1–4 ord. Ikke et sted.",
-    "coverSubline er én ferdig setning på maks 12 ord i kundens fag. Hele setningen skal få plass på bildet. Ikke kutt den.",
-    "question er et konkret valg i kundens verden. cta skal være et spørsmål, uten nettadresse.",
-    mode === "guide"
-      ? [
-        "cards skal ha nøyaktig 3 konkrete alternativer, steg eller tips i kundens fag. Ikke områder, byer eller strender.",
-        "title er navnet på alternativet, steget eller tipset.",
-        "summary: To korte setninger om hva kunden faktisk gjør eller velger. Ingen adjektiver som vakker, flott, sjarmerende, livlig, fantastisk.",
-        "slideLine: én ferdig setning som slutter med punktum.",
-        "Hvert bullet maks 3 ord.",
-      ].join(" ")
-      : "cards skal være en tom liste.",
-  ];
-  return [
-    ...shared,
-    ...(travel ? travelLines : genericLines),
-    ...(issues.length > 0 ? [`Forrige utkast ble avvist fordi: ${issues.join(" ")}`] : []),
-  ].join("\n");
+  return lines.filter((line): line is string => Boolean(line)).join("\n");
 };
 
 export const createSocialDesign = async (input: DesignInput): Promise<SocialDesign> => {
-  const mode = input.forceGuide
-    ? "guide"
-    : resolveDesignMode(input.contentPillar, input.visualMotif, input.brief);
+  const mode = resolveDesignMode(input.channel);
   const client = getOpenAiClient();
-  if (!client) return useFallback(input, "no_client");
+  if (!client) return designFallback(input, "no_client");
 
   const ask = async (issues: string[]): Promise<SocialDesign | null> => {
     const response = await client.responses.create({
-      model: "gpt-4.1-mini",
-      max_output_tokens: 800,
-      input: [
-        {
-          role: "system",
-          content: [
-            "Du lager teksten som skal stå PÅ et ferdig SoMe-design, ikke en annonse.",
-            "Svar kun med JSON.",
-            "coverSubline er én ferdig setning som kan leses alene. Ikke stopp midt i setningen.",
-            "Konkret, kort, norsk bokmål. Ingen priser, prosenter, «best» eller oppdiktede kunder.",
-            "Teksten skal hjelpe leseren å velge, i kundens verden, ikke forklare bedriftens funksjoner.",
-          ].join(" "),
+      model: resolveCopyModel(),
+      max_output_tokens: 1200,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "social_design",
+          strict: true,
+          schema: DESIGN_SCHEMA,
         },
+      },
+      input: [
+        { role: "system", content: DESIGN_SYSTEM_PROMPT },
         { role: "user", content: designUserPrompt(input, mode, issues) },
       ],
     });
@@ -316,17 +339,23 @@ export const createSocialDesign = async (input: DesignInput): Promise<SocialDesi
 
   try {
     const first = await ask([]);
-    if (!first) return useFallback(input, "parse_null");
-    if (mode !== "guide") return first;
+    if (!first) return designFallback(input, "parse_null");
     const issues = designCopyIssues(first, input);
     if (issues.length === 0) return first;
-    return (await ask(issues)) ?? first;
+    const second = await ask(issues);
+    if (!second) return fitDesignToLimits(first);
+    const secondIssues = designCopyIssues(second, input);
+    const best = secondIssues.length <= issues.length ? second : first;
+    if (secondIssues.length > 0) {
+      logger.warn("Slide-tekst avvist to ganger, tilpasser beste utkast", { issues: secondIssues });
+    }
+    return fitDesignToLimits(best);
   } catch (error) {
     logger.warn("Kunne ikke planlegge slide-tekst", {
       reason: "exception",
       error: error instanceof Error ? error.message : "ukjent",
     });
-    return useFallback(input, "exception");
+    return designFallback(input, "exception");
   }
 };
 
@@ -380,10 +409,12 @@ export const resolvePlaceLook = async (placeName: string | null): Promise<string
   }
 };
 
-const placeLock = (brief: VisualBrief): string =>
-  brief.placeName
-    ? `Stay in ${brief.placeName}. Do not switch to another country or city.`
-    : "Stay in the customer's real world for this brand. Do not invent a beach resort.";
+const WORLD_STYLE: Record<VisualWorld, string> = {
+  travel: "Travel photography with the real light and atmosphere of the place. People enjoying it, not posing.",
+  food: "Appetizing food and hospitality photography. Warm practical light, real plates, real guests.",
+  craft: "Documentary photography on a real job site or workshop. Hands, tools and materials in action, realistic workwear.",
+  generic: "Documentary lifestyle photography of the customer's real situation. Natural, unposed people.",
+};
 
 export const buildPhotoSubject = (
   design: SocialDesign,
@@ -391,39 +422,36 @@ export const buildPhotoSubject = (
   slideIndex: number,
 ): string => {
   const card = slideIndex > 0 ? design.cards[slideIndex - 1] : undefined;
-  const place = brief.placeName;
-  if (card) {
-    return `Photograph the public character of "${card.title}"${place ? ` in ${place}` : ""}. ${card.summary}`;
-  }
-  return `Photograph a recognizable public view of ${place ?? design.coverTitle}. ${design.coverSubline}`;
+  const planned = card ? card.photoSubject : design.coverPhotoSubject;
+  if (planned) return planned;
+  const place = brief.placeName ? ` in ${brief.placeName}` : "";
+  if (card) return `${card.title}${place}. ${card.summary}`;
+  return `${design.coverTitle}${place}. ${brief.subjectDirection}`;
 };
 
 export const buildPhotoPrompt = (
   design: SocialDesign,
   brief: VisualBrief,
   slideIndex: number,
-  kind: "single" | "slide" = "slide",
   resolvedLook?: string | null,
+  industry?: string,
 ): string => {
   const place = brief.placeName;
   const look = resolvedLook ?? knownPlaceLook(place);
-  const subject = buildPhotoSubject(design, brief, slideIndex);
+  const textZone = slideIndex === 0 ? "lower third" : "lower 40 percent";
   return [
-    kind === "single"
-      ? "Editorial photograph for one social post. Place the subject in the upper half of the frame. No design, no poster, no collage."
-      : "Editorial photograph for a social carousel background. No design, no poster, no collage.",
-    subject,
-    placeLock(brief),
-    look
-      ? `The picture must be recognizable as that place: ${look}.`
-      : place
-        ? `Match the real architecture and landscape of ${place}. Do not substitute a generic Mediterranean hotel.`
-        : "Match the customer's real setting. Do not invent a holiday resort.",
-    "Show streets, coast, square or landscape with people in the scene.",
-    "Do not invent a hotel, a hotel name, or center the frame on one made-up hotel facade.",
-    "One clear scene, natural light, correct anatomy.",
-    "Leave the top-left corner visually empty. A real logo badge is composited there after generation.",
-    "Keep the lower third visually calm. Typography is added later, outside the photograph.",
-    "ABSOLUTELY NO text, letters, numbers, watermarks, logos, wordmarks or captions anywhere in the photograph.",
-  ].join(" ");
+    "Authentic editorial photograph for a Norwegian company's social media carousel.",
+    "Shot by a professional photographer on a full-frame camera, 35mm lens, natural light, real textures, gentle depth of field.",
+    `Subject: ${buildPhotoSubject(design, brief, slideIndex)}`,
+    WORLD_STYLE[brief.world],
+    industry ? `Industry: ${industry}. Show the real environment of this trade, not an office.` : null,
+    place
+      ? `Location: ${place}.${look ? ` It must be recognizable: ${look}.` : ""} Do not switch to another country or city. Do not invent a hotel or a hotel name.`
+      : "Setting: realistic Norwegian or Scandinavian surroundings. Do not invent a holiday resort.",
+    `One strong focal point in the upper part of the frame. Keep the ${textZone} simple and slightly darker, because a headline is placed there.`,
+    "Keep the top-left corner free of important detail. A logo is added there later.",
+    "No stock-photo clichés: no handshakes, no people posing at a laptop, no headsets, no 3D render, no illustration.",
+    "Correct anatomy, realistic proportions, no AI artifacts.",
+    "ABSOLUTELY NO text, letters, numbers, signs, logos, watermarks, screens with UI or captions anywhere in the photograph.",
+  ].filter((line): line is string => Boolean(line)).join(" ");
 };

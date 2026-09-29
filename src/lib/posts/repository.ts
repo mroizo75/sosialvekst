@@ -332,7 +332,7 @@ export const setPostAdditionalImages = async (
     post_id: postId,
     file_url: url,
     sort_order: index,
-    credit: credits?.[index] ?? null,
+    credit: credits?.[index]?.trim() || null,
   }));
 
   let { error: insertError } = await supabase.from("post_media_assets").insert(rows);
