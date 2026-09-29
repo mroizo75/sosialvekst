@@ -291,19 +291,28 @@ const shouldUseOwnedInHybrid = (userId: string): boolean => {
   return current;
 };
 
+const brandRulesFor = (input: GeneratePostInput) => mergeBrandRules({
+  targetAudience: input.brandContext?.targetAudience,
+  brandVoice: input.brandContext?.brandVoice,
+  keyMessages: input.brandContext?.keyMessages,
+  coreValues: input.brandContext?.coreValues,
+  prohibitedTerms: input.brandContext?.prohibitedTerms,
+});
+
+const profileTermsFor = (input: GeneratePostInput, placeName?: string | null): string[] =>
+  [
+    ...(input.brandContext?.products ?? []),
+    ...(input.brandContext?.services ?? []),
+    placeName ?? "",
+  ].filter((term) => term.trim().length >= 3);
+
 const createText = async (input: GeneratePostInput, visual?: CopyVisual, world?: VisualWorld): Promise<string> => {
   const client = getOpenAiClient();
   if (!client) {
     return fallbackText(input.topic);
   }
 
-  const brandRules = mergeBrandRules({
-    targetAudience: input.brandContext?.targetAudience,
-    brandVoice: input.brandContext?.brandVoice,
-    keyMessages: input.brandContext?.keyMessages,
-    coreValues: input.brandContext?.coreValues,
-    prohibitedTerms: input.brandContext?.prohibitedTerms,
-  });
+  const brandRules = brandRulesFor(input);
 
   const check = { placeName: visual?.placeName, pillar: input.contentPillar };
   const ask = async (rejectionReasons?: string[]): Promise<string> => {
@@ -940,10 +949,16 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
 
   const companyName = input.brandContext?.companyName;
   const websiteUrl = input.channel === "tiktok" ? undefined : input.brandContext?.websiteUrl?.trim();
+  const brandRules = brandRulesFor(input);
+  const profileTerms = profileTermsFor(input, brief.placeName);
   const revision = runRevisionLoop({
     initialText: rawText,
     imageUrl,
     companyName,
+    brandRules,
+    profileTerms,
+    pillar: input.contentPillar,
+    placeName: brief.placeName,
     maxAttempts: 2,
   });
   const creditedText = assembleCaption({
@@ -955,6 +970,10 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     text: creditedText,
     imageUrl,
     companyName,
+    brandRules,
+    profileTerms,
+    pillar: input.contentPillar,
+    placeName: brief.placeName,
   });
 
   return {

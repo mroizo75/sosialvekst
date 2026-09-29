@@ -1,4 +1,5 @@
 import { defaultBrandRules, type BrandRules } from "@/lib/ai/brandRules";
+import type { ContentPillar } from "@/lib/ai/postStrategy";
 import { validateAiOutput } from "@/lib/ai/outputValidator";
 
 type PolicyInput = {
@@ -6,6 +7,9 @@ type PolicyInput = {
   imageUrl?: string;
   brandRules?: BrandRules;
   companyName?: string;
+  profileTerms?: string[];
+  pillar?: ContentPillar;
+  placeName?: string | null;
 };
 
 export type PolicyDecision = {
@@ -29,6 +33,9 @@ export const evaluatePolicy = (input: PolicyInput): PolicyDecision => {
     imageUrl: input.imageUrl,
     brandRules: input.brandRules ?? defaultBrandRules,
     companyName: input.companyName,
+    profileTerms: input.profileTerms,
+    pillar: input.pillar,
+    placeName: input.placeName,
   });
 
   return {

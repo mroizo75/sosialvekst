@@ -1,9 +1,15 @@
+import type { BrandRules } from "@/lib/ai/brandRules";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
+import type { ContentPillar } from "@/lib/ai/postStrategy";
 
 type RevisionLoopInput = {
   initialText: string;
   imageUrl?: string;
   companyName?: string;
+  brandRules?: BrandRules;
+  profileTerms?: string[];
+  pillar?: ContentPillar;
+  placeName?: string | null;
   maxAttempts?: number;
 };
 
@@ -30,6 +36,10 @@ export const runRevisionLoop = (input: RevisionLoopInput): RevisionLoopResult =>
       text: candidate,
       imageUrl: input.imageUrl,
       companyName: input.companyName,
+      brandRules: input.brandRules,
+      profileTerms: input.profileTerms,
+      pillar: input.pillar,
+      placeName: input.placeName,
     });
 
     if (decision.status === "draft") {
@@ -61,6 +71,10 @@ export const runRevisionLoop = (input: RevisionLoopInput): RevisionLoopResult =>
     text: candidate,
     imageUrl: input.imageUrl,
     companyName: input.companyName,
+    brandRules: input.brandRules,
+    profileTerms: input.profileTerms,
+    pillar: input.pillar,
+    placeName: input.placeName,
   });
 
   return {

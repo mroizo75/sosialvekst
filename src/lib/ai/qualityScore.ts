@@ -1,47 +1,48 @@
+import type { ContentPillar } from "@/lib/ai/postStrategy";
 import type { QualityScore } from "@/lib/types";
 
 type QualityScoreInput = {
   text: string;
   imageUrl?: string;
-  hasBrandMatch: boolean;
   hasForbiddenTerms: boolean;
   companyName?: string;
+  profileTerms?: string[];
+  pillar?: ContentPillar;
 };
 
+const wordPattern = (source: string): RegExp =>
+  new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${source})(?:[^\\p{L}\\p{N}]|$)`, "iu");
+
 const CTA_PATTERNS = [
-  /ta kontakt/i,
-  /les mer/i,
-  /del (denne|gjerne|i kommentar)/i,
-  /f[oø]lg (oss|med)/i,
-  /hva (tenker|mener|er|synes) du/i,
-  /kom(menter|mentar)/i,
-  /bes[oø]k/i,
-  /pr[oø]v/i,
-  /meld deg/i,
-  /tagg en/i,
-  /book/i,
-  /bestill/i,
-  /ring oss/i,
-  /send (den|oss |en )/i,
-  /sjekk ut/i,
-  /neste steg/i,
-  /klar for/i,
-  /vil du vite/i,
-  /start (med|din|i dag|gratis|her)/i,
-  /registrer deg/i,
-  /last ned/i,
-  /opplev/i,
-  /finn ut/i,
-  /finn dagens/i,
-  /din erfaring/i,
-  /hvilken/i,
-  /ville du/i,
-  /lagre denne/i,
-  /skriv (det |valget |under)/i,
-  /se utvalget/i,
-  /se hva som finnes/i,
-  /passer deg/i,
-  /spørsmål\?/i,
+  wordPattern("ta kontakt"),
+  wordPattern("les mer"),
+  wordPattern("del (?:denne|gjerne|i kommentar)"),
+  wordPattern("f[oø]lg (?:oss|med)"),
+  wordPattern("hva (?:tenker|mener|er|synes) du"),
+  wordPattern("kom(?:menter|mentar)"),
+  wordPattern("bes[oø]k"),
+  wordPattern("meld deg"),
+  wordPattern("tagg en"),
+  wordPattern("bestill"),
+  wordPattern("ring oss"),
+  wordPattern("send (?:den|oss|en)"),
+  wordPattern("sjekk ut"),
+  wordPattern("neste steg"),
+  wordPattern("vil du vite"),
+  wordPattern("start (?:med|din|i dag|gratis|her)"),
+  wordPattern("registrer deg"),
+  wordPattern("last ned"),
+  wordPattern("finn ut"),
+  wordPattern("finn dagens"),
+  wordPattern("din erfaring"),
+  wordPattern("hvilken"),
+  wordPattern("ville du"),
+  wordPattern("lagre denne"),
+  wordPattern("skriv (?:det|valget|under)"),
+  wordPattern("se utvalget"),
+  wordPattern("se hva som finnes"),
+  wordPattern("passer deg"),
+  wordPattern("spørsmål\\?"),
 ];
 
 const GENERIC_PHRASES = [
@@ -128,12 +129,19 @@ export const calculateQualityScore = (input: QualityScoreInput): QualityScore =>
   const languageBase = textLength > 40 && textLength < 1600 ? 82 : 70;
   const languageQuality = Math.min(100, languageBase + sentenceVariety * 0.15 - genericCount * 10);
 
-  const brandMatch = input.hasBrandMatch ? 90 : 78;
+  const terms = (input.profileTerms ?? []).map((term) => term.trim()).filter((term) => term.length >= 3);
+  const mentionsProfile = terms.some((term) => {
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return wordPattern(escaped).test(input.text);
+  });
+  const brandMatch = terms.length === 0 ? 62 : mentionsProfile ? 92 : 48;
 
-  const factualClarity = Math.min(100, 70 + (input.text.match(/\d+/g)?.length ?? 0) * 5);
+  const numberCount = input.text.match(/\d+/g)?.length ?? 0;
+  const penalizeNumbers = input.pillar === "inspiration" || input.pillar === "useful";
+  const factualClarity = Math.max(0, 70 - (penalizeNumbers ? numberCount * 8 : 0));
 
   const engagementBase = ctaPresent ? 80 : 50;
-  const addressesReader = input.text.toLowerCase().includes("du") ? 10 : 0;
+  const addressesReader = /\bdu\b/i.test(input.text) ? 10 : 0;
   const hasQuestion = input.text.includes("?") ? 8 : 0;
   const engagementPotential = Math.min(100, engagementBase + addressesReader + hasQuestion);
 

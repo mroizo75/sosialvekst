@@ -62,7 +62,7 @@ describe("organisk innholdsstrategi", () => {
 
   it("godkjenner tekst uten bedriftsnavn og flagger oppdiktede påstander", () => {
     const approved = validateAiOutput({
-      text: "Skal du til Mallorca?\n\nIkke bestill hotell før du vet dette.\n\nHvilken ville du valgt?",
+      text: "Kveldssolen treffer gatene i Mallorca.\n\nDu kan gå dem uten kart.\n\nHvilken gate ville du tatt?",
       brandRules: defaultBrandRules,
       companyName: "Sydenklar",
     });

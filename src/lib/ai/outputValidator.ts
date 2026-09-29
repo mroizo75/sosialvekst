@@ -1,5 +1,7 @@
 import type { BrandRules } from "@/lib/ai/brandRules";
+import type { ContentPillar } from "@/lib/ai/postStrategy";
 import { calculateQualityScore, hasUndocumentedClaim } from "@/lib/ai/qualityScore";
+import { findCopyIssues } from "@/lib/ai/validateCopy";
 import type { QualityScore } from "@/lib/types";
 
 type ValidationInput = {
@@ -7,6 +9,9 @@ type ValidationInput = {
   imageUrl?: string;
   brandRules: BrandRules;
   companyName?: string;
+  profileTerms?: string[];
+  pillar?: ContentPillar;
+  placeName?: string | null;
 };
 
 type ValidationResult = {
@@ -28,16 +33,13 @@ export const validateAiOutput = (input: ValidationInput): ValidationResult => {
   );
   const undocumentedClaim = hasUndocumentedClaim(input.text);
 
-  const hasBrandMatch = input.brandRules.keyMessages.some((message) =>
-    normalized.includes(message.toLowerCase().slice(0, 12)),
-  );
-
   const quality = calculateQualityScore({
     text: input.text,
     imageUrl: input.imageUrl,
-    hasBrandMatch,
     hasForbiddenTerms: containsForbiddenTerm || undocumentedClaim,
     companyName: input.companyName,
+    profileTerms: input.profileTerms,
+    pillar: input.pillar,
   });
 
   if (containsForbiddenTerm) {
@@ -66,6 +68,10 @@ export const validateAiOutput = (input: ValidationInput): ValidationResult => {
 
   if (quality.total < MIN_QUALITY_THRESHOLD) {
     reasons.push(`Kvalitetsscore (${quality.total}) er under terskel (${MIN_QUALITY_THRESHOLD})`);
+  }
+
+  for (const issue of findCopyIssues(input.text, { placeName: input.placeName, pillar: input.pillar })) {
+    reasons.push(issue);
   }
 
   return {
