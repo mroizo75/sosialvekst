@@ -231,18 +231,28 @@ const placeLock = (brief: VisualBrief): string =>
     ? `Stay in ${brief.placeName}. Do not switch to another country or city.`
     : "Stay in the customer's real world for this brand. Do not invent a beach resort.";
 
+export const buildPhotoSubject = (
+  design: SocialDesign,
+  brief: VisualBrief,
+  slideIndex: number,
+): string => {
+  const card = slideIndex > 0 ? design.cards[slideIndex - 1] : undefined;
+  const place = brief.placeName;
+  if (card) {
+    return `Photograph the public character of "${card.title}"${place ? ` in ${place}` : ""}. ${card.summary}`;
+  }
+  return `Photograph a recognizable public view of ${place ?? design.coverTitle}. ${design.coverSubline}`;
+};
+
 export const buildPhotoPrompt = (
   design: SocialDesign,
   brief: VisualBrief,
   slideIndex: number,
   kind: "single" | "slide" = "slide",
 ): string => {
-  const card = slideIndex > 0 ? design.cards[slideIndex - 1] : undefined;
   const place = brief.placeName;
   const look = placeLook(place);
-  const subject = card
-    ? `Photograph the public character of "${card.title}"${place ? ` in ${place}` : ""}. ${card.summary}`
-    : `Photograph a recognizable public view of ${place ?? design.coverTitle}. ${design.coverSubline}`;
+  const subject = buildPhotoSubject(design, brief, slideIndex);
   return [
     kind === "single"
       ? "Editorial photograph for one social post. Place the subject in the upper half of the frame. No design, no poster, no collage."

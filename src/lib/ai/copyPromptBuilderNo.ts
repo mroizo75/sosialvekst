@@ -5,6 +5,13 @@ import type { ContentPillar } from "@/lib/ai/postStrategy";
 import { buildSystemContext } from "@/lib/ai/systemPrompt";
 import type { BrandContext, PostFormat, PostIntent, SocialChannel } from "@/lib/types";
 
+export type CopyVisual = {
+  placeName: string | null;
+  scene: string;
+  overlayTitle: string;
+  overlaySubline: string;
+};
+
 type CopyPromptInput = {
   topic: string;
   channel: SocialChannel;
@@ -15,6 +22,7 @@ type CopyPromptInput = {
   ctaType?: string;
   contentPillar?: ContentPillar;
   reelScript?: boolean;
+  visual?: CopyVisual;
 };
 
 type StructuredPrompt = {
@@ -86,6 +94,20 @@ const buildTikTokSystemRules = (companyName: string, prohibitedTerms: string[]):
   "8. 0–3 hashtags. Ikke fyll captionen med tags.",
 ];
 
+const visualLines = (visual?: CopyVisual): string[] => {
+  if (!visual) return [];
+  const place = visual.placeName ?? "ikke et navngitt sted";
+  return [
+    "BILDE OG OVERLAY (teksten skal passe dette, ikke noe annet):",
+    `Sted: ${place}.`,
+    `Scene: ${visual.scene}`,
+    `Overlay-tittel: ${visual.overlayTitle}`,
+    `Overlay-undertekst: ${visual.overlaySubline}`,
+    "Nevn stedet hvis det finnes. Beskriv bare det scenen viser. Ikke motsi tittelen eller underteksten.",
+    "",
+  ];
+};
+
 const buildStandardUserPrompt = (
   input: CopyPromptInput,
   companyName: string,
@@ -96,6 +118,7 @@ const buildStandardUserPrompt = (
 ): string[] => {
   const includeWebsite = pillar === "commercial" || pillar === "trust";
   const lines = [
+    ...visualLines(input.visual),
     `Skriv en organisk SoMe-post for ${input.channel}.`,
     `Tema: ${input.topic}.`,
     `Bedrift i bakgrunnen: ${companyName}. Innlegget skal ikke høres ut som en annonse for dem.`,
@@ -150,6 +173,7 @@ const buildTikTokUserPrompt = (
   format: PostFormat,
   pillar: ContentPillar,
 ): string[] => [
+  ...visualLines(input.visual),
   "Skriv en KORT videocaption for TikTok.",
   `Tema: ${input.topic}.`,
   `Bedrift i bakgrunnen: ${companyName}.`,

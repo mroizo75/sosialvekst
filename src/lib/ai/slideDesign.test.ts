@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 
 import { buildSlideSvg, composeDesignedSlide, photoTextColors, resolveSlideLayout } from "@/lib/ai/slideComposer";
-import { buildPhotoPrompt, composeGuideCaption, headlineFromCaption, parseSocialDesign, placeGuideCopy, resolveDesignMode } from "@/lib/ai/slideDesign";
+import { buildPhotoPrompt, buildPhotoSubject, composeGuideCaption, headlineFromCaption, parseSocialDesign, placeGuideCopy, resolveDesignMode } from "@/lib/ai/slideDesign";
 import type { VisualBrief } from "@/lib/ai/visualDirection";
 
 const brief: VisualBrief = {
@@ -62,6 +62,14 @@ describe("slideDesign", () => {
     expect(svg).toContain("Maspalomas");
     expect(svg).toContain("Lange strender");
     expect(svg).toContain("#0E4D6C");
+  });
+
+  it("bruker samme scene i fotoprompten som copy-prompten kan få", () => {
+    const subject = buildPhotoSubject(guide, brief, 0);
+    const photo = buildPhotoPrompt(guide, brief, 0);
+
+    expect(subject).toContain("Gran Canaria");
+    expect(photo).toContain(subject);
   });
 
   it("legger reisetekst på bildet, ikke på et fargefelt", () => {

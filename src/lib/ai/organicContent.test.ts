@@ -108,6 +108,26 @@ describe("organisk innholdsstrategi", () => {
     expect(prompt.system.toLowerCase()).not.toContain("strand");
   });
 
+  it("legger bildet først i copy-prompten når scenen er kjent", () => {
+    const prompt = buildNorwegianCopyPrompt({
+      topic: "En uke på Sicilia",
+      channel: "facebook",
+      brandRules: defaultBrandRules,
+      brandContext: { companyName: "Sydenklar" },
+      contentPillar: "inspiration",
+      visual: {
+        placeName: "Sicilia",
+        scene: "Photograph a recognizable public view of Sicilia. A busy street",
+        overlayTitle: "Sicilia",
+        overlaySubline: "Gater i kveldssol",
+      },
+    });
+
+    expect(prompt.user.startsWith("BILDE OG OVERLAY")).toBe(true);
+    expect(prompt.user).toContain("Sted: Sicilia");
+    expect(prompt.user.indexOf("BILDE OG OVERLAY")).toBeLessThan(prompt.user.indexOf("Tema:"));
+  });
+
   it("holder bilderetningen bransjenøytral til reiseverdenen tolker den", () => {
     const posts = Array.from({ length: 20 }, (_, feedIndex) =>
       assignPostStrategy({
