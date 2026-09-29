@@ -112,32 +112,75 @@ const getMaxOutputTokens = (channel: SocialChannel): number => {
   return 280;
 };
 
+const HASHTAG_TOKEN = /#([\p{L}\p{N}_]+)/gu;
+
+const endsWithHashtagLine = (text: string): boolean =>
+  /(?:^|\n)\s*#(?:[\p{L}\p{N}_]+)(?:[ \t]+#[\p{L}\p{N}_]+)*[ \t]*$/u.test(text);
+
+const splitHashtags = (text: string): { body: string; hashtags: string[] } => {
+  const tags: string[] = [];
+  const body = text.replace(HASHTAG_TOKEN, (match) => {
+    if (tags.length < 3 && !tags.some((tag) => tag.toLowerCase() === match.toLowerCase())) {
+      tags.push(match);
+    }
+    return "";
+  })
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return { body, hashtags: tags };
+};
+
 const containsWebsiteUrl = (text: string, websiteUrl?: string): boolean => {
   if (!websiteUrl) return false;
   return text.includes(websiteUrl);
 };
 
-const ensureWebsiteLinkInText = (
-  text: string,
-  websiteUrl: string | undefined,
-  includeWebsiteLink: boolean,
-  pillar?: ContentPillar,
-): string => {
-  if (!includeWebsiteLink || !websiteUrl) return text.trim();
-  if (containsWebsiteUrl(text, websiteUrl)) return text.trim();
-
-  const trimmed = text.trim();
-  const withEnding = /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
-  const lead = pillar === "trust" ? "Mer om hvordan det fungerer" : "Se utvalget";
-  return `${withEnding}\n\n${lead}: ${websiteUrl}`;
+const withoutTrailingLink = (text: string, websiteUrl: string): string => {
+  const escaped = websiteUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.replace(new RegExp(`\\n*${escaped}\\s*$`), "").trim();
 };
 
-const ensureCompleteEnding = (text: string): string => {
+export const ensureCompleteEnding = (text: string): string => {
   const trimmed = text.trim();
   if (!trimmed) return trimmed;
+  if (endsWithHashtagLine(trimmed)) return trimmed;
   if (/https?:\/\/\S+$/.test(trimmed)) return trimmed;
   if (/[.!?]$/.test(trimmed)) return trimmed;
   return `${trimmed}.`;
+};
+
+export const ensureWebsiteLinkInText = (
+  text: string,
+  websiteUrl: string | undefined,
+  includeWebsiteLink: boolean,
+  _pillar?: ContentPillar,
+): string => {
+  if (!includeWebsiteLink || !websiteUrl) return text.trim();
+
+  const { body, hashtags } = splitHashtags(text);
+  const prose = containsWebsiteUrl(body, websiteUrl)
+    ? withoutTrailingLink(body, websiteUrl)
+    : body;
+  const complete = ensureCompleteEnding(prose);
+  const withLink = complete ? `${complete}\n\n${websiteUrl}` : websiteUrl;
+  return hashtags.length > 0 ? `${withLink}\n\n${hashtags.join(" ")}` : withLink;
+};
+
+export type CaptionAssembly = {
+  body: string;
+  link?: string;
+  hashtags?: string;
+  credits?: string;
+};
+
+export const assembleCaption = ({ body, link, hashtags, credits }: CaptionAssembly): string => {
+  const split = splitHashtags(`${body}${hashtags?.trim() ? `\n${hashtags.trim()}` : ""}`);
+  const linked = ensureWebsiteLinkInText(split.body, link?.trim(), Boolean(link?.trim()));
+  const withTags = split.hashtags.length > 0 ? `${linked}\n\n${split.hashtags.join(" ")}` : linked;
+  const creditLine = credits?.trim();
+  return creditLine ? `${withTags}\n\n${creditLine}` : withTags;
 };
 
 const isOwnedImageUrl = (url: string): boolean => {
@@ -903,18 +946,11 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     maxAttempts: 2,
     guideMode: socialDesign?.mode === "guide",
   });
-  const normalizedText = ensureCompleteEnding(
-    ensureWebsiteLinkInText(
-      revision.finalText,
-      websiteUrl,
-      input.includeWebsiteLink ?? false,
-      input.contentPillar,
-    ),
-  );
-  const creditLine = formatPhotoCredits(imageInput.photoCredits ?? []);
-  const creditedText = creditLine
-    ? `${normalizedText}\n\n${creditLine}`
-    : normalizedText;
+  const creditedText = assembleCaption({
+    body: revision.finalText,
+    link: input.includeWebsiteLink ? websiteUrl : undefined,
+    credits: formatPhotoCredits(imageInput.photoCredits ?? []) || undefined,
+  });
   const decision = evaluatePolicy({
     text: creditedText,
     imageUrl,
