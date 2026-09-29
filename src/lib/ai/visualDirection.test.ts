@@ -70,28 +70,44 @@ describe("visualDirection", () => {
     expect(brief.subjectDirection.toLowerCase()).not.toContain("ferie");
   });
 
-  it("roterer destinasjon når temaet ikke navngir et sted", () => {
+  it("gjetter ikke et reisemål når profilen ikke nevner destinasjoner", () => {
     const unnamed: BrandContext = {
       companyName: "Sydenklar",
       industry: "Reise og ferie",
       companyDescription: "Hotell og ferie",
     };
-    const first = buildVisualBrief({
-      topic: "Varm ferie",
-      brandContext: unnamed,
-      feedIndex: 0,
-      motif: "people",
-    });
-    const second = buildVisualBrief({
+    const brief = buildVisualBrief({
       topic: "Varm ferie",
       brandContext: unnamed,
       feedIndex: 1,
       motif: "restaurant",
     });
 
-    expect(first.world).toBe("travel");
-    expect(first.placeName).not.toBe(second.placeName);
-    expect(second.subjectDirection.toLowerCase()).toContain("restaurant");
+    expect(brief.world).toBe("travel");
+    expect(brief.placeName).toBeNull();
+    expect(brief.subjectDirection.toLowerCase()).toContain("restaurant");
+    expect(brief.subjectDirection).not.toMatch(/Rhodos|Mallorca|Sicilia/);
+  });
+
+  it("leser bransjeord som hele ord, og ignorerer booking i nettstedstekst", () => {
+    expect(detectVisualWorld({
+      companyName: "SosialVekst",
+      industry: "Markedsføring",
+      companyDescription: "Automatisk publisering av innlegg",
+    }, "automatisk publisering")).not.toBe("food");
+
+    expect(detectVisualWorld({
+      companyName: "Klipp og krøll",
+      industry: "Frisør",
+      companyDescription: "Klipp, farge og styling",
+      services: ["Klipp", "Farge"],
+      websiteContent: "Enkel booking på nett. Hotellet i nabolaget booker også.",
+    }, "Ny frisyre")).not.toBe("travel");
+
+    expect(detectVisualWorld({
+      industry: "Reise",
+      industryType: "generic",
+    })).toBe("generic");
   });
 
   it("kjenner Kos og Hurghada uten å treffe inni andre ord", () => {

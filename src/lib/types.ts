@@ -58,6 +58,7 @@ export type BrandContext = {
   companyName?: string;
   companyDescription?: string;
   industry?: string;
+  industryType?: "travel" | "food" | "craft" | "generic";
   foundedYear?: string;
   teamDescription?: string;
   coreValues?: string[];

@@ -192,11 +192,26 @@ const collectBrandText = (brandContext?: BrandContext, topic = ""): string => {
 };
 
 const matchesAny = (haystack: string, markers: string[]): boolean =>
-  markers.some((marker) => haystack.includes(marker));
+  markers.some((marker) => {
+    const escaped = marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?:[^\\p{L}\\p{N}]|$)`, "iu").test(haystack);
+  });
+
+const travelProfileText = (brandContext?: BrandContext): string =>
+  [
+    brandContext?.industry,
+    brandContext?.companyDescription,
+    ...(brandContext?.products ?? []),
+    ...(brandContext?.services ?? []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
 
 export const detectVisualWorld = (brandContext?: BrandContext, topic = ""): VisualWorld => {
+  if (brandContext?.industryType) return brandContext.industryType;
+  if (matchesAny(travelProfileText(brandContext), TRAVEL_MARKERS)) return "travel";
   const text = collectBrandText(brandContext, topic);
-  if (matchesAny(text, TRAVEL_MARKERS)) return "travel";
   if (matchesAny(text, FOOD_MARKERS)) return "food";
   if (matchesAny(text, CRAFT_MARKERS)) return "craft";
   return "generic";
@@ -250,15 +265,32 @@ const formatDirectionFallback = (format?: PostFormat): string => {
   }
 };
 
+const destinationsInProfile = (brandContext?: BrandContext): string[] => {
+  const text = [
+    ...(brandContext?.products ?? []),
+    ...(brandContext?.services ?? []),
+    brandContext?.companyDescription ?? "",
+    brandContext?.seasonalFocus ?? "",
+  ].join(" ");
+  return [...DESTINATIONS]
+    .sort((left, right) => right.length - left.length)
+    .filter((place) => {
+      const escaped = place.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`(?:^|[^a-zæøå])${escaped}(?:[^a-zæøå]|$)`, "i").test(text);
+    });
+};
+
 const resolveTravelPlace = (
   brandContext: BrandContext | undefined,
   topic: string,
   feedIndex = 0,
-): string => {
-  const named = extractDestination(brandContext, topic);
-  if (named) return named;
+): string | null => {
+  const namedInTopic = extractDestination(undefined, topic);
+  if (namedInTopic) return namedInTopic;
+  const offered = destinationsInProfile(brandContext);
+  if (offered.length === 0) return null;
   const seed = `${brandContext?.companyName ?? ""}|${topic}`;
-  return DESTINATIONS[(hashString(seed) + feedIndex) % DESTINATIONS.length];
+  return offered[(hashString(seed) + feedIndex) % offered.length];
 };
 
 export const buildVisualBrief = (input: {
@@ -277,22 +309,25 @@ export const buildVisualBrief = (input: {
 
   if (world === "travel") {
     const placeName = resolveTravelPlace(input.brandContext, input.topic, input.feedIndex ?? 0);
-    const sceneLock = `Ferie- og hotelldestinasjonen ${placeName}: samme sted i alle bilder i denne serien`;
+    const placeLabel = placeName ?? "ferie uten et navngitt sted";
+    const sceneLock = placeName
+      ? `Ferie- og hotelldestinasjonen ${placeName}: samme sted i alle bilder i denne serien`
+      : `Samme feriesituasjon for ${companyName}, uten et navngitt sted`;
     return {
       world,
       placeName,
       sceneLock,
       subjectDirection: [
-        `Reisebilde fra ${placeName}.`,
+        placeName ? `Reisebilde fra ${placeName}.` : "Reisebilde uten et bestemt stedsnavn.",
         motifScene,
         "Mennesker skal være tydelige i bildet. Vi selger følelsen av å være der, ikke bare arkitekturen.",
         "Fotorealistisk, naturlig lys, variert motiv. Ikke enda et tomt basseng i varmt filter.",
       ].join(" "),
       carouselAngles: [
-        `Mennesker på ferie i ${placeName}: par, familie eller venner i forgrunnen.`,
-        `Mat, frokost eller restaurant i ${placeName}, med gjester ved bordet.`,
-        `Byliv, promenade eller aktivitet i ${placeName}, med mennesker som går eller gjør noe.`,
-        `Strand, utsikt eller rom i ${placeName}, med en person som opplever stedet.`,
+        `Mennesker på ferie i ${placeLabel}: par, familie eller venner i forgrunnen.`,
+        `Mat, frokost eller restaurant i ${placeLabel}, med gjester ved bordet.`,
+        `Byliv, promenade eller aktivitet i ${placeLabel}, med mennesker som går eller gjør noe.`,
+        `Strand, utsikt eller rom i ${placeLabel}, med en person som opplever stedet.`,
       ],
       bans: TRAVEL_BANS,
     };
