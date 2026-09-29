@@ -6,7 +6,7 @@ import { describeMediaUrl, generateProfessionalImage, overlayLogoOnImage } from 
 import { generateProductImage } from "@/lib/ai/imageEngine";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
 import { resolveCopyModel } from "@/lib/ai/models";
-import { composeDesignedSlide, type SlideLayout } from "@/lib/ai/slideComposer";
+import { composeDesignedSlide, type SlideLayout, type SlideShape } from "@/lib/ai/slideComposer";
 import { buildCarouselVariantPrompt, buildVisualBrief, type VisualBrief, type VisualWorld } from "@/lib/ai/visualDirection";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import type { ContentPillar, VisualMotif } from "@/lib/ai/postStrategy";
@@ -217,7 +217,9 @@ export type CaptionAssembly = {
   credits?: string;
 };
 
-const CREDIT_PREFIX = /^Foto:\s*/i;
+const CREDIT_PREFIX = /^(?:foto|bilde|photo)\s*:\s*/i;
+
+const isCreditLine = (line: string): boolean => CREDIT_PREFIX.test(line.trim());
 
 export const creditLineFromRecords = (records: Array<string | null | undefined>): string => {
   const items = [...new Set(
@@ -228,15 +230,25 @@ export const creditLineFromRecords = (records: Array<string | null | undefined>)
   return items.length > 0 ? `Foto: ${items.join(" · ")}` : "";
 };
 
+export const creditRecordsFromText = (text: string): string[] =>
+  text.split("\n").map((line) => line.trim()).filter(isCreditLine);
+
+export const stripCreditLines = (text: string): string =>
+  text
+    .split("\n")
+    .filter((line) => !isCreditLine(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
 export const replaceCreditLine = (text: string, records: Array<string | null | undefined>): string => {
-  const lines = text.trimEnd().split("\n");
-  while (lines.length > 0 && (CREDIT_PREFIX.test(lines[lines.length - 1]?.trim() ?? "") || !lines[lines.length - 1]?.trim())) {
-    lines.pop();
-  }
-  const body = lines.join("\n").trimEnd();
+  const body = stripCreditLines(text);
   const creditLine = creditLineFromRecords(records);
   return creditLine ? `${body}\n\n${creditLine}` : body;
 };
+
+export const slideShapeFor = (channel: SocialChannel): SlideShape =>
+  channel === "instagram" ? "square" : "portrait";
 
 export const assembleCaption = ({ body, link, hashtags, credits }: CaptionAssembly): string => {
   const combined = `${body}${hashtags?.trim() ? `\n${hashtags.trim()}` : ""}`;
@@ -571,7 +583,7 @@ const findSlidePhoto = async (
       userId: input.userId,
       prompt: buildPhotoPrompt(design, brief, slideIndex, input.placeLook, input.brandContext?.industry),
       profile: getImageQualityPolicy(input.channel, input.imageProfile).imageProfile,
-      size: "1024x1536",
+      size: slideShapeFor(input.channel) === "square" ? "1024x1024" : "1024x1536",
     });
     return { bytes: await loadBuffer(photoUrl, "slidefoto") };
   } catch (error) {
@@ -598,6 +610,7 @@ const composeAndUpload = async (
     design,
     slideIndex,
     layout,
+    shape: slideShapeFor(input.channel),
     carousel: design.mode === "guide" && design.cards.length > 0,
     companyName: input.brandContext?.companyName,
     websiteUrl: input.brandContext?.websiteUrl,
@@ -1161,7 +1174,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   const brandRules = brandRulesFor(input);
   const profileTerms = profileTermsFor(input, brief.placeName);
   const revision = runRevisionLoop({
-    initialText: rawText,
+    initialText: stripCreditLines(rawText),
     imageUrl,
     companyName,
     brandRules,

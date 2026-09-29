@@ -4,11 +4,14 @@ import {
   assembleCaption,
   buildCopyUserInput,
   creditLineFromRecords,
+  creditRecordsFromText,
   ensureCompleteEnding,
   ensureWebsiteLinkInText,
   postStatusForMedia,
   replaceCreditLine,
   resolveCopyModel,
+  slideShapeFor,
+  stripCreditLines,
 } from "@/lib/ai/generatePost";
 
 describe("fotokreditering", () => {
@@ -29,6 +32,28 @@ describe("fotokreditering", () => {
     expect(replaceCreditLine(text, ["Foto: Bo, CC0"])).toBe("Kvelden er rolig.\n\n#rhodos\n\nFoto: Bo, CC0");
     expect(replaceCreditLine(text, [""])).toBe("Kvelden er rolig.\n\n#rhodos");
     expect(replaceCreditLine("Ny tekst.", ["Foto: Ada, CC BY 2.0"])).toBe("Ny tekst.\n\nFoto: Ada, CC BY 2.0");
+  });
+
+  it("fjerner kreditt modellen har diktet opp midt i teksten", () => {
+    const text = "Se hva som finnes.\n\nFoto: iStock.\n\nhttps://www.sydenklar.no/";
+
+    expect(stripCreditLines(text)).toBe("Se hva som finnes.\n\nhttps://www.sydenklar.no/");
+    expect(replaceCreditLine(text, ["Foto: Ada, CC BY 2.0"])).toBe(
+      "Se hva som finnes.\n\nhttps://www.sydenklar.no/\n\nFoto: Ada, CC BY 2.0",
+    );
+  });
+
+  it("henter eksisterende kreditt fra teksten når databasen mangler den", () => {
+    const text = "Kvelden er rolig.\n\nFoto: Ada, CC BY 2.0\nFoto: Bo, CC0";
+
+    expect(creditRecordsFromText(text)).toEqual(["Foto: Ada, CC BY 2.0", "Foto: Bo, CC0"]);
+    expect(creditRecordsFromText("Ingen kreditt her.")).toEqual([]);
+    expect(replaceCreditLine("Ny tekst.", creditRecordsFromText(text))).toBe("Ny tekst.\n\nFoto: Ada, CC BY 2.0 · Bo, CC0");
+  });
+
+  it("lager kvadratiske slides bare for Instagram", () => {
+    expect(slideShapeFor("instagram")).toBe("square");
+    expect(slideShapeFor("facebook")).toBe("portrait");
   });
 });
 

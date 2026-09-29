@@ -6,11 +6,14 @@ import { logger } from "@/lib/logger";
 
 export type SlideLayout = "cover" | "slide" | "card" | "cta";
 
+export type SlideShape = "portrait" | "square";
+
 export type ComposeInput = {
   photo?: Buffer;
   design: SocialDesign;
   slideIndex: number;
   layout: SlideLayout;
+  shape?: SlideShape;
   carousel?: boolean;
   logo?: Buffer;
   companyName?: string;
@@ -23,6 +26,7 @@ export type ComposeInput = {
 
 export const SLIDE_WIDTH = 1080;
 export const SLIDE_HEIGHT = 1350;
+export const SQUARE_SLIDE_HEIGHT = 1080;
 const PAD = 72;
 const TEXT_WIDTH = SLIDE_WIDTH - PAD * 2;
 const FOOTER = 120;
@@ -95,13 +99,18 @@ export const solidSlideBackground = (color = "#E7E1D6"): Promise<Buffer> =>
     create: { width: SLIDE_WIDTH, height: SLIDE_HEIGHT, channels: 3, background: color },
   }).jpeg().toBuffer();
 
+export const slideHeight = (shape: SlideShape = "portrait"): number =>
+  shape === "square" ? SQUARE_SLIDE_HEIGHT : SLIDE_HEIGHT;
+
+const heightOf = (input: ComposeInput): number => slideHeight(input.shape);
+
 const svg = (body: string, width = SLIDE_WIDTH, height = SLIDE_HEIGHT): Buffer =>
   Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">${body}</svg>`);
 
 const pill = (width: number, height: number, fill: string): Buffer =>
   svg(`<rect width="${width}" height="${height}" rx="${Math.round(height / 2)}" fill="${fill}"/>`, width, height);
 
-const photoShade = (textTop: number): Buffer => {
+const photoShade = (textTop: number, height: number): Buffer => {
   const start = Math.max(0, textTop - 260);
   return svg(`
     <defs>
@@ -116,8 +125,8 @@ const photoShade = (textTop: number): Buffer => {
       </linearGradient>
     </defs>
     <rect width="${SLIDE_WIDTH}" height="260" fill="url(#top)"/>
-    <rect y="${start}" width="${SLIDE_WIDTH}" height="${SLIDE_HEIGHT - start}" fill="url(#bottom)"/>
-  `);
+    <rect y="${start}" width="${SLIDE_WIDTH}" height="${height - start}" fill="url(#bottom)"/>
+  `, SLIDE_WIDTH, height);
 };
 
 const place = (block: TextBlock, left: number, top: number): sharp.OverlayOptions => ({
@@ -159,15 +168,15 @@ export const contrastPlateFill = async (png: Buffer): Promise<string> => {
 const logoLayers = async (
   logo: Buffer,
   box: { maxWidth: number; maxHeight: number },
-  position: { left: number; top: number } | "centre-top",
+  position: { left: number; top: number } | { centreTop: number },
 ): Promise<{ layers: sharp.OverlayOptions[]; bottom: number }> => {
   const fitted = await fitLogo(logo, box.maxWidth, box.maxHeight);
   const meta = await sharp(fitted).metadata();
   const width = meta.width ?? box.maxWidth;
   const height = meta.height ?? box.maxHeight;
   const platePad = 18;
-  const left = position === "centre-top" ? Math.round((SLIDE_WIDTH - width) / 2) : position.left;
-  const top = position === "centre-top" ? 200 : position.top;
+  const left = "centreTop" in position ? Math.round((SLIDE_WIDTH - width) / 2) : position.left;
+  const top = "centreTop" in position ? position.centreTop : position.top;
   const plateFill = await contrastPlateFill(fitted);
   const plate = svg(
     `<rect width="100%" height="100%" rx="24" fill="${plateFill}"/>`,
@@ -185,6 +194,7 @@ const logoLayers = async (
 
 const footerLayers = async (input: ComposeInput, color: string): Promise<sharp.OverlayOptions[]> => {
   const layers: sharp.OverlayOptions[] = [];
+  const footerY = heightOf(input) - 52;
   const credit = input.credit?.trim();
   if (credit) {
     const block = await renderTextBlock({
@@ -196,7 +206,7 @@ const footerLayers = async (input: ComposeInput, color: string): Promise<sharp.O
       maxSize: 22,
       minSize: 16,
     });
-    if (block) layers.push(place(block, PAD, SLIDE_HEIGHT - 52 - block.height / 2));
+    if (block) layers.push(place(block, PAD, footerY - block.height / 2));
   }
   if (input.carousel && input.layout === "cover") {
     const block = await renderTextBlock({
@@ -208,7 +218,7 @@ const footerLayers = async (input: ComposeInput, color: string): Promise<sharp.O
       maxSize: 28,
       minSize: 22,
     });
-    if (block) layers.push(place(block, SLIDE_WIDTH - PAD - block.width, SLIDE_HEIGHT - 52 - block.height / 2));
+    if (block) layers.push(place(block, SLIDE_WIDTH - PAD - block.width, footerY - block.height / 2));
   }
   return layers;
 };
@@ -246,27 +256,30 @@ const photoTextLayers = async (input: ComposeInput): Promise<{ layers: sharp.Ove
   const accent = accentFor(input);
   const card = input.slideIndex > 0 ? input.design.cards[input.slideIndex - 1] : undefined;
   const cover = input.layout === "cover";
+  const titleOnly = input.shape === "square";
   const title = await renderTextBlock({
     text: card?.title ?? input.design.coverTitle,
     weight: "heavy",
     color: "#FFFFFF",
     maxWidth: TEXT_WIDTH,
-    maxHeight: cover ? 470 : 280,
-    maxSize: cover ? 124 : 84,
+    maxHeight: titleOnly ? (cover ? 440 : 320) : cover ? 470 : 280,
+    maxSize: titleOnly ? (cover ? 156 : 112) : cover ? 124 : 84,
     minSize: cover ? 60 : 50,
   });
-  const body = await renderTextBlock({
-    text: card?.summary ?? input.design.coverSubline,
-    weight: "medium",
-    color: "#F4F4F4",
-    maxWidth: TEXT_WIDTH,
-    maxHeight: cover ? 150 : 270,
-    maxSize: cover ? 44 : 42,
-    minSize: 30,
-  });
+  const body = titleOnly
+    ? null
+    : await renderTextBlock({
+      text: card?.summary ?? input.design.coverSubline,
+      weight: "medium",
+      color: "#F4F4F4",
+      maxWidth: TEXT_WIDTH,
+      maxHeight: cover ? 150 : 270,
+      maxSize: cover ? 44 : 42,
+      minSize: 30,
+    });
 
   const layers: sharp.OverlayOptions[] = [];
-  let y = SLIDE_HEIGHT - FOOTER;
+  let y = heightOf(input) - FOOTER;
   if (body) {
     y -= body.height;
     layers.push(place(body, PAD, y));
@@ -277,7 +290,8 @@ const photoTextLayers = async (input: ComposeInput): Promise<{ layers: sharp.Ove
     layers.push(place(title, PAD, y));
     y -= 30;
   }
-  const label = cover ? input.design.coverKicker.toUpperCase() : String(input.slideIndex).padStart(2, "0");
+  const coverLabel = titleOnly ? "" : input.design.coverKicker.toUpperCase();
+  const label = cover ? coverLabel : String(input.slideIndex).padStart(2, "0");
   if (label) {
     const badge = await labelPill(label, accent, y);
     if (badge) {
@@ -289,13 +303,14 @@ const photoTextLayers = async (input: ComposeInput): Promise<{ layers: sharp.Ove
 };
 
 const composePhotoSlide = async (input: ComposeInput, photo: Buffer): Promise<Buffer> => {
+  const height = heightOf(input);
   const base = await sharp(photo)
-    .resize(SLIDE_WIDTH, SLIDE_HEIGHT, { fit: "cover", position: "attention" })
+    .resize(SLIDE_WIDTH, height, { fit: "cover", position: "attention" })
     .png()
     .toBuffer();
   const text = await photoTextLayers(input);
   const layers: sharp.OverlayOptions[] = [
-    { input: photoShade(text.top), left: 0, top: 0 },
+    { input: photoShade(text.top, height), left: 0, top: 0 },
     ...text.layers,
     ...(await footerLayers(input, "#FFFFFF")),
   ];
@@ -305,8 +320,8 @@ const composePhotoSlide = async (input: ComposeInput, photo: Buffer): Promise<Bu
   return sharp(base).composite(layers).jpeg({ quality: 92 }).toBuffer();
 };
 
-const panelBase = (fill: string): Promise<Buffer> =>
-  sharp({ create: { width: SLIDE_WIDTH, height: SLIDE_HEIGHT, channels: 3, background: fill } }).png().toBuffer();
+const panelBase = (fill: string, height: number): Promise<Buffer> =>
+  sharp({ create: { width: SLIDE_WIDTH, height, channels: 3, background: fill } }).png().toBuffer();
 
 const panelAccent = (input: ComposeInput, colors: ReturnType<typeof panelPalette>): string =>
   colors.light ? colors.ink : accentFor(input);
@@ -315,22 +330,24 @@ const composeCardSlide = async (input: ComposeInput): Promise<Buffer> => {
   const colors = panelPalette(input.primaryColor);
   const accent = panelAccent(input, colors);
   const card = input.design.cards[input.slideIndex - 1];
+  const square = input.shape === "square";
+  const height = heightOf(input);
   const number = await renderTextBlock({
     text: input.slideIndex > 0 ? String(input.slideIndex).padStart(2, "0") : "",
     weight: "heavy",
     color: accent,
     maxWidth: TEXT_WIDTH,
-    maxHeight: 200,
-    maxSize: 150,
-    minSize: 90,
+    maxHeight: square ? 150 : 200,
+    maxSize: square ? 110 : 150,
+    minSize: 80,
   });
   const title = await renderTextBlock({
     text: card?.title ?? input.design.coverTitle,
     weight: "heavy",
     color: colors.ink,
     maxWidth: TEXT_WIDTH,
-    maxHeight: 380,
-    maxSize: 96,
+    maxHeight: square ? 280 : 380,
+    maxSize: square ? 88 : 96,
     minSize: 56,
   });
   const body = await renderTextBlock({
@@ -338,16 +355,16 @@ const composeCardSlide = async (input: ComposeInput): Promise<Buffer> => {
     weight: "medium",
     color: colors.muted,
     maxWidth: TEXT_WIDTH,
-    maxHeight: 340,
-    maxSize: 48,
-    minSize: 32,
+    maxHeight: square ? 250 : 340,
+    maxSize: square ? 42 : 48,
+    minSize: 30,
   });
 
   const blocks = [number, title, body].filter((block): block is TextBlock => block !== null);
-  const gap = 40;
+  const gap = square ? 30 : 40;
   const barHeight = 10;
   const stackHeight = blocks.reduce((sum, block) => sum + block.height, 0) + gap * blocks.length + barHeight;
-  let y = Math.max(240, Math.round((SLIDE_HEIGHT - stackHeight) / 2));
+  let y = Math.max(square ? 200 : 240, Math.round((height - stackHeight) / 2));
   const layers: sharp.OverlayOptions[] = [];
   if (number) {
     layers.push(place(number, PAD, y));
@@ -363,25 +380,27 @@ const composeCardSlide = async (input: ComposeInput): Promise<Buffer> => {
   if (input.logo) {
     layers.push(...(await logoLayers(input.logo, { maxWidth: 300, maxHeight: 110 }, { left: 56, top: 56 })).layers);
   }
-  return sharp(await panelBase(colors.panel)).composite(layers).jpeg({ quality: 92 }).toBuffer();
+  return sharp(await panelBase(colors.panel, height)).composite(layers).jpeg({ quality: 92 }).toBuffer();
 };
 
 const composeCtaSlide = async (input: ComposeInput): Promise<Buffer> => {
   const colors = panelPalette(input.primaryColor);
   const accent = panelAccent(input, colors);
+  const square = input.shape === "square";
+  const height = heightOf(input);
   const layers: sharp.OverlayOptions[] = [];
-  let y = 420;
+  let y = square ? 320 : 420;
   if (input.logo) {
-    const logo = await logoLayers(input.logo, { maxWidth: 520, maxHeight: 220 }, "centre-top");
+    const logo = await logoLayers(input.logo, { maxWidth: 520, maxHeight: square ? 180 : 220 }, square ? { centreTop: 150 } : { centreTop: 200 });
     layers.push(...logo.layers);
-    y = logo.bottom + 110;
+    y = logo.bottom + (square ? 80 : 110);
   }
   const cta = await renderTextBlock({
     text: input.design.cta,
     weight: "heavy",
     color: colors.ink,
     maxWidth: TEXT_WIDTH,
-    maxHeight: 420,
+    maxHeight: square ? 320 : 420,
     maxSize: 92,
     minSize: 54,
     align: "centre",
@@ -403,8 +422,8 @@ const composeCtaSlide = async (input: ComposeInput): Promise<Buffer> => {
       align: "centre",
     })
     : null;
-  if (sign) layers.push(place(sign, (SLIDE_WIDTH - sign.width) / 2, Math.min(y, SLIDE_HEIGHT - FOOTER - sign.height)));
-  return sharp(await panelBase(colors.panel)).composite(layers).jpeg({ quality: 92 }).toBuffer();
+  if (sign) layers.push(place(sign, (SLIDE_WIDTH - sign.width) / 2, Math.min(y, height - FOOTER - sign.height)));
+  return sharp(await panelBase(colors.panel, height)).composite(layers).jpeg({ quality: 92 }).toBuffer();
 };
 
 export const composeDesignedSlide = async (input: ComposeInput): Promise<Buffer> => {

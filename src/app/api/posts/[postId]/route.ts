@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { fallbackAngle } from "@/lib/ai/generatePlan";
-import { generatePost, replaceCreditLine } from "@/lib/ai/generatePost";
+import { creditRecordsFromText, generatePost, replaceCreditLine } from "@/lib/ai/generatePost";
 import { assignPostStrategy } from "@/lib/ai/postStrategy";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { requireUserId } from "@/lib/auth";
@@ -344,11 +344,12 @@ export async function PATCH(request: Request, context: RouteContext) {
         updatedAdditionalImageCredits = regenerated.additionalImageCredits ?? [];
         updatedText = replaceCreditLine(post.text, [updatedImageCredit, ...updatedAdditionalImageCredits]);
       }
+      const storedCredits = [post.imageCredit, ...(post.additionalImageCredits ?? [])];
+      const keptCredits = storedCredits.some((credit) => credit?.trim())
+        ? storedCredits
+        : creditRecordsFromText(post.text);
       if (regenAction === "regenerate_text") {
-        updatedText = replaceCreditLine(
-          regenerated.text,
-          [post.imageCredit, ...(post.additionalImageCredits ?? [])],
-        );
+        updatedText = replaceCreditLine(regenerated.text, keptCredits);
         updatedImageUrl = post.imageUrl;
         updatedVideoUrl = post.videoUrl;
         updatedAdditionalImageUrls = post.additionalImageUrls ?? [];
@@ -358,10 +359,7 @@ export async function PATCH(request: Request, context: RouteContext) {
           logger.warn("[post/patch] regenerate_all uten bilde, beholder eksisterende", {
             postId, channel: post.channel,
           });
-          updatedText = replaceCreditLine(
-            regenerated.text,
-            [post.imageCredit, ...(post.additionalImageCredits ?? [])],
-          );
+          updatedText = replaceCreditLine(regenerated.text, keptCredits);
           updatedImageUrl = post.imageUrl;
           updatedVideoUrl = post.videoUrl;
           updatedAdditionalImageUrls = post.additionalImageUrls ?? [];

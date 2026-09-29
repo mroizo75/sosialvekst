@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import sharp from "sharp";
 
-import { composeDesignedSlide, contrastPlateFill, photoTextColors, SLIDE_HEIGHT, SLIDE_WIDTH } from "@/lib/ai/slideComposer";
+import {
+  composeDesignedSlide,
+  contrastPlateFill,
+  photoTextColors,
+  SLIDE_HEIGHT,
+  SLIDE_WIDTH,
+  SQUARE_SLIDE_HEIGHT,
+} from "@/lib/ai/slideComposer";
 import {
   buildPhotoPrompt,
   buildPhotoSubject,
@@ -168,6 +175,22 @@ describe("slideComposer", () => {
     for (const size of sizes) {
       expect(size.width).toBe(SLIDE_WIDTH);
       expect(size.height).toBe(SLIDE_HEIGHT);
+    }
+  });
+
+  it("rendrer kvadratiske slides for Instagram slik at API-et ikke beskjærer dem", async () => {
+    const photo = await solidPhoto("#335577");
+    const common = { design: plumbing, carousel: true, shape: "square" as const, primaryColor: "#0E4D6C" };
+    const slides = await Promise.all([
+      composeDesignedSlide({ ...common, photo, slideIndex: 0, layout: "cover" }),
+      composeDesignedSlide({ ...common, slideIndex: 2, layout: "card" }),
+      composeDesignedSlide({ ...common, slideIndex: 4, layout: "cta" }),
+    ]);
+    const sizes = await Promise.all(slides.map((slide) => sharp(slide).metadata()));
+
+    for (const size of sizes) {
+      expect(size.width).toBe(SLIDE_WIDTH);
+      expect(size.height).toBe(SQUARE_SLIDE_HEIGHT);
     }
   });
 
