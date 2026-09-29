@@ -40,7 +40,7 @@ const PILLAR_INSTRUCTIONS: Record<ContentPillar, string> = {
 const INTENT_INSTRUCTIONS: Record<PostIntent, string> = {
   brand_awareness: "Bygg gjenkjennelse gjennom noe leseren har nytte av, ikke gjennom å forklare selskapet.",
   traffic: "Gi en grunn til å se nærmere. Lenken kommer til slutt, etter verdien.",
-  engagement: "Be om et valg, en lagring eller en deling som passer innholdet.",
+  engagement: "Be om et konkret valg eller svar som passer innholdet, eller at leseren lagrer innlegget.",
   lead_generation: "Gjør neste steg tydelig, men bare etter at innlegget har gitt noe.",
   authority: "Lær bort noe konkret leseren kan bruke i en beslutning.",
   community: "Snakk med leseren. Inviter til et svar, ikke til en kampanje.",
@@ -137,7 +137,7 @@ const buildStandardUserPrompt = (
     `Målgruppe: ${input.brandRules.targetAudience}.`,
     `Skrivestil: menneskelig, direkte og varm. Utgangspunkt: ${input.brandRules.toneOfVoice}.`,
     "",
-    `CTA-RETNING: ${input.ctaType ?? "Et spørsmål, en lagring eller en deling som passer innholdet."}`,
+    `CTA-RETNING: ${input.ctaType ?? "Et konkret valg eller svar som passer innholdet, eller at leseren lagrer innlegget."}`,
     "",
   ];
 
@@ -206,7 +206,7 @@ export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredProm
   const brandContext = input.brandContext ?? {};
   const companyName = brandContext.companyName ?? "bedriften";
   const websiteUrl = brandContext.websiteUrl?.trim();
-  const intent = input.intent ?? "engagement";
+  const intent = input.intent ?? "brand_awareness";
   const format = input.format ?? "tip";
   const pillar = input.contentPillar ?? "inspiration";
   const includeWebsite = pillar === "commercial" || pillar === "trust";

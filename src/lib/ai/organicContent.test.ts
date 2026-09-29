@@ -103,6 +103,8 @@ describe("organisk innholdsstrategi", () => {
     expect(prompt.system).not.toContain("SKAL nevnes minst");
     expect(prompt.system).toContain("Ikke finn på kundehistorier");
     expect(prompt.user).toContain("Hook");
+    expect(prompt.user).toContain("Bygg gjenkjennelse");
+    expect(prompt.user.toLowerCase()).not.toContain("deling");
     expect(prompt.user).toContain("Ingen nettadresse");
     expect(prompt.system).toContain("Ikke åpne med et spørsmål");
     expect(prompt.system).toContain("send dette til");
