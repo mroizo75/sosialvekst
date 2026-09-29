@@ -150,6 +150,8 @@ describe("organisk innholdsstrategi", () => {
     expect(inspiration.system).toContain("Firmanavn: Sydenklar");
     expect(inspiration.system).toContain("Bransje: Reise");
     expect(inspiration.system).toContain("Målgruppe: Par som vil ha sol");
+    expect(inspiration.system).toContain("EKSEMPLER PÅ GODE INNLEGG");
+    expect(inspiration.system).toContain("Kveldssolen ligger lavt");
     expect(inspiration.system).not.toContain(catalog);
     expect(commercial.system).toContain(catalog);
   });

@@ -1,6 +1,7 @@
 import type { BrandRules } from "@/lib/ai/brandRules";
 import { buildBrandSkill } from "@/lib/ai/brandSkillBuilder";
 import { norwegianStyleGuide } from "@/lib/ai/norwegianStyleGuide";
+import { formatCopyExamples } from "@/lib/ai/copyExamples";
 import type { ContentPillar } from "@/lib/ai/postStrategy";
 import { buildSystemContext } from "@/lib/ai/systemPrompt";
 import type { BrandContext, PostFormat, PostIntent, SocialChannel } from "@/lib/types";
@@ -230,6 +231,8 @@ export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredProm
     ...(isTikTok
       ? buildTikTokSystemRules(companyName, input.brandRules.prohibitedTerms)
       : buildStandardSystemRules(companyName, input.brandRules.prohibitedTerms, includeWebsite, websiteUrl)),
+    "",
+    formatCopyExamples(pillar),
     "",
     "KVALITETSSJEKK FØR DU LEVERER:",
     ...norwegianStyleGuide.antiGeneric.map((rule, i) => `${i + 1}. ${rule}`),
