@@ -104,8 +104,22 @@ describe("organisk innholdsstrategi", () => {
     expect(prompt.system).toContain("Ikke finn på kundehistorier");
     expect(prompt.user).toContain("Hook");
     expect(prompt.user).toContain("Ingen nettadresse");
-    expect(prompt.system.toLowerCase()).not.toContain("hotell");
+    expect(prompt.system).toContain("Ikke åpne med et spørsmål");
+    expect(prompt.system).toContain("send dette til");
+    expect(prompt.system).toContain("uten tegnsetting");
+    expect(prompt.system).toContain("antall hoteller");
     expect(prompt.system.toLowerCase()).not.toContain("strand");
+
+    const tiktok = buildNorwegianCopyPrompt({
+      topic: "En uke på Sicilia",
+      channel: "tiktok",
+      brandRules: defaultBrandRules,
+      brandContext: { companyName: "Sydenklar" },
+      contentPillar: "inspiration",
+    });
+    expect(tiktok.system).toContain("Ikke åpne med et spørsmål");
+    expect(tiktok.system).toContain("send dette til");
+    expect(tiktok.system).toContain("uten tegnsetting");
   });
 
   it("legger bildet først i copy-prompten når scenen er kjent", () => {

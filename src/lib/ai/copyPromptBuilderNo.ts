@@ -66,7 +66,7 @@ const buildStandardSystemRules = (
 ): string[] => [
   "UFRAVIKELIGE REGLER:",
   "1. Skriv for noen som ikke kjenner merkevaren. Første 1–2 linjer skal stoppe scrolling.",
-  "2. Start med kundens situasjon, sted, valg eller følelse. Ikke med bedriften, produktet eller en funksjon.",
+  "2. Start med kundens situasjon, sted, valg eller følelse. Ikke med bedriften, produktet eller en funksjon. Ikke åpne med et spørsmål. Åpne med en konkret observasjon, et sted eller en detalj fra bildet.",
   `3. «${companyName}» kan nevnes etter at interessen er skapt, bare når det faller naturlig. Aldri i åpningen, og ikke i hvert innlegg.`,
   "4. Selg utfallet kunden vil ha. Ikke søk, plattform, utvalg, kundeservice eller bookingfunksjoner.",
   "5. Skriv ALLTID på korrekt bokmål. Menneskelig, direkte, varmt og konkret.",
@@ -76,22 +76,24 @@ const buildStandardSystemRules = (
   "9. Ikke finn på kundehistorier, sitater, prosenter, «best pris» eller «billigere enn andre». Bruk bare historier som står i bedriftskonteksten.",
   includeWebsite && websiteUrl
     ? `10. Ta med denne lenken én gang til slutt, uten å skrive «Les mer»: ${websiteUrl}`
-    : "10. Ikke ta med nettadresse. Avslutt med spørsmål, lagring eller deling.",
+    : "10. Ikke ta med nettadresse. Avslutt med et konkret spørsmål om innholdet. Aldri «send dette til», «tagg en venn», «del med» eller lignende.",
   "11. Hashtags er ikke strategien. Maks 3 konkrete tags, eller ingen.",
-  "12. Avslutt med en komplett setning.",
+  "12. Siste setning før hashtags skal være komplett. Hashtags står alene på egen linje, uten tegnsetting.",
   "13. Et merkenavn som signatur («Er du …?») bare når det høres naturlig ut. Aldri som første linje.",
+  "14. Ikke skriv om søk, sammenligning, antall hoteller eller antall land med mindre søylen er commercial eller trust.",
 ];
 
 const buildTikTokSystemRules = (companyName: string, prohibitedTerms: string[]): string[] => [
   "TIKTOK-REGLER (caption til kort video, ikke et innlegg):",
-  "1. Hook i første setning. Ingen logo og ingen intro.",
+  "1. Hook i første setning. Ingen logo og ingen intro. Ikke åpne med et spørsmål. Åpne med en konkret observasjon, et sted eller en detalj fra bildet.",
   `2. ${companyName} kan nevnes hvis det faller naturlig. Det er ikke påkrevd.`,
   "3. Skriv ALLTID på korrekt bokmål. 8–30 ord før eventuelle hashtags.",
   "4. ALDRI nettadresser.",
-  "5. Ingen salgs-CTA. Spørsmål, «lagre» eller «følg for mer» bare hvis det passer.",
+  "5. Ingen salgs-CTA. Avslutt med et konkret spørsmål om innholdet. Aldri «send dette til», «tagg en venn», «del med» eller lignende.",
   `6. Forbudte uttrykk: ${prohibitedTerms.join(", ")}.`,
   "7. Ikke finn på kundehistorier eller udokumenterte påstander.",
-  "8. 0–3 hashtags. Ikke fyll captionen med tags.",
+  "8. Siste setning før hashtags skal være komplett. Hashtags står alene på egen linje, uten tegnsetting. Maks 3.",
+  "9. Ikke skriv om søk, sammenligning, antall hoteller eller antall land med mindre søylen er commercial eller trust.",
 ];
 
 const visualLines = (visual?: CopyVisual): string[] => {
