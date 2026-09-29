@@ -6,7 +6,7 @@ import { generateProfessionalImage, overlayLogoOnImage } from "@/lib/ai/imageGen
 import { generateProductImage } from "@/lib/ai/imageEngine";
 import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
 import { composeDesignedSlide, resolveSlideLayout } from "@/lib/ai/slideComposer";
-import { buildCarouselVariantPrompt, buildVisualBrief, type VisualBrief } from "@/lib/ai/visualDirection";
+import { buildCarouselVariantPrompt, buildVisualBrief, type VisualBrief, type VisualWorld } from "@/lib/ai/visualDirection";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import type { ContentPillar, VisualMotif } from "@/lib/ai/postStrategy";
 import { runRevisionLoop } from "@/lib/ai/revisionLoop";
@@ -291,7 +291,7 @@ const shouldUseOwnedInHybrid = (userId: string): boolean => {
   return current;
 };
 
-const createText = async (input: GeneratePostInput, visual?: CopyVisual): Promise<string> => {
+const createText = async (input: GeneratePostInput, visual?: CopyVisual, world?: VisualWorld): Promise<string> => {
   const client = getOpenAiClient();
   if (!client) {
     return fallbackText(input.topic);
@@ -318,6 +318,7 @@ const createText = async (input: GeneratePostInput, visual?: CopyVisual): Promis
       contentPillar: input.contentPillar,
       reelScript: input.reelScript,
       visual,
+      visualWorld: world,
       rejectionReasons,
     });
     const response = await client.responses.create({
@@ -924,7 +925,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
           }
         : undefined;
     try {
-      rawText = await createText(input, visual);
+      rawText = await createText(input, visual, brief.world);
     } catch (error) {
       logger.warn("AI text generation failed, using fallback text", {
         userId: input.userId,
