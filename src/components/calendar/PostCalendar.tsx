@@ -317,6 +317,7 @@ type DetailPanelProps = {
   onUnlock: (id: string) => void;
   onRegenerateVideo: (id: string) => void;
   videoStatus?: VideoStatus;
+  liveVideoUrl?: string;
   processingAction: string | null;
   approving: boolean;
   aiEditsRemaining: number;
@@ -508,6 +509,7 @@ const DetailPanel = ({
   onUnlock,
   onRegenerateVideo,
   videoStatus,
+  liveVideoUrl,
   processingAction,
   approving,
   aiEditsRemaining,
@@ -520,6 +522,12 @@ const DetailPanel = ({
   const [textDraft, setTextDraft] = useState(captionWithCredit(post.text, post.imageCredit));
   const [imageUrlDraft, setImageUrlDraft] = useState(post.imageUrl ?? "");
   const [videoUrlDraft, setVideoUrlDraft] = useState(post.videoUrl ?? "");
+  // A reel finishes in the background while the panel may be open, so a newly polled video replaces the preview.
+  const [seenLiveVideoUrl, setSeenLiveVideoUrl] = useState(liveVideoUrl);
+  if (liveVideoUrl !== seenLiveVideoUrl) {
+    setSeenLiveVideoUrl(liveVideoUrl);
+    if (liveVideoUrl) setVideoUrlDraft(liveVideoUrl);
+  }
   const [additionalImageUrlsDraft, setAdditionalImageUrlsDraft] = useState<string[]>(
     post.additionalImageUrls ?? [],
   );
@@ -2178,6 +2186,7 @@ export const PostCalendar = () => {
             onUnlock={(id) => void updatePost(id, "unlock")}
             onRegenerateVideo={(id) => void updatePost(id, "regenerate_video")}
             videoStatus={posts.find((item) => item.id === selectedPost.id)?.videoStatus ?? selectedPost.videoStatus}
+            liveVideoUrl={posts.find((item) => item.id === selectedPost.id)?.videoUrl}
             processingAction={processingPost?.id === selectedPost.id ? processingPost.action : null}
             approving={approvingId === selectedPost.id}
             aiEditsRemaining={aiEditsRemaining}
