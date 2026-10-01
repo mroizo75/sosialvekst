@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CreatePostDialog } from "@/components/calendar/CreatePostDialog";
@@ -274,19 +275,28 @@ const REEL_BADGE_STYLE: Record<VideoStatus, string> = {
   pending: "bg-primary/10 text-primary",
   ready: "bg-success/10 text-success",
   failed: "bg-destructive/10 text-destructive",
+  no_credits: "bg-warning/10 text-warning-foreground",
+};
+
+const REEL_HINT: Record<Exclude<VideoStatus, "ready">, string> = {
+  pending: "calendar.reelPendingHint",
+  failed: "calendar.reelFailedHint",
+  no_credits: "calendar.reelNoCreditsHint",
+};
+
+const REEL_BADGE_LABEL: Record<VideoStatus, string> = {
+  pending: "calendar.reelPending",
+  ready: "calendar.reelReady",
+  failed: "calendar.reelFailed",
+  no_credits: "calendar.reelNoCredits",
 };
 
 const ReelBadge = ({ videoStatus }: { videoStatus?: VideoStatus }) => {
   const { t } = useI18n();
   if (!videoStatus) return null;
-  const label = videoStatus === "pending"
-    ? t("calendar.reelPending")
-    : videoStatus === "ready"
-      ? t("calendar.reelReady")
-      : t("calendar.reelFailed");
   return (
     <span className={cn("rounded px-1 py-0.5 text-[9px] font-semibold", REEL_BADGE_STYLE[videoStatus])}>
-      {label}
+      {t(REEL_BADGE_LABEL[videoStatus])}
     </span>
   );
 };
@@ -825,21 +835,33 @@ const DetailPanel = ({
                   <IconImage className="size-3.5 text-muted-foreground" />
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t("calendar.preview")}</p>
                 </div>
-                {(videoStatus === "pending" || videoStatus === "failed") && (
+                {videoStatus && videoStatus !== "ready" && (
                   <div className={cn(
-                    "mb-2 flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs",
-                    videoStatus === "failed" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary",
+                    "mb-2 flex flex-wrap items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs",
+                    REEL_BADGE_STYLE[videoStatus],
                   )}>
-                    <span>{videoStatus === "failed" ? t("calendar.reelFailedHint") : t("calendar.reelPendingHint")}</span>
-                    {videoStatus === "failed" && post.status !== "published" && (
-                      <button
-                        type="button"
-                        onClick={() => onRegenerateVideo(post.id)}
-                        disabled={processingAction !== null}
-                        className="shrink-0 rounded-md border border-destructive/40 bg-transparent px-2 py-1 font-semibold text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50 cursor-pointer"
-                      >
-                        {processingAction === "regenerate_video" ? t("calendar.regeneratingVideo") : t("calendar.regenerateVideo")}
-                      </button>
+                    <span className="min-w-0 flex-1">{t(REEL_HINT[videoStatus])}</span>
+                    {videoStatus !== "pending" && post.status !== "published" && (
+                      <div className="flex shrink-0 gap-2">
+                        {videoStatus === "no_credits" && (
+                          <Link
+                            href="/video-studio"
+                            className="rounded-md bg-primary px-2 py-1 font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+                          >
+                            {t("calendar.buyVideoCredits")}
+                          </Link>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onRegenerateVideo(post.id)}
+                          disabled={processingAction !== null}
+                          className="rounded-md border border-current/40 bg-transparent px-2 py-1 font-semibold transition-colors hover:bg-black/5 disabled:opacity-50 cursor-pointer"
+                        >
+                          {processingAction === "regenerate_video"
+                            ? t("calendar.regeneratingVideo")
+                            : videoStatus === "no_credits" ? t("calendar.createVideo") : t("calendar.regenerateVideo")}
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}
@@ -1412,6 +1434,20 @@ export const PostCalendar = () => {
   const [pollErrorCount, setPollErrorCount] = useState(0);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [aiLimits, setAiLimits] = useState<AiEditLimits>({ used: 0, limit: 5 });
+  const [videoCredits, setVideoCredits] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/video/balance")
+      .then(async (response) => (response.ok ? ((await response.json()) as { balance: number }) : null))
+      .then((data) => {
+        if (!cancelled && data) setVideoCredits(data.balance);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const hasGenerating = useMemo(
     () => posts.some((p) => p.status === "generating"),
@@ -1867,6 +1903,21 @@ export const PostCalendar = () => {
               ? "Poster genereres i bakgrunnen — du kan se kalenderen under imens"
               : `${readyCount} av ${posts.length} poster ferdig — ${posts.length - readyCount} gjenstår`}
           </p>
+        </div>
+      )}
+
+      {videoCredits === 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">{t("calendar.reelOfferTitle")}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{t("calendar.reelOfferText")}</p>
+          </div>
+          <Link
+            href="/video-studio"
+            className="shrink-0 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            {t("calendar.buyVideoCredits")}
+          </Link>
         </div>
       )}
 

@@ -110,7 +110,7 @@ export type DesignStyle = "steps" | "picks" | "myth" | "versus" | "moment" | "si
 
 export type MediaFormat = "reel" | "image";
 
-export type VideoStatus = "pending" | "ready" | "failed";
+export type VideoStatus = "pending" | "ready" | "failed" | "no_credits";
 
 export type GenerationMeta = {
   mediaFormat?: MediaFormat;

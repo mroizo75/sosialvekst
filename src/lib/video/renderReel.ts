@@ -1,11 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { generateKlingVideo, isFalAvailable, mergeAudioVideo } from "@/lib/ai/falClient";
-import { uploadUserFile } from "@/lib/cloudflare/r2";
+import { deleteFilesByUrls, uploadUserFile } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import type { GenerationMeta, MediaMode, PostDraft, VideoStatus } from "@/lib/types";
+import type { GenerationMeta, MediaFormat, MediaMode, PostDraft, VideoStatus } from "@/lib/types";
 import { chooseMood, getMusicTrackUrl } from "@/lib/video/musicLibrary";
+import { consumeVideoCredit, getVideoBalance } from "@/lib/videoCredits";
 
 export const REEL_DURATION_SECONDS = 10;
 const MAX_PARALLEL_RENDERS = 2;
@@ -23,8 +24,31 @@ export type ReelRenderResult = { status: VideoStatus | "skipped"; videoUrl?: str
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-export const reelsAllowedFor = (mediaMode: MediaMode): boolean =>
-  isFalAvailable() && mediaMode !== "owned_only";
+export const reelsAllowedFor = (mediaMode: MediaMode, budget: ReelBudget): boolean =>
+  isFalAvailable() && mediaMode !== "owned_only" && budget.remaining > 0;
+
+export type ReelBudget = { remaining: number };
+
+// Credits not already reserved by reels still being rendered, so a plan never queues more reels than the user paid for.
+export const getReelBudget = async (
+  userId: string,
+  supabase: SupabaseClient = createSupabaseAdminClient(),
+): Promise<ReelBudget> => {
+  const [{ balance }, pending] = await Promise.all([
+    getVideoBalance(userId, supabase),
+    supabase
+      .from("posts")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("video_status", "pending"),
+  ]);
+  const reserved = pending.error ? 0 : pending.count ?? 0;
+  return { remaining: Math.max(0, balance - reserved) };
+};
+
+export const reserveReel = (budget: ReelBudget, mediaFormat: MediaFormat): void => {
+  if (mediaFormat === "reel") budget.remaining = Math.max(0, budget.remaining - 1);
+};
 
 export const reelColumns = (post: Pick<PostDraft, "reelSourceUrl">) => ({
   reel_source_url: post.reelSourceUrl ?? null,
@@ -81,6 +105,15 @@ const storeVideo = async (userId: string, sourceUrl: string): Promise<string> =>
   return uploaded.publicUrl;
 };
 
+const isCreditsExhausted = (error: unknown): boolean =>
+  (error as { code?: string } | null)?.code === "VIDEO_CREDITS_EXHAUSTED";
+
+const markNoCredits = async (supabase: SupabaseClient, post: ReelPostRow): Promise<ReelRenderResult> => {
+  await setVideoState(supabase, post, { video_status: "no_credits" });
+  logger.info("Reel hoppet over, ingen videokreditter", { postId: post.id, userId: post.user_id });
+  return { status: "no_credits", reason: "ingen videokreditter" };
+};
+
 export const renderReelForPost = async (supabase: SupabaseClient, postId: string): Promise<ReelRenderResult> => {
   const { data, error } = await supabase
     .from("posts")
@@ -96,6 +129,9 @@ export const renderReelForPost = async (supabase: SupabaseClient, postId: string
   const t0 = Date.now();
   try {
     if (!isFalAvailable()) throw new Error("FAL_KEY mangler, kan ikke lage video.");
+    if ((await getVideoBalance(post.user_id, supabase)).balance <= 0) {
+      return await markNoCredits(supabase, post);
+    }
     const clip = await generateKlingVideo({
       prompt: buildReelMotionPrompt(post.generation_meta),
       imageUrl: post.reel_source_url,
@@ -107,6 +143,15 @@ export const renderReelForPost = async (supabase: SupabaseClient, postId: string
 
     const withMusic = await addMusic(clip.url, post.generation_meta, postId);
     const videoUrl = await storeVideo(post.user_id, withMusic);
+    try {
+      await consumeVideoCredit(post.user_id, `Reel for post ${postId}`, supabase);
+    } catch (creditError) {
+      await deleteFilesByUrls([videoUrl]).catch((deleteError: unknown) => {
+        logger.warn("Kunne ikke slette ubetalt reel", { postId, error: errorText(deleteError) });
+      });
+      if (isCreditsExhausted(creditError)) return await markNoCredits(supabase, post);
+      throw creditError;
+    }
     await setVideoState(supabase, post, { video_status: "ready", video_url: videoUrl });
     logger.info("Reel ferdig", { postId, withMusic: withMusic !== clip.url, durationMs: Date.now() - t0 });
     return { status: "ready", videoUrl };

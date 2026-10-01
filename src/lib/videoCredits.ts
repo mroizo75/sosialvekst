@@ -1,3 +1,5 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { toAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -7,9 +9,11 @@ export type VideoBalance = {
   totalPurchased: number;
 };
 
-export const getVideoBalance = async (userId: string): Promise<VideoBalance> => {
-  const admin = createSupabaseAdminClient();
-  const { data } = await admin
+export const getVideoBalance = async (
+  userId: string,
+  supabase: SupabaseClient = createSupabaseAdminClient(),
+): Promise<VideoBalance> => {
+  const { data } = await supabase
     .from("video_credits")
     .select("balance, total_purchased")
     .eq("user_id", userId)
@@ -21,37 +25,53 @@ export const getVideoBalance = async (userId: string): Promise<VideoBalance> => 
   };
 };
 
+const CONSUME_ATTEMPTS = 3;
+
+const creditsExhausted = () => Object.assign(
+  new Error("Ingen videokreditter igjen."),
+  toAppError("VIDEO_CREDITS_EXHAUSTED", "Du har ingen videokreditter igjen. Kjøp flere for å generere videoer."),
+);
+
+// Compare-and-set on balance so two videos finishing at once cannot both spend the same credit.
 export const consumeVideoCredit = async (
   userId: string,
   description: string,
+  supabase: SupabaseClient = createSupabaseAdminClient(),
 ): Promise<VideoBalance> => {
-  const admin = createSupabaseAdminClient();
+  for (let attempt = 1; attempt <= CONSUME_ATTEMPTS; attempt += 1) {
+    const { data: row, error: readError } = await supabase
+      .from("video_credits")
+      .select("id, balance, total_purchased")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (readError) throw toAppError("VIDEO_CREDITS_READ_FAILED", "Kunne ikke lese videokreditter.", readError.message);
 
-  const { data: row } = await admin
-    .from("video_credits")
-    .select("id, balance, total_purchased")
-    .eq("user_id", userId)
-    .maybeSingle();
+    const currentBalance = (row?.balance as number) ?? 0;
+    if (!row?.id || currentBalance <= 0) throw creditsExhausted();
 
-  const currentBalance = (row?.balance as number) ?? 0;
-
-  if (currentBalance <= 0) {
-    throw Object.assign(
-      new Error("Ingen videokreditter igjen."),
-      toAppError("VIDEO_CREDITS_EXHAUSTED", "Du har ingen videokreditter igjen. Kjøp flere for å generere videoer."),
-    );
-  }
-
-  const newBalance = currentBalance - 1;
-
-  if (row?.id) {
-    await admin
+    const newBalance = currentBalance - 1;
+    const { data: updated, error: updateError } = await supabase
       .from("video_credits")
       .update({ balance: newBalance, updated_at: new Date().toISOString() })
-      .eq("id", row.id as string);
-  }
+      .eq("id", row.id as string)
+      .eq("balance", currentBalance)
+      .select("id");
+    if (updateError) throw toAppError("VIDEO_CREDITS_UPDATE_FAILED", "Kunne ikke trekke videokreditt.", updateError.message);
+    if ((updated ?? []).length === 0) continue;
 
-  await admin.from("video_credit_transactions").insert({
+    await recordUsage(supabase, userId, description, newBalance);
+    return { balance: newBalance, totalPurchased: (row.total_purchased as number) ?? 0 };
+  }
+  throw toAppError("VIDEO_CREDITS_BUSY", "Videokreditten kunne ikke trekkes akkurat nå. Prøv igjen.");
+};
+
+const recordUsage = async (
+  supabase: SupabaseClient,
+  userId: string,
+  description: string,
+  newBalance: number,
+): Promise<void> => {
+  await supabase.from("video_credit_transactions").insert({
     user_id: userId,
     amount: -1,
     type: "usage",
@@ -59,11 +79,6 @@ export const consumeVideoCredit = async (
   });
 
   logger.info("[videoCredits] Kreditt brukt", { userId, newBalance, description });
-
-  return {
-    balance: newBalance,
-    totalPurchased: (row?.total_purchased as number) ?? 0,
-  };
 };
 
 export const addVideoCredits = async (

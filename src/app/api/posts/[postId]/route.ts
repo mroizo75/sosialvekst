@@ -16,8 +16,15 @@ import { getPostById, savePost, setPostAdditionalImages, updatePostRow } from "@
 import { timeZoneForCountry } from "@/lib/schedule/audienceTime";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { GenerationMeta, GenerationStep, TopicWindow } from "@/lib/types";
-import { queueReelRender, reelColumns, reelsAllowedFor, startReelRender } from "@/lib/video/renderReel";
+import type { GenerationMeta, GenerationStep, TopicWindow, VideoStatus } from "@/lib/types";
+import {
+  getReelBudget,
+  queueReelRender,
+  reelColumns,
+  reelsAllowedFor,
+  startReelRender,
+  type ReelBudget,
+} from "@/lib/video/renderReel";
 
 const REGENERATE_TIMEOUT_MS = 180_000;
 
@@ -80,6 +87,12 @@ const moreLikeThisNote = (meta: GenerationMeta): string =>
   meta.coverTitle
     ? `Lag en ny post i samme form og tone som «${meta.coverTitle}», som fikk godt engasjement. Ny vinkel og ny tittel, ikke kopier.`
     : "Lag en ny post i samme form og tone som et innlegg som fikk godt engasjement. Ny vinkel og ny tittel.";
+
+// A pending render of this same post is replaced, so its reserved credit is available again.
+const reelBudgetFor = async (userId: string, videoStatus: VideoStatus | undefined): Promise<ReelBudget> => {
+  const budget = await getReelBudget(userId);
+  return { remaining: budget.remaining + (videoStatus === "pending" ? 1 : 0) };
+};
 
 type RouteContext = {
   params: Promise<{ postId: string }>;
@@ -258,6 +271,12 @@ export async function PATCH(request: Request, context: RouteContext) {
         );
       }
       await requireActiveSubscription(userId);
+      if ((await reelBudgetFor(userId, post.videoStatus)).remaining <= 0) {
+        return NextResponse.json(
+          toAppError("VIDEO_CREDITS_EXHAUSTED", "Du har ingen videokreditter igjen. Kjøp flere i Video Studio for å lage reels."),
+          { status: 402 },
+        );
+      }
       const queued = await queueReelRender(await createSupabaseServerClient(), { id: post.id, userId });
       if (!queued) {
         return NextResponse.json(
@@ -366,7 +385,7 @@ export async function PATCH(request: Request, context: RouteContext) {
           : scheduled.getUTCDate() + scheduled.getUTCMonth() * 3,
         hasCustomerStories: (brandContext?.customerSuccessStories?.length ?? 0) > 0,
         pinned: source ? pinnedFromMeta(source.meta) : undefined,
-        reelsAllowed: reelsAllowedFor(mediaMode),
+        reelsAllowed: reelsAllowedFor(mediaMode, await reelBudgetFor(userId, post.videoStatus)),
       }, profile);
       const performanceNotes = [
         ...(source ? [moreLikeThisNote(source.meta)] : []),

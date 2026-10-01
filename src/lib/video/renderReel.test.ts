@@ -2,16 +2,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { generateKlingVideo, mergeAudioVideo } from "@/lib/ai/falClient";
-import { uploadUserFile } from "@/lib/cloudflare/r2";
+import { deleteFilesByUrls, uploadUserFile } from "@/lib/cloudflare/r2";
 import { getMusicTrackUrl } from "@/lib/video/musicLibrary";
 import { renderReelForPost } from "@/lib/video/renderReel";
+import { consumeVideoCredit, getVideoBalance } from "@/lib/videoCredits";
 
 vi.mock("@/lib/ai/falClient", () => ({
   generateKlingVideo: vi.fn(),
   mergeAudioVideo: vi.fn(),
   isFalAvailable: () => true,
 }));
-vi.mock("@/lib/cloudflare/r2", () => ({ uploadUserFile: vi.fn() }));
+vi.mock("@/lib/cloudflare/r2", () => ({ uploadUserFile: vi.fn(), deleteFilesByUrls: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("@/lib/videoCredits", () => ({ getVideoBalance: vi.fn(), consumeVideoCredit: vi.fn() }));
 vi.mock("@/lib/video/musicLibrary", () => ({ chooseMood: () => "beach", getMusicTrackUrl: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createSupabaseAdminClient: vi.fn() }));
 
@@ -50,6 +52,8 @@ describe("rendering av reel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(new Uint8Array([0, 1, 2]))));
+    vi.mocked(getVideoBalance).mockResolvedValue({ balance: 5, totalPurchased: 10 });
+    vi.mocked(consumeVideoCredit).mockResolvedValue({ balance: 4, totalPurchased: 10 });
   });
 
   afterEach(() => {
@@ -73,6 +77,34 @@ describe("rendering av reel", () => {
       imageUrl: reelPost.reel_source_url,
     });
     expect(updates.at(-1)).toEqual({ video_status: "ready", video_url: "https://cdn.example/users/u1/videos/reel.mp4" });
+    expect(consumeVideoCredit).toHaveBeenCalledTimes(1);
+  });
+
+  it("lager ikke video og trekker ingen kreditt når saldoen er tom", async () => {
+    vi.mocked(getVideoBalance).mockResolvedValue({ balance: 0, totalPurchased: 10 });
+    const { client, updates } = fakeSupabase(reelPost);
+
+    const result = await renderReelForPost(client, "p1");
+
+    expect(result.status).toBe("no_credits");
+    expect(generateKlingVideo).not.toHaveBeenCalled();
+    expect(consumeVideoCredit).not.toHaveBeenCalled();
+    expect(updates.at(-1)).toEqual({ video_status: "no_credits" });
+  });
+
+  it("forkaster videoen når kreditten er brukt opp før den ble ferdig", async () => {
+    vi.mocked(generateKlingVideo).mockResolvedValue({ url: "https://fal.example/clip.mp4" });
+    vi.mocked(getMusicTrackUrl).mockResolvedValue("https://cdn.example/shared/music/v1/beach-1.mp3");
+    vi.mocked(mergeAudioVideo).mockResolvedValue("https://fal.example/merged.mp4");
+    vi.mocked(uploadUserFile).mockResolvedValue({ key: "k", publicUrl: "https://cdn.example/users/u1/videos/reel.mp4" });
+    vi.mocked(consumeVideoCredit).mockRejectedValue(Object.assign(new Error("tom"), { code: "VIDEO_CREDITS_EXHAUSTED" }));
+    const { client, updates } = fakeSupabase(reelPost);
+
+    const result = await renderReelForPost(client, "p1");
+
+    expect(result.status).toBe("no_credits");
+    expect(deleteFilesByUrls).toHaveBeenCalledWith(["https://cdn.example/users/u1/videos/reel.mp4"]);
+    expect(updates.at(-1)).toEqual({ video_status: "no_credits" });
   });
 
   it("markerer videoen som feilet når videogeneratoren ikke leverer", async () => {
@@ -84,6 +116,7 @@ describe("rendering av reel", () => {
     expect(result.status).toBe("failed");
     expect(updates.at(-1)).toEqual({ video_status: "failed" });
     expect(uploadUserFile).not.toHaveBeenCalled();
+    expect(consumeVideoCredit).not.toHaveBeenCalled();
   });
 
   it("bruker videoen uten lyd når musikken feiler", async () => {
