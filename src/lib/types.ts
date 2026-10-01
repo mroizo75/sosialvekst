@@ -119,6 +119,7 @@ export type GenerationMeta = {
   pillar?: string;
   motif?: string;
   coverTitle?: string;
+  reelOverlayUrl?: string;
   hook?: string;
   topic: string;
   slideCount: number;

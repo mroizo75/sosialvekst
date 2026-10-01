@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { generateKlingVideo, isFalAvailable, mergeAudioVideo } from "@/lib/ai/falClient";
+import { generateKlingVideo, isFalAvailable, mergeAudioVideo, overlayOnVideo } from "@/lib/ai/falClient";
 import { deleteFilesByUrls, uploadUserFile } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
@@ -92,6 +92,16 @@ const addMusic = async (videoUrl: string, meta: GenerationMeta | null, postId: s
   }
 };
 
+const addOverlay = async (videoUrl: string, meta: GenerationMeta | null, postId: string): Promise<string> => {
+  if (!meta?.reelOverlayUrl) return videoUrl;
+  try {
+    return await overlayOnVideo(videoUrl, meta.reelOverlayUrl);
+  } catch (error) {
+    logger.warn("Tekst og logo kunne ikke legges på reel, bruker video uten", { postId, error: errorText(error) });
+    return videoUrl;
+  }
+};
+
 const storeVideo = async (userId: string, sourceUrl: string): Promise<string> => {
   const response = await fetch(sourceUrl);
   if (!response.ok) throw new Error(`Kunne ikke hente ferdig video (${response.status}).`);
@@ -142,7 +152,8 @@ export const renderReelForPost = async (supabase: SupabaseClient, postId: string
     if (!clip?.url) throw new Error("Videogeneratoren returnerte ingen video.");
 
     const withMusic = await addMusic(clip.url, post.generation_meta, postId);
-    const videoUrl = await storeVideo(post.user_id, withMusic);
+    const finished = await addOverlay(withMusic, post.generation_meta, postId);
+    const videoUrl = await storeVideo(post.user_id, finished);
     try {
       await consumeVideoCredit(post.user_id, `Reel for post ${postId}`, supabase);
     } catch (creditError) {
@@ -153,7 +164,12 @@ export const renderReelForPost = async (supabase: SupabaseClient, postId: string
       throw creditError;
     }
     await setVideoState(supabase, post, { video_status: "ready", video_url: videoUrl });
-    logger.info("Reel ferdig", { postId, withMusic: withMusic !== clip.url, durationMs: Date.now() - t0 });
+    logger.info("Reel ferdig", {
+      postId,
+      withMusic: withMusic !== clip.url,
+      withOverlay: finished !== withMusic,
+      durationMs: Date.now() - t0,
+    });
     return { status: "ready", videoUrl };
   } catch (renderError) {
     logger.warn("Reel feilet, posten publiseres som bilde", { postId, error: errorText(renderError) });

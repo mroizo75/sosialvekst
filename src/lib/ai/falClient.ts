@@ -261,44 +261,6 @@ export const generateTextToVideo = async (
   }
 };
 
-/* ─── Veo 3 Fast: tekst til video med lyd ─── */
-
-export type Veo3Input = {
-  prompt: string;
-  duration?: 4 | 6 | 8;
-  aspectRatio?: "16:9" | "9:16";
-  resolution?: "720p" | "1080p";
-  generateAudio?: boolean;
-};
-
-export const generateVeo3Video = async (
-  input: Veo3Input,
-  onProgress?: FalProgressCallback,
-): Promise<FalVideoResult | null> => {
-  if (!getFalKey()) return null;
-
-  try {
-    const result = await falFetchQueued<{ video?: FalVideoResult }>(
-      "fal-ai/veo3/fast",
-      {
-        prompt: input.prompt,
-        duration: `${input.duration ?? 8}s`,
-        aspect_ratio: input.aspectRatio ?? "16:9",
-        resolution: input.resolution ?? "720p",
-        generate_audio: input.generateAudio ?? true,
-      },
-      onProgress,
-    );
-
-    return result.video ?? null;
-  } catch (error) {
-    logger.warn("fal.ai Veo 3 Fast text-to-video feilet", {
-      error: error instanceof Error ? error.message : "ukjent",
-    });
-    return null;
-  }
-};
-
 /* ─── Kling v3 Pro: bilde til video med lyd ─── */
 
 export type KlingV3Input = {
@@ -364,7 +326,21 @@ export const mergeAudioVideo = async (videoUrl: string, audioUrl: string): Promi
   return url;
 };
 
-export type VideoModel = "veo3" | "kling";
+// The overlay is a single full-frame GIF; with shortest=false ffmpeg holds its frame for the whole video.
+export const overlayOnVideo = async (videoUrl: string, overlayGifUrl: string): Promise<string> => {
+  const result = await falFetchQueued<{ video?: { url?: string } }>("fal-ai/workflow-utilities/overlay-video", {
+    main_video_url: videoUrl,
+    overlay_video_url: overlayGifUrl,
+    x_percent: 50,
+    y_percent: 50,
+    scale_percent: 100,
+    shortest: false,
+    audio_source: "main",
+  });
+  const url = result.video?.url;
+  if (!url) throw new Error("fal.ai overlay-video returnerte ingen video.");
+  return url;
+};
 
 export const isFalAvailable = (): boolean => {
   return Boolean(getFalKey());

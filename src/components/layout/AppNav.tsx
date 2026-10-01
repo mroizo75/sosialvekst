@@ -13,7 +13,6 @@ const NAV_HREFS = [
   { href: "/dashboard", key: "overview" as const },
   { href: "/kalender", key: "calendar" as const },
   { href: "/media", key: "media" as const },
-  { href: "/video-studio", key: "videoStudio" as const },
   { href: "/publiser", key: "publish" as const },
   { href: "/statistikk", key: "statistics" as const },
   { href: "/onboarding", key: "myCompany" as const },

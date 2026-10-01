@@ -273,7 +273,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       await requireActiveSubscription(userId);
       if ((await reelBudgetFor(userId, post.videoStatus)).remaining <= 0) {
         return NextResponse.json(
-          toAppError("VIDEO_CREDITS_EXHAUSTED", "Du har ingen videokreditter igjen. Kjøp flere i Video Studio for å lage reels."),
+          toAppError("VIDEO_CREDITS_EXHAUSTED", "Du har ingen videokreditter igjen. Kjøp flere i kalenderen for å lage reels."),
           { status: 402 },
         );
       }

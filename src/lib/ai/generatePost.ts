@@ -7,6 +7,7 @@ import { buildImagePrompt } from "@/lib/ai/imagePromptBuilder";
 import { resolveCopyModel } from "@/lib/ai/models";
 import { composeDesignedSlide, type SlideLayout, type SlideShape } from "@/lib/ai/slideComposer";
 import { toReelFrame } from "@/lib/video/reelFrame";
+import { composeReelOverlay } from "@/lib/video/reelOverlay";
 import { buildCarouselVariantPrompt, buildVisualBrief, type VisualBrief, type VisualWorld } from "@/lib/ai/visualDirection";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import type { ContentPillar, VisualMotif } from "@/lib/ai/postStrategy";
@@ -991,10 +992,38 @@ const uniqueAttributions = (slides: Array<SlideImage | undefined>): PhotoAttribu
     });
 };
 
+// A failed overlay only means the reel goes out without title and logo, so it never blocks the reel.
+const storeReelOverlay = async (input: GeneratePostInput): Promise<string | undefined> => {
+  try {
+    const gif = await composeReelOverlay({
+      title: input.socialDesign?.coverTitle,
+      logo: await input.logoBytes,
+      primaryColor: input.brandContext?.brandColors?.primary,
+    });
+    if (!gif) {
+      note(input, "reel.overlay", false, "verken tittel eller logo");
+      return undefined;
+    }
+    const uploaded = await uploadUserFile({
+      userId: input.userId,
+      fileName: `reel-overlay-${crypto.randomUUID()}.gif`,
+      contentType: "image/gif",
+      mediaKind: "image",
+      body: new Uint8Array(gif),
+    });
+    note(input, "reel.overlay", true, "tittel og logo for video lagret");
+    return uploaded.publicUrl;
+  } catch (error) {
+    note(input, "reel.overlay", false, errorText(error));
+    logger.warn("Kunne ikke lage tekst og logo for reel", { userId: input.userId, error: errorText(error) });
+    return undefined;
+  }
+};
+
 const storeReelSource = async (
   input: GeneratePostInput,
   primary: SlideImage | undefined,
-): Promise<string | undefined> => {
+): Promise<{ sourceUrl: string; overlayUrl?: string } | undefined> => {
   try {
     const photo = primary?.sourceBytes ?? await loadBuffer(primary?.sourceUrl ?? primary?.url, "reelfoto");
     if (!photo) {
@@ -1009,7 +1038,7 @@ const storeReelSource = async (
       body: new Uint8Array(await toReelFrame(photo)),
     });
     note(input, "reel.foto", true, "9:16 rent foto lagret");
-    return uploaded.publicUrl;
+    return { sourceUrl: uploaded.publicUrl, overlayUrl: await storeReelOverlay(input) };
   } catch (error) {
     note(input, "reel.foto", false, errorText(error));
     logger.warn("Kunne ikke lagre reel-foto, publiseres som bilde", {
@@ -1181,7 +1210,8 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     });
   }
 
-  const reelSourceUrl = isReel && imageUrl ? await storeReelSource(tracked, primary) : undefined;
+  const reelAssets = isReel && imageUrl ? await storeReelSource(imageInput, primary) : undefined;
+  const reelSourceUrl = reelAssets?.sourceUrl;
   if (input.channel === "tiktok" && !imageUrl) {
     logger.warn("TikTok-innlegg mangler bilde", {
       userId: input.userId,
@@ -1256,6 +1286,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       pillar: input.contentPillar,
       motif: input.visualMotif,
       coverTitle: socialDesign?.coverTitle,
+      reelOverlayUrl: reelAssets?.overlayUrl,
       hook: revision.finalText.split("\n").map((line) => line.trim()).find(Boolean),
       topic: input.topic,
       slideCount: imageUrl ? 1 + extraSlides.length : 0,

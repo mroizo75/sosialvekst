@@ -141,7 +141,7 @@ const websiteLabel = (url?: string): string =>
 const isSvgBuffer = (logo: Buffer): boolean =>
   logo.subarray(0, 300).toString("utf8").includes("<svg");
 
-const fitLogo = async (logo: Buffer, maxWidth: number, maxHeight: number): Promise<Buffer> => {
+export const fitLogo = async (logo: Buffer, maxWidth: number, maxHeight: number): Promise<Buffer> => {
   const base = sharp(logo, isSvgBuffer(logo) ? { density: 300 } : undefined);
   const trimmed = await base.trim({ threshold: 12 }).png().toBuffer().catch(() => logo);
   return sharp(trimmed)
@@ -150,12 +150,23 @@ const fitLogo = async (logo: Buffer, maxWidth: number, maxHeight: number): Promi
     .toBuffer();
 };
 
+// Brightness is weighted by alpha so the transparent background of a logo does not count as dark ink.
+const visibleBrightness = async (png: Buffer): Promise<number> => {
+  const { data } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let weighted = 0;
+  let coverage = 0;
+  for (let index = 0; index < data.length; index += 4) {
+    const alpha = (data[index + 3] ?? 0) / 255;
+    if (alpha === 0) continue;
+    weighted += alpha * (((data[index] ?? 0) + (data[index + 1] ?? 0) + (data[index + 2] ?? 0)) / 3);
+    coverage += alpha;
+  }
+  return coverage > 0 ? weighted / coverage : 0;
+};
+
 export const contrastPlateFill = async (png: Buffer): Promise<string> => {
   try {
-    const stats = await sharp(png).ensureAlpha().stats();
-    const [red, green, blue] = stats.channels;
-    const brightness = ((red?.mean ?? 0) + (green?.mean ?? 0) + (blue?.mean ?? 0)) / 3;
-    if (brightness > 210) return "rgba(20,24,28,0.92)";
+    if (await visibleBrightness(png) > 170) return "rgba(20,24,28,0.92)";
   } catch (error) {
     logger.warn("Kunne ikke måle logokontrast", {
       error: error instanceof Error ? error.message : "ukjent",

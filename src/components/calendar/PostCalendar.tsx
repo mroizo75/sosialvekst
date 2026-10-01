@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CreatePostDialog } from "@/components/calendar/CreatePostDialog";
+import { ReelCreditPacks } from "@/components/calendar/ReelCreditPacks";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
@@ -843,14 +843,6 @@ const DetailPanel = ({
                     <span className="min-w-0 flex-1">{t(REEL_HINT[videoStatus])}</span>
                     {videoStatus !== "pending" && post.status !== "published" && (
                       <div className="flex shrink-0 gap-2">
-                        {videoStatus === "no_credits" && (
-                          <Link
-                            href="/video-studio"
-                            className="rounded-md bg-primary px-2 py-1 font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-                          >
-                            {t("calendar.buyVideoCredits")}
-                          </Link>
-                        )}
                         <button
                           type="button"
                           onClick={() => onRegenerateVideo(post.id)}
@@ -862,6 +854,9 @@ const DetailPanel = ({
                             : videoStatus === "no_credits" ? t("calendar.createVideo") : t("calendar.regenerateVideo")}
                         </button>
                       </div>
+                    )}
+                    {videoStatus === "no_credits" && post.status !== "published" && (
+                      <ReelCreditPacks className="w-full" />
                     )}
                   </div>
                 )}
@@ -1906,18 +1901,17 @@ export const PostCalendar = () => {
         </div>
       )}
 
-      {videoCredits === 0 && (
+      {videoCredits !== null && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-foreground">{t("calendar.reelOfferTitle")}</p>
+            <p className="text-sm font-semibold text-foreground">
+              {videoCredits === 0
+                ? t("calendar.reelOfferTitle")
+                : t("calendar.videoCreditsLeft").replace("{count}", String(videoCredits))}
+            </p>
             <p className="mt-0.5 text-xs text-muted-foreground">{t("calendar.reelOfferText")}</p>
           </div>
-          <Link
-            href="/video-studio"
-            className="shrink-0 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            {t("calendar.buyVideoCredits")}
-          </Link>
+          <ReelCreditPacks className="shrink-0" />
         </div>
       )}
 

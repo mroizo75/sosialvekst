@@ -273,4 +273,16 @@ describe("slideComposer", () => {
     expect(await contrastPlateFill(white)).toContain("20,24,28");
     expect(await contrastPlateFill(red)).toContain("255,255,255");
   });
+
+  it("legger mørk plate bak hvit logo selv om det meste av fila er gjennomsiktig", async () => {
+    const whiteMark = await sharp({ create: { width: 10, height: 10, channels: 4, background: "#ffffffff" } }).png().toBuffer();
+    const sparseWhiteLogo = await sharp({
+      create: { width: 100, height: 50, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+    })
+      .composite([{ input: whiteMark, left: 10, top: 10 }])
+      .png()
+      .toBuffer();
+
+    expect(await contrastPlateFill(sparseWhiteLogo)).toContain("20,24,28");
+  });
 });

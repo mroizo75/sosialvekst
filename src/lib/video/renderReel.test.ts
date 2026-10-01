@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { generateKlingVideo, mergeAudioVideo } from "@/lib/ai/falClient";
+import { generateKlingVideo, mergeAudioVideo, overlayOnVideo } from "@/lib/ai/falClient";
 import { deleteFilesByUrls, uploadUserFile } from "@/lib/cloudflare/r2";
 import { getMusicTrackUrl } from "@/lib/video/musicLibrary";
 import { renderReelForPost } from "@/lib/video/renderReel";
@@ -10,6 +10,7 @@ import { consumeVideoCredit, getVideoBalance } from "@/lib/videoCredits";
 vi.mock("@/lib/ai/falClient", () => ({
   generateKlingVideo: vi.fn(),
   mergeAudioVideo: vi.fn(),
+  overlayOnVideo: vi.fn(),
   isFalAvailable: () => true,
 }));
 vi.mock("@/lib/cloudflare/r2", () => ({ uploadUserFile: vi.fn(), deleteFilesByUrls: vi.fn().mockResolvedValue(undefined) }));
@@ -78,6 +79,7 @@ describe("rendering av reel", () => {
     });
     expect(updates.at(-1)).toEqual({ video_status: "ready", video_url: "https://cdn.example/users/u1/videos/reel.mp4" });
     expect(consumeVideoCredit).toHaveBeenCalledTimes(1);
+    expect(overlayOnVideo).not.toHaveBeenCalled();
   });
 
   it("lager ikke video og trekker ingen kreditt når saldoen er tom", async () => {
@@ -130,6 +132,40 @@ describe("rendering av reel", () => {
     expect(result.status).toBe("ready");
     expect(mergeAudioVideo).not.toHaveBeenCalled();
     expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe("https://fal.example/clip.mp4");
+  });
+
+  it("legger tittel og logo oppå videoen med musikk når posten har overlag", async () => {
+    vi.mocked(generateKlingVideo).mockResolvedValue({ url: "https://fal.example/clip.mp4" });
+    vi.mocked(getMusicTrackUrl).mockResolvedValue("https://cdn.example/shared/music/v1/beach-1.mp3");
+    vi.mocked(mergeAudioVideo).mockResolvedValue("https://fal.example/merged.mp4");
+    vi.mocked(overlayOnVideo).mockResolvedValue("https://fal.example/branded.mp4");
+    vi.mocked(uploadUserFile).mockResolvedValue({ key: "k", publicUrl: "https://cdn.example/users/u1/videos/reel.mp4" });
+    const overlayUrl = "https://cdn.example/users/u1/images/reel-overlay.gif";
+    const { client } = fakeSupabase({ ...reelPost, generation_meta: { ...reelPost.generation_meta, reelOverlayUrl: overlayUrl } });
+
+    const result = await renderReelForPost(client, "p1");
+
+    expect(result.status).toBe("ready");
+    expect(overlayOnVideo).toHaveBeenCalledWith("https://fal.example/merged.mp4", overlayUrl);
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe("https://fal.example/branded.mp4");
+  });
+
+  it("bruker videoen uten tekst og logo når overlaget feiler", async () => {
+    vi.mocked(generateKlingVideo).mockResolvedValue({ url: "https://fal.example/clip.mp4" });
+    vi.mocked(getMusicTrackUrl).mockResolvedValue("https://cdn.example/shared/music/v1/beach-1.mp3");
+    vi.mocked(mergeAudioVideo).mockResolvedValue("https://fal.example/merged.mp4");
+    vi.mocked(overlayOnVideo).mockRejectedValue(new Error("overlay nede"));
+    vi.mocked(uploadUserFile).mockResolvedValue({ key: "k", publicUrl: "https://cdn.example/users/u1/videos/reel.mp4" });
+    const { client } = fakeSupabase({
+      ...reelPost,
+      generation_meta: { ...reelPost.generation_meta, reelOverlayUrl: "https://cdn.example/overlay.gif" },
+    });
+
+    const result = await renderReelForPost(client, "p1");
+
+    expect(result.status).toBe("ready");
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe("https://fal.example/merged.mp4");
+    expect(consumeVideoCredit).toHaveBeenCalledTimes(1);
   });
 
   it("hopper over poster uten reel-kilde", async () => {

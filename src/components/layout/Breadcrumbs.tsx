@@ -15,7 +15,6 @@ export const Breadcrumbs = () => {
     kalender: b.calendar,
     calendar: b.calendar,
     media: b.media,
-    "video-studio": b.videoStudio,
     publiser: b.publish,
     onboarding: b.myCompany,
     "velg-side": b.chooseFacebookPage,
