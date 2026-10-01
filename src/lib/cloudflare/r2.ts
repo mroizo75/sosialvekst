@@ -2,6 +2,7 @@ import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
@@ -127,6 +128,40 @@ export const uploadUserFile = async (input: DirectUploadInput) => {
     key,
     publicUrl: `${getPublicBaseUrl()}/${key}`,
   };
+};
+
+const SHARED_PREFIX = "shared/";
+
+const assertSharedKey = (key: string): void => {
+  if (!key.startsWith(SHARED_PREFIX) || key.includes("..")) {
+    throw toAppError("INVALID_SHARED_KEY", "Ugyldig nøkkel for felles fil", { key });
+  }
+};
+
+export const findSharedFileUrl = async (key: string): Promise<string | undefined> => {
+  assertSharedKey(key);
+  try {
+    await createR2Client().send(new HeadObjectCommand({ Bucket: getBucket(), Key: key }));
+    return `${getPublicBaseUrl()}/${key}`;
+  } catch (error) {
+    const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+    if (status === 404) return undefined;
+    throw error;
+  }
+};
+
+export const uploadSharedFile = async (key: string, contentType: string, body: Uint8Array): Promise<string> => {
+  assertSharedKey(key);
+  if (body.byteLength === 0) {
+    throw toAppError("EMPTY_FILE", "Filen er tom");
+  }
+  await createR2Client().send(new PutObjectCommand({
+    Bucket: getBucket(),
+    Key: key,
+    ContentType: contentType,
+    Body: body,
+  }));
+  return `${getPublicBaseUrl()}/${key}`;
 };
 
 export const downloadObjectByPublicUrl = async (url: string): Promise<Buffer | undefined> => {

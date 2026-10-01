@@ -21,6 +21,7 @@ import {
   timeZoneForCountry,
 } from "@/lib/schedule/audienceTime";
 import type { BrandContext, SocialChannel, TopicWindow } from "@/lib/types";
+import { reelColumns, reelsAllowedFor, startReelRender } from "@/lib/video/renderReel";
 
 const DEFAULT_POSTS_PER_WEEK = 3;
 const DEFAULT_TOTAL_WEEKS = 4;
@@ -328,6 +329,7 @@ async function regenerateSlots(
         dayIndex: slot.dayIndex,
         channel: slot.channel,
         hasCustomerStories: (brandContext?.customerSuccessStories?.length ?? 0) > 0,
+        reelsAllowed: reelsAllowedFor(mediaMode),
       });
 
       const post = await generatePost({
@@ -345,6 +347,7 @@ async function regenerateSlots(
         contentPillar: strategy.contentPillar,
         visualMotif: strategy.visualMotif,
         reelScript: strategy.reelScript,
+        mediaFormat: strategy.mediaFormat,
         includeWebsiteLink: strategy.includeWebsiteLink,
         feedIndex: strategy.feedIndex,
       });
@@ -352,8 +355,10 @@ async function regenerateSlots(
       const error = await updatePostRow(admin, { id: slot.id, userId }, {
         text_content: post.text,
         image_url: post.imageUrl ?? null,
-        video_url: post.videoUrl ?? null,
+        video_url: null,
+        ...reelColumns(post),
         image_credit: post.imageCredit ?? null,
+        generation_meta: post.generationMeta ?? null,
         status: post.status,
         quality_score: post.quality,
         updated_at: new Date().toISOString(),
@@ -366,6 +371,7 @@ async function regenerateSlots(
         if (mediaErr) {
           console.error(`[regenerate-all] Karusell-lagring feilet for ${slot.id}:`, mediaErr);
         }
+        if (post.reelSourceUrl) startReelRender(slot.id);
       }
 
       completed += 1;

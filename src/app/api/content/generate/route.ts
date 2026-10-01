@@ -7,6 +7,7 @@ import { assignPostStrategy } from "@/lib/ai/postStrategy";
 import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
+import { loadProfilesSafely, profilePromptLines, type PerformanceProfile } from "@/lib/metrics/learning";
 import { createContentPlan, replacePostMedia, updatePostRow } from "@/lib/posts/repository";
 import {
   addCalendarDays,
@@ -21,6 +22,7 @@ import { getPostsPerWeekAllowance, requireActiveSubscription } from "@/lib/subsc
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { BrandContext, SocialChannel, TopicWindow } from "@/lib/types";
+import { reelColumns, reelsAllowedFor, startReelRender } from "@/lib/video/renderReel";
 
 const generateSchema = z.object({
   postsPerWeek: z.number().int().min(1).max(7).default(3),
@@ -249,7 +251,7 @@ export async function POST(request: Request) {
       post_count: slots.length,
     });
 
-    void processSlots(userId, workspaceId, slots, payload.mediaMode, payload.topicWindows, brandContext);
+    void processSlots(userId, workspaceId, slots, payload.mediaMode, payload.topicWindows, payload.countryCode, brandContext);
 
     const placeholderPosts = slots.map((s) => ({
       id: s.id,
@@ -333,6 +335,7 @@ async function generateSingleSlot(
   slot: PlaceholderSlot,
   mediaMode: "ai_only" | "hybrid" | "owned_only",
   brandContext: BrandContext | undefined,
+  profile: PerformanceProfile | undefined,
 ): Promise<boolean> {
   try {
     const strategy = assignPostStrategy({
@@ -341,9 +344,12 @@ async function generateSingleSlot(
       channel: slot.channel,
       postsPerWeek: slot.postsPerWeek,
       hasCustomerStories: (brandContext?.customerSuccessStories?.length ?? 0) > 0,
-    });
+      reelsAllowed: reelsAllowedFor(mediaMode),
+    }, profile);
 
-    const timeoutMs = getTimeoutMs(slot.channel);
+    const timeoutMs = strategy.mediaFormat === "reel"
+      ? POST_GENERATION_TIMEOUT_MS.instagram
+      : getTimeoutMs(slot.channel);
 
     const post = await withTimeout(
       generatePost({
@@ -361,9 +367,11 @@ async function generateSingleSlot(
         contentPillar: strategy.contentPillar,
         visualMotif: strategy.visualMotif,
         reelScript: strategy.reelScript,
+        mediaFormat: strategy.mediaFormat,
         includeWebsiteLink: strategy.includeWebsiteLink,
         feedIndex: strategy.feedIndex,
         avoidRepeating: slot.avoidRepeating,
+        performanceNotes: profilePromptLines(profile),
       }),
       timeoutMs,
       `${slot.channel}/${slot.id.slice(0, 8)}`,
@@ -372,8 +380,10 @@ async function generateSingleSlot(
     const dbOk = await updatePostWithRetry(supabase, slot.id, userId, workspaceId, {
       text_content: post.text,
       image_url: post.imageUrl ?? null,
-      video_url: post.videoUrl ?? null,
+      video_url: null,
+      ...reelColumns(post),
       image_credit: post.imageCredit ?? null,
+      generation_meta: post.generationMeta ?? null,
       status: post.status,
       quality_score: post.quality,
     });
@@ -383,6 +393,7 @@ async function generateSingleSlot(
       if (mediaErr) {
         console.error(`[generate] Karusell-lagring feilet for ${slot.id.slice(0, 8)}:`, mediaErr);
       }
+      if (post.reelSourceUrl) startReelRender(slot.id);
     }
 
     return dbOk;
@@ -403,10 +414,14 @@ async function processSlots(
   plannedSlots: PlaceholderSlot[],
   mediaMode: "ai_only" | "hybrid" | "owned_only",
   topicWindows: TopicWindow[],
+  countryCode: string,
   brandContext?: BrandContext,
 ) {
   const supabase = createSupabaseAdminClient();
-  const slots = await assignAngles(plannedSlots, topicWindows, brandContext);
+  const [slots, profiles] = await Promise.all([
+    assignAngles(plannedSlots, topicWindows, brandContext),
+    loadProfilesSafely(supabase, { userId, workspaceId }, plannedSlots.map((slot) => slot.channel), timeZoneForCountry(countryCode)),
+  ]);
   let succeeded = 0;
   let completed = 0;
 
@@ -418,7 +433,7 @@ async function processSlots(
     console.log(`[generate] Batch ${batchLabel} (${batch.map((s) => s.channel).join(", ")})`);
 
     const results = await Promise.allSettled(
-      batch.map((slot) => generateSingleSlot(supabase, userId, workspaceId, slot, mediaMode, brandContext)),
+      batch.map((slot) => generateSingleSlot(supabase, userId, workspaceId, slot, mediaMode, brandContext, profiles.get(slot.channel))),
     );
 
     for (const result of results) {

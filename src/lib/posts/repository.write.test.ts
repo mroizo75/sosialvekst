@@ -64,4 +64,30 @@ describe("lagring av genererte innlegg", () => {
       { post_id: "p1", file_url: "https://b.jpg", sort_order: 1 },
     ]);
   });
+
+  it("lagrer uten generation_meta når migrasjon 024 ikke er kjørt", async () => {
+    const { client, calls } = fakeClient((_table, _op, values) => {
+      const row = values as Record<string, unknown>;
+      return "generation_meta" in row
+        ? { error: { message: "Could not find the 'generation_meta' column of 'posts'" } }
+        : { error: null };
+    });
+
+    const error = await updatePostRow(client, { id: "p1", userId: "u1" }, {
+      text_content: "Hei",
+      generation_meta: { topic: "Lisboa", slideCount: 3, realPlacePhoto: true },
+    });
+
+    expect(error).toBeNull();
+    expect(calls.at(-1)?.values).toEqual({ text_content: "Hei" });
+  });
+
+  it("hopper over lagring når bare generation_meta skulle skrives og kolonnen mangler", async () => {
+    const { client, calls } = fakeClient(() => ({ error: { message: "column posts.generation_meta does not exist" } }));
+
+    const error = await updatePostRow(client, { id: "p1", userId: "u1" }, { generation_meta: { topic: "x" } });
+
+    expect(error).toBeNull();
+    expect(calls).toHaveLength(1);
+  });
 });

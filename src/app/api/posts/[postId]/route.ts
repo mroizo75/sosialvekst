@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { fallbackAngle } from "@/lib/ai/generatePlan";
 import { appVersion, creditRecordsFromText, generatePost, replaceCreditLine } from "@/lib/ai/generatePost";
-import { assignPostStrategy } from "@/lib/ai/postStrategy";
+import { assignPostStrategy, pinnedFromMeta } from "@/lib/ai/postStrategy";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
@@ -11,10 +11,13 @@ import { deleteFilesByUrls } from "@/lib/cloudflare/r2";
 import { requireWorkspaceId } from "@/lib/workspace";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
-import { getPostById, savePost, setPostAdditionalImages } from "@/lib/posts/repository";
+import { loadProfilesSafely, profilePromptLines } from "@/lib/metrics/learning";
+import { getPostById, savePost, setPostAdditionalImages, updatePostRow } from "@/lib/posts/repository";
+import { timeZoneForCountry } from "@/lib/schedule/audienceTime";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { GenerationStep, TopicWindow } from "@/lib/types";
+import type { GenerationMeta, GenerationStep, TopicWindow } from "@/lib/types";
+import { queueReelRender, reelColumns, reelsAllowedFor, startReelRender } from "@/lib/video/renderReel";
 
 const REGENERATE_TIMEOUT_MS = 180_000;
 
@@ -51,10 +54,32 @@ const updateSchema = z.object({
       "reschedule",
       "unlock",
       "reject_and_regenerate",
+      "more_like_this",
+      "regenerate_video",
     ])
     .optional(),
+  sourcePostId: z.string().uuid().optional(),
   regenerate: z.boolean().optional(),
 });
+
+type SourcePost = { meta: GenerationMeta; channel: string };
+
+const getSourcePost = async (userId: string, sourcePostId: string): Promise<SourcePost | null> => {
+  const supabase = await createSupabaseServerClient();
+  const { data } = await supabase
+    .from("posts")
+    .select("channel, generation_meta")
+    .eq("id", sourcePostId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!data?.generation_meta || typeof data.generation_meta !== "object") return null;
+  return { meta: data.generation_meta as GenerationMeta, channel: data.channel as string };
+};
+
+const moreLikeThisNote = (meta: GenerationMeta): string =>
+  meta.coverTitle
+    ? `Lag en ny post i samme form og tone som «${meta.coverTitle}», som fikk godt engasjement. Ny vinkel og ny tittel, ikke kopier.`
+    : "Lag en ny post i samme form og tone som et innlegg som fikk godt engasjement. Ny vinkel og ny tittel.";
 
 type RouteContext = {
   params: Promise<{ postId: string }>;
@@ -176,6 +201,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     let updatedImageCredit = post.imageCredit;
     let updatedAdditionalImageCredits = post.additionalImageCredits ?? [];
     let generationTrace: GenerationStep[] = [];
+    let generationMeta: GenerationMeta | undefined;
+    let reelUpdate: ReturnType<typeof reelColumns> | undefined;
     const fallbackTopic = brandContext?.companyDescription?.slice(0, 180)
       ?? fallbackAngle(brandContext);
     const action = payload.action ?? (payload.regenerate ? "regenerate_all" : "save");
@@ -223,7 +250,43 @@ export async function PATCH(request: Request, context: RouteContext) {
       return NextResponse.json(refreshedPost);
     }
 
-    const regenAction = action === "reject_and_regenerate" ? "regenerate_all" : action;
+    if (action === "regenerate_video") {
+      if (post.status === "published") {
+        return NextResponse.json(
+          toAppError("POST_LOCKED", "Publiserte poster kan ikke få ny video."),
+          { status: 400 },
+        );
+      }
+      await requireActiveSubscription(userId);
+      const queued = await queueReelRender(await createSupabaseServerClient(), { id: post.id, userId });
+      if (!queued) {
+        return NextResponse.json(
+          toAppError("REEL_SOURCE_MISSING", "Posten er ikke en reel, eller mangler foto å lage video av."),
+          { status: 400 },
+        );
+      }
+      startReelRender(post.id);
+      return NextResponse.json(await getPostById(userId, post.id));
+    }
+
+    const regenAction = action === "reject_and_regenerate" || action === "more_like_this" ? "regenerate_all" : action;
+
+    let source: SourcePost | null = null;
+    if (action === "more_like_this") {
+      source = payload.sourcePostId ? await getSourcePost(userId, payload.sourcePostId) : null;
+      if (!source) {
+        return NextResponse.json(
+          toAppError("SOURCE_POST_MISSING", "Fant ikke forbildet, eller det mangler genereringsdata."),
+          { status: 400 },
+        );
+      }
+      if (source.channel !== post.channel) {
+        return NextResponse.json(
+          toAppError("CHANNEL_MISMATCH", "Forbildet må være fra samme kanal som posten som skal lages på nytt."),
+          { status: 400 },
+        );
+      }
+    }
 
     const isApprovalLocked = post.status === "approved" || post.status === "scheduled";
     if (isApprovalLocked && regenAction !== "reschedule" && action !== "reject_and_regenerate") {
@@ -287,6 +350,13 @@ export async function PATCH(request: Request, context: RouteContext) {
       const mediaMode = effectiveMediaMode === "owned_only" ? "owned_only" : "ai_only";
       const imageProfile = regenAction === "regenerate_image" ? "final" : "preview";
       const scheduled = new Date(post.scheduledAt);
+      const profiles = await loadProfilesSafely(
+        await createSupabaseServerClient(),
+        { userId, workspaceId },
+        [post.channel],
+        timeZoneForCountry("NO"),
+      );
+      const profile = profiles.get(post.channel);
       const strategy = assignPostStrategy({
         weekIndex: 0,
         dayIndex: 0,
@@ -295,7 +365,13 @@ export async function PATCH(request: Request, context: RouteContext) {
           ? Date.now() % 20
           : scheduled.getUTCDate() + scheduled.getUTCMonth() * 3,
         hasCustomerStories: (brandContext?.customerSuccessStories?.length ?? 0) > 0,
-      });
+        pinned: source ? pinnedFromMeta(source.meta) : undefined,
+        reelsAllowed: reelsAllowedFor(mediaMode),
+      }, profile);
+      const performanceNotes = [
+        ...(source ? [moreLikeThisNote(source.meta)] : []),
+        ...profilePromptLines(profile),
+      ];
 
       logger.info("[post/patch] Starter generatePost", {
         postId, action, channel: post.channel, mediaMode, imageProfile, topic: topic.slice(0, 60),
@@ -310,7 +386,6 @@ export async function PATCH(request: Request, context: RouteContext) {
           mediaMode,
           imageProfile,
           brandContext,
-          skipVideo: true,
           intent: strategy.intent,
           format: strategy.format,
           ctaType: strategy.ctaType,
@@ -318,8 +393,11 @@ export async function PATCH(request: Request, context: RouteContext) {
           contentPillar: strategy.contentPillar,
           visualMotif: strategy.visualMotif,
           reelScript: strategy.reelScript,
+          mediaFormat: strategy.mediaFormat,
           includeWebsiteLink: strategy.includeWebsiteLink,
           feedIndex: strategy.feedIndex,
+          avoidRepeating: source?.meta.coverTitle ? [source.meta.coverTitle] : undefined,
+          performanceNotes,
           textOnlyForImageUrl: regenAction === "regenerate_text" ? post.imageUrl ?? "" : undefined,
         }),
         REGENERATE_TIMEOUT_MS,
@@ -327,6 +405,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       );
 
       generationTrace = regenerated.generationTrace ?? [];
+      generationMeta = regenerated.generationMeta;
       logger.info("[post/patch] generatePost ferdig", {
         postId, action, channel: post.channel,
         hasText: Boolean(regenerated.text),
@@ -350,6 +429,13 @@ export async function PATCH(request: Request, context: RouteContext) {
           ),
           { status: 502 },
         );
+      }
+
+      if (regenAction === "regenerate_image" || regenAction === "regenerate_all" || regenAction === "rewrite_topic") {
+        reelUpdate = reelColumns(regenerated);
+      }
+      if (regenAction === "regenerate_text" && generationMeta) {
+        generationMeta = { ...generationMeta, mediaFormat: post.videoUrl || post.videoStatus ? "reel" : "image" };
       }
 
       if (regenAction === "regenerate_image") {
@@ -410,6 +496,15 @@ export async function PATCH(request: Request, context: RouteContext) {
     });
 
     await setPostAdditionalImages(userId, post.id, updatedAdditionalImageUrls, updatedAdditionalImageCredits);
+
+    if (generationMeta || reelUpdate) {
+      const metaError = await updatePostRow(await createSupabaseServerClient(), { id: post.id, userId }, {
+        ...(generationMeta ? { generation_meta: generationMeta } : {}),
+        ...reelUpdate,
+      });
+      if (metaError) logger.warn("[post/patch] Kunne ikke lagre generation_meta/reel", { postId: post.id, error: metaError });
+      else if (reelUpdate?.reel_source_url) startReelRender(post.id);
+    }
 
     const refreshedPost = await getPostById(userId, post.id);
     return NextResponse.json(

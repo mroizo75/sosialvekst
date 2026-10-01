@@ -24,13 +24,6 @@ type FlexEditInput = {
   numInferenceSteps?: number;
 };
 
-export type ImageToVideoInput = {
-  prompt: string;
-  imageUrl: string;
-  duration?: "5" | "10";
-  resolution?: "480p" | "720p" | "1080p";
-};
-
 const getFalKey = (): string | null => {
   return process.env.FAL_KEY ?? null;
 };
@@ -240,31 +233,6 @@ export const generateFlexEdit = async (
   }
 };
 
-export const generateImageToVideo = async (
-  input: ImageToVideoInput,
-): Promise<FalVideoResult | null> => {
-  if (!getFalKey()) return null;
-
-  try {
-    const result = await falFetchQueued<{ video?: FalVideoResult }>(
-      "fal-ai/minimax/hailuo-02-fast/image-to-video",
-      {
-        prompt: input.prompt,
-        image_url: input.imageUrl,
-        duration: "6",
-        prompt_optimizer: true,
-      },
-    );
-
-    return result.video ?? null;
-  } catch (error) {
-    logger.warn("fal.ai Hailuo Fast image-to-video feilet", {
-      error: error instanceof Error ? error.message : "ukjent",
-    });
-    return null;
-  }
-};
-
 export type TextToVideoInput = {
   prompt: string;
   promptOptimizer?: boolean;
@@ -367,6 +335,33 @@ export const generateKlingVideo = async (
     });
     return null;
   }
+};
+
+/* ─── ElevenLabs Music og ffmpeg: lydspor til reels ─── */
+
+const MUSIC_MIN_MS = 3_000;
+const MUSIC_MAX_MS = 600_000;
+
+export const generateMusic = async (prompt: string, lengthMs: number): Promise<string> => {
+  if (!prompt.trim()) throw new Error("Musikkprompt mangler.");
+  const result = await falFetchQueued<{ audio?: { url?: string } }>("fal-ai/elevenlabs/music", {
+    prompt,
+    music_length_ms: Math.min(MUSIC_MAX_MS, Math.max(MUSIC_MIN_MS, Math.round(lengthMs))),
+    force_instrumental: true,
+  });
+  const url = result.audio?.url;
+  if (!url) throw new Error("fal.ai elevenlabs/music returnerte ingen lydfil.");
+  return url;
+};
+
+export const mergeAudioVideo = async (videoUrl: string, audioUrl: string): Promise<string> => {
+  const result = await falFetchQueued<{ video?: { url?: string } }>("fal-ai/ffmpeg-api/merge-audio-video", {
+    video_url: videoUrl,
+    audio_url: audioUrl,
+  });
+  const url = result.video?.url;
+  if (!url) throw new Error("fal.ai merge-audio-video returnerte ingen video.");
+  return url;
 };
 
 export type VideoModel = "veo3" | "kling";

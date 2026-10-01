@@ -7,7 +7,7 @@ import { useI18n } from "@/components/i18n/I18nProvider";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import { localeToPreferredLanguage } from "@/lib/i18n/config";
-import type { PostDraft, SocialChannel } from "@/lib/types";
+import type { PostDraft, SocialChannel, VideoStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const captionWithCredit = (text: string, credit?: string): string => {
@@ -253,9 +253,41 @@ const PostCardMini = ({ post, onClick, onDragStart, onDragEnd, isProcessing }: P
               +{post.additionalImageUrls.length} bilde{post.additionalImageUrls.length > 1 ? "r" : ""}
             </span>
           ) : null}
+          <ReelBadge videoStatus={post.videoStatus} />
         </div>
       </div>
     </button>
+  );
+};
+
+type PostAction =
+  | "save"
+  | "regenerate_all"
+  | "regenerate_text"
+  | "regenerate_image"
+  | "rewrite_topic"
+  | "unlock"
+  | "reject_and_regenerate"
+  | "regenerate_video";
+
+const REEL_BADGE_STYLE: Record<VideoStatus, string> = {
+  pending: "bg-primary/10 text-primary",
+  ready: "bg-success/10 text-success",
+  failed: "bg-destructive/10 text-destructive",
+};
+
+const ReelBadge = ({ videoStatus }: { videoStatus?: VideoStatus }) => {
+  const { t } = useI18n();
+  if (!videoStatus) return null;
+  const label = videoStatus === "pending"
+    ? t("calendar.reelPending")
+    : videoStatus === "ready"
+      ? t("calendar.reelReady")
+      : t("calendar.reelFailed");
+  return (
+    <span className={cn("rounded px-1 py-0.5 text-[9px] font-semibold", REEL_BADGE_STYLE[videoStatus])}>
+      {label}
+    </span>
   );
 };
 
@@ -273,6 +305,8 @@ type DetailPanelProps = {
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
   onUnlock: (id: string) => void;
+  onRegenerateVideo: (id: string) => void;
+  videoStatus?: VideoStatus;
   processingAction: string | null;
   approving: boolean;
   aiEditsRemaining: number;
@@ -462,6 +496,8 @@ const DetailPanel = ({
   onApprove,
   onReject,
   onUnlock,
+  onRegenerateVideo,
+  videoStatus,
   processingAction,
   approving,
   aiEditsRemaining,
@@ -661,6 +697,7 @@ const DetailPanel = ({
                 <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold", statusBadge.bg, statusBadge.text)}>
                   {statusLabels[post.status] ?? post.status}
                 </span>
+                <ReelBadge videoStatus={videoStatus} />
               </div>
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
                 <IconCalendar className="size-3" />
@@ -788,6 +825,24 @@ const DetailPanel = ({
                   <IconImage className="size-3.5 text-muted-foreground" />
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t("calendar.preview")}</p>
                 </div>
+                {(videoStatus === "pending" || videoStatus === "failed") && (
+                  <div className={cn(
+                    "mb-2 flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs",
+                    videoStatus === "failed" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary",
+                  )}>
+                    <span>{videoStatus === "failed" ? t("calendar.reelFailedHint") : t("calendar.reelPendingHint")}</span>
+                    {videoStatus === "failed" && post.status !== "published" && (
+                      <button
+                        type="button"
+                        onClick={() => onRegenerateVideo(post.id)}
+                        disabled={processingAction !== null}
+                        className="shrink-0 rounded-md border border-destructive/40 bg-transparent px-2 py-1 font-semibold text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50 cursor-pointer"
+                      >
+                        {processingAction === "regenerate_video" ? t("calendar.regeneratingVideo") : t("calendar.regenerateVideo")}
+                      </button>
+                    )}
+                  </div>
+                )}
                 {videoUrlDraft ? (
                   <div className="flex aspect-[4/3] w-full items-center justify-center rounded-xl border border-border bg-muted/20 overflow-hidden">
                     <video src={videoUrlDraft} controls className="h-full w-full object-contain" />
@@ -1348,7 +1403,7 @@ export const PostCalendar = () => {
   const [selectedPost, setSelectedPost] = useState<PostDraft | null>(null);
   const [processingPost, setProcessingPost] = useState<{
     id: string;
-    action: "save" | "regenerate_all" | "regenerate_text" | "regenerate_image" | "rewrite_topic" | "unlock" | "reject_and_regenerate";
+    action: PostAction;
   } | null>(null);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [status, setStatus] = useState("");
@@ -1394,7 +1449,7 @@ export const PostCalendar = () => {
 
   const updatePost = async (
     postId: string,
-    action: "save" | "regenerate_all" | "regenerate_text" | "regenerate_image" | "rewrite_topic" | "unlock" | "reject_and_regenerate",
+    action: PostAction,
     payload: Record<string, string | string[] | undefined> = {},
   ) => {
     // TODO: Aktiver igjen etter test
@@ -2076,6 +2131,8 @@ export const PostCalendar = () => {
             onApprove={(id) => void approvePost(id)}
             onReject={(id) => void updatePost(id, "reject_and_regenerate")}
             onUnlock={(id) => void updatePost(id, "unlock")}
+            onRegenerateVideo={(id) => void updatePost(id, "regenerate_video")}
+            videoStatus={posts.find((item) => item.id === selectedPost.id)?.videoStatus ?? selectedPost.videoStatus}
             processingAction={processingPost?.id === selectedPost.id ? processingPost.action : null}
             approving={approvingId === selectedPost.id}
             aiEditsRemaining={aiEditsRemaining}

@@ -7,7 +7,7 @@ type RunPublishWorkerInput = {
   limit?: number;
 };
 
-type PublishInput = {
+export type PublishInput = {
   channel: "facebook" | "instagram" | "linkedin" | "tiktok";
   accountId: string | null;
   accessToken: string | null;
@@ -19,6 +19,52 @@ type PublishInput = {
   videoUrl: string | null;
   idempotencyKey: string;
   userId: string;
+};
+
+export const REEL_WAIT_MS = 30 * 60 * 1000;
+const REEL_RECHECK_MS = 2 * 60 * 1000;
+
+type PublishPostRow = {
+  id: string;
+  scheduled_at: string | null;
+  text_content: string;
+  image_url: string | null;
+  video_url: string | null;
+  video_status?: string | null;
+};
+
+export type ReelPublishDecision = "wait" | "video" | "image";
+
+export const reelPublishDecision = (
+  post: Pick<PublishPostRow, "video_url" | "video_status">,
+  runAtMs: number,
+  nowMs: number,
+): ReelPublishDecision => {
+  if (post.video_status === "pending") {
+    return nowMs - runAtMs < REEL_WAIT_MS ? "wait" : "image";
+  }
+  return post.video_url ? "video" : "image";
+};
+
+const PUBLISH_POST_SELECT = "id, scheduled_at, text_content, image_url, video_url";
+
+const loadPublishPost = async (
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  postId: string,
+  userId: string,
+): Promise<PublishPostRow | null> => {
+  const run = (columns: string) => admin
+    .from("posts")
+    .select(columns)
+    .eq("id", postId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  let { data, error } = await run(`${PUBLISH_POST_SELECT}, video_status`);
+  if (error?.message.includes("video_status")) {
+    ({ data, error } = await run(PUBLISH_POST_SELECT));
+  }
+  if (error) throw new Error(error.message);
+  return data as PublishPostRow | null;
 };
 
 const MAX_ATTEMPTS = 3;
@@ -71,6 +117,54 @@ const publishFacebookAlbum = async (input: PublishInput, apiVersion: string, ima
   return payload.id ?? `facebook_${input.idempotencyKey}`;
 };
 
+const publishFacebookVideo = async (input: PublishInput, apiVersion: string, videoUrl: string): Promise<string> => {
+  const payload = await postGraphForm<{ id?: string; post_id?: string }>(apiVersion, `${input.accountId}/videos`, {
+    access_token: input.accessToken ?? "",
+    description: input.text,
+    file_url: videoUrl,
+  });
+  return payload.post_id ?? payload.id ?? `facebook_${input.idempotencyKey}`;
+};
+
+// Reels need a three-step upload: start a session, hand Facebook the hosted file, then publish.
+const publishFacebookReelSession = async (input: PublishInput, apiVersion: string, videoUrl: string): Promise<string> => {
+  const token = input.accessToken ?? "";
+  const session = await postGraphForm<{ video_id?: string }>(apiVersion, `${input.accountId}/video_reels`, {
+    access_token: token,
+    upload_phase: "start",
+  });
+  if (!session.video_id) {
+    throw new Error("Facebook ga ingen video_id for reel.");
+  }
+  const upload = await fetch(`https://rupload.facebook.com/video-upload/${apiVersion}/${session.video_id}`, {
+    method: "POST",
+    headers: { Authorization: `OAuth ${token}`, file_url: videoUrl },
+  });
+  await ensureJson<{ success?: boolean }>(upload);
+  const finish = await postGraphForm<{ success?: boolean }>(apiVersion, `${input.accountId}/video_reels`, {
+    access_token: token,
+    upload_phase: "finish",
+    video_id: session.video_id,
+    video_state: "PUBLISHED",
+    description: input.text,
+  });
+  if (finish.success === false) {
+    throw new Error("Facebook avviste publisering av reel.");
+  }
+  return session.video_id;
+};
+
+export const publishFacebookReel = async (input: PublishInput, apiVersion: string, videoUrl: string): Promise<string> => {
+  try {
+    return await publishFacebookReelSession(input, apiVersion, videoUrl);
+  } catch (error) {
+    logger.warn("[publishFacebook] Reel feilet, publiserer som vanlig video", {
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    return publishFacebookVideo(input, apiVersion, videoUrl);
+  }
+};
+
 const publishFacebook = async (input: PublishInput): Promise<string> => {
   if (!input.accountId) {
     throw new Error("Mangler Facebook accountId.");
@@ -79,12 +173,7 @@ const publishFacebook = async (input: PublishInput): Promise<string> => {
   const token = input.accessToken ?? "";
 
   if (input.videoUrl) {
-    const payload = await postGraphForm<{ id?: string; post_id?: string }>(apiVersion, `${input.accountId}/videos`, {
-      access_token: token,
-      description: input.text,
-      file_url: input.videoUrl,
-    });
-    return payload.post_id ?? payload.id ?? `facebook_${input.idempotencyKey}`;
+    return publishFacebookReel(input, apiVersion, input.videoUrl);
   }
 
   const imageUrls = collectImageUrls(input.imageUrl, input.additionalImageUrls);
@@ -111,13 +200,15 @@ const publishFacebook = async (input: PublishInput): Promise<string> => {
 
 const IG_CONTAINER_POLL_INTERVAL_MS = 3_000;
 const IG_CONTAINER_MAX_POLLS = 20;
+const IG_VIDEO_CONTAINER_MAX_POLLS = 100;
 
 const waitForContainerStatus = async (
   containerId: string,
   accessToken: string,
   apiVersion: string,
+  maxPolls = IG_CONTAINER_MAX_POLLS,
 ): Promise<void> => {
-  for (let attempt = 0; attempt < IG_CONTAINER_MAX_POLLS; attempt += 1) {
+  for (let attempt = 0; attempt < maxPolls; attempt += 1) {
     const statusUrl = new URL(`https://graph.facebook.com/${apiVersion}/${containerId}`);
     statusUrl.searchParams.set("access_token", accessToken);
     statusUrl.searchParams.set("fields", "status_code,status");
@@ -220,6 +311,8 @@ const publishInstagram = async (input: PublishInput): Promise<string> => {
   if (input.videoUrl) {
     createForm.set("video_url", input.videoUrl);
     createForm.set("media_type", "REELS");
+    createForm.set("share_to_feed", "true");
+    if (input.imageUrl) createForm.set("cover_url", input.imageUrl);
   } else if (imageUrls[0]) {
     createForm.set("image_url", imageUrls[0]);
   }
@@ -237,7 +330,12 @@ const publishInstagram = async (input: PublishInput): Promise<string> => {
     throw new Error("Instagram media container ble ikke opprettet.");
   }
 
-  await waitForContainerStatus(createPayload.id, token, apiVersion);
+  await waitForContainerStatus(
+    createPayload.id,
+    token,
+    apiVersion,
+    input.videoUrl ? IG_VIDEO_CONTAINER_MAX_POLLS : IG_CONTAINER_MAX_POLLS,
+  );
 
   const publishForm = new URLSearchParams();
   publishForm.set("access_token", token);
@@ -456,7 +554,9 @@ const refreshTikTokToken = async (
   };
 };
 
-const ensureTikTokToken = async (input: PublishInput): Promise<string> => {
+export const ensureTikTokToken = async (
+  input: Pick<PublishInput, "accessToken" | "refreshToken" | "tokenExpiresAt" | "accountId" | "userId">,
+): Promise<string> => {
   if (!input.accessToken) {
     throw new Error("Mangler TikTok tilgangstoken.");
   }
@@ -703,12 +803,14 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
   processed: number;
   published: number;
   failed: number;
+  waiting: number;
 }> => {
   const admin = createSupabaseAdminClient();
   const limit = input.limit ?? 25;
   let processed = 0;
   let published = 0;
   let failed = 0;
+  let waiting = 0;
 
   const now = new Date();
   const staleCutoff = new Date(now.getTime() - PROCESSING_STALE_MS).toISOString();
@@ -788,13 +890,8 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
 
     processed += 1;
     try {
-      const [{ data: post }, { data: social }, { data: mediaRows }] = await Promise.all([
-        admin
-          .from("posts")
-          .select("id, text_content, image_url, video_url")
-          .eq("id", job.post_id)
-          .eq("user_id", job.user_id)
-          .single(),
+      const [post, { data: social }, { data: mediaRows }] = await Promise.all([
+        loadPublishPost(admin, job.post_id, job.user_id),
         admin
           .from("social_accounts")
           .select("account_id, access_token, refresh_token, token_expires_at")
@@ -814,6 +911,29 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
         throw new Error("Fant ikke post for publish job");
       }
 
+      const scheduledMs = post.scheduled_at ? new Date(post.scheduled_at).getTime() : now.getTime();
+      const media = reelPublishDecision(post, scheduledMs, now.getTime());
+      if (media === "wait") {
+        await admin
+          .from("publish_jobs")
+          .update({
+            status: "queued",
+            attempts: job.attempts ?? 0,
+            processing_started_at: null,
+            last_error: "Venter på at videoen blir ferdig.",
+            run_at: new Date(Date.now() + REEL_RECHECK_MS).toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", job.id);
+        processed -= 1;
+        waiting += 1;
+        logger.info("[publishWorker] Venter på reel-video", { jobId: job.id, postId: job.post_id });
+        continue;
+      }
+      if (media === "image" && post.video_status === "pending") {
+        logger.warn("[publishWorker] Videoen ble ikke ferdig i tide, publiserer som bilde", { postId: job.post_id });
+      }
+
       const externalPostId = await publishToChannel({
         channel: job.channel as "facebook" | "instagram" | "linkedin" | "tiktok",
         accountId: social?.account_id ?? null,
@@ -823,7 +943,7 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
         text: post.text_content,
         imageUrl: post.image_url,
         additionalImageUrls: (mediaRows ?? []).map((row) => row.file_url).filter((url) => Boolean(url)),
-        videoUrl: post.video_url,
+        videoUrl: media === "video" ? post.video_url : null,
         idempotencyKey: job.id,
         userId: job.user_id,
       });
@@ -898,5 +1018,5 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
     }
   }
 
-  return { processed, published, failed };
+  return { processed, published, failed, waiting };
 };

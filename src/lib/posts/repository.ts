@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { toAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { MediaMode, PostDraft, SocialChannel, TopicWindow } from "@/lib/types";
+import type { MediaMode, PostDraft, SocialChannel, TopicWindow, VideoStatus } from "@/lib/types";
 
 type DbPostRow = {
   id: string;
@@ -15,6 +15,7 @@ type DbPostRow = {
   video_url: string | null;
   quality_score: PostDraft["quality"];
   image_credit?: string | null;
+  video_status?: VideoStatus | null;
 };
 
 type DbPostMediaRow = {
@@ -42,6 +43,23 @@ const POST_SELECT =
   "id, channel, status, scheduled_at, text_content, image_url, video_url, quality_score";
 const POST_SELECT_WITH_CREDIT =
   "id, channel, status, scheduled_at, text_content, image_url, video_url, image_credit, quality_score";
+const POST_SELECT_FULL = `${POST_SELECT_WITH_CREDIT}, video_status`;
+
+// Newest columns first; later entries drop columns whose migrations may not have run yet.
+const POST_SELECT_CHAIN = [POST_SELECT_FULL, POST_SELECT_WITH_CREDIT, POST_SELECT];
+const OPTIONAL_SELECT_COLUMNS = ["video_status", "image_credit"];
+
+type SelectResult = { data: unknown; error: { message: string } | null };
+
+const selectWithFallback = async (run: (columns: string) => PromiseLike<SelectResult>): Promise<SelectResult> => {
+  let result: SelectResult = { data: null, error: null };
+  for (const columns of POST_SELECT_CHAIN) {
+    result = await run(columns);
+    const missingOptional = OPTIONAL_SELECT_COLUMNS.some((column) => missingColumn(result.error?.message, column));
+    if (!result.error || !missingOptional) return result;
+  }
+  return result;
+};
 const MEDIA_SELECT = "post_id, file_url, sort_order";
 const MEDIA_SELECT_WITH_CREDIT = "post_id, file_url, sort_order, credit";
 
@@ -49,6 +67,13 @@ const missingColumn = (message: string | undefined, column: string): boolean =>
   (message ?? "").toLowerCase().includes(column.toLowerCase());
 
 type PostRowFilter = { id: string; userId: string; workspaceId?: string };
+
+const OPTIONAL_POST_COLUMNS: Record<string, string> = {
+  image_credit: "022_image_credits.sql",
+  generation_meta: "024_post_metrics.sql",
+  reel_source_url: "025_reels.sql",
+  video_status: "025_reels.sql",
+};
 
 export const updatePostRow = async (
   client: SupabaseClient,
@@ -59,14 +84,17 @@ export const updatePostRow = async (
     const query = client.from("posts").update(values).eq("id", filter.id).eq("user_id", filter.userId);
     return filter.workspaceId ? query.eq("workspace_id", filter.workspaceId) : query;
   };
-  const { error } = await run(payload);
-  if (!error) return null;
-  if (!("image_credit" in payload) || !missingColumn(error.message, "image_credit")) return error.message;
-
-  logger.warn("Kolonnen image_credit mangler, lagrer uten. Kjør migrering 022_image_credits.sql", { postId: filter.id });
-  const withoutCredit = Object.fromEntries(Object.entries(payload).filter(([key]) => key !== "image_credit"));
-  const retry = await run(withoutCredit);
-  return retry.error?.message ?? null;
+  let values = payload;
+  for (let attempt = 0; attempt <= Object.keys(OPTIONAL_POST_COLUMNS).length; attempt += 1) {
+    const { error } = await run(values);
+    if (!error) return null;
+    const column = Object.keys(OPTIONAL_POST_COLUMNS).find((key) => key in values && missingColumn(error.message, key));
+    if (!column) return error.message;
+    logger.warn(`Kolonnen ${column} mangler, lagrer uten. Kjør migrering ${OPTIONAL_POST_COLUMNS[column]}`, { postId: filter.id });
+    values = Object.fromEntries(Object.entries(values).filter(([key]) => key !== column));
+    if (Object.keys(values).length === 0) return null;
+  }
+  return "Kunne ikke lagre innlegget.";
 };
 
 export const replacePostMedia = async (
@@ -99,6 +127,7 @@ const toPostDraft = (row: DbPostRow): PostDraft => ({
   text: row.text_content,
   imageUrl: normalizeR2Url(row.image_url),
   videoUrl: row.video_url ?? undefined,
+  videoStatus: row.video_status ?? undefined,
   imageCredit: row.image_credit ?? undefined,
   quality: row.quality_score,
 });
@@ -255,16 +284,13 @@ export const listPosts = async (userId: string, workspaceId?: string): Promise<P
     return query.order("scheduled_at", { ascending: true });
   };
 
-  let { data, error } = await run(POST_SELECT_WITH_CREDIT);
-  if (error && missingColumn(error.message, "image_credit")) {
-    ({ data, error } = await run(POST_SELECT));
-  }
+  const { data, error } = await selectWithFallback(run);
 
   if (error) {
     throw toAppError("POSTS_LIST_FAILED", "Kunne ikke hente poster", error.message);
   }
 
-  const posts = (data ?? []).map((row) => toPostDraft(row as unknown as DbPostRow));
+  const posts = ((data ?? []) as DbPostRow[]).map(toPostDraft);
   if (posts.length === 0) {
     return posts;
   }
@@ -275,21 +301,12 @@ export const listPosts = async (userId: string, workspaceId?: string): Promise<P
 
 export const getPostById = async (userId: string, postId: string): Promise<PostDraft | null> => {
   const supabase = await createSupabaseServerClient();
-  let { data, error } = await supabase
+  const { data, error } = await selectWithFallback((columns) => supabase
     .from("posts")
-    .select(POST_SELECT_WITH_CREDIT)
+    .select(columns)
     .eq("user_id", userId)
     .eq("id", postId)
-    .maybeSingle();
-
-  if (error && missingColumn(error.message, "image_credit")) {
-    ({ data, error } = await supabase
-      .from("posts")
-      .select(POST_SELECT)
-      .eq("user_id", userId)
-      .eq("id", postId)
-      .maybeSingle());
-  }
+    .maybeSingle());
 
   if (error) {
     throw toAppError("POST_GET_FAILED", "Kunne ikke hente post", error.message);
@@ -315,23 +332,18 @@ export const savePost = async (userId: string, post: PostDraft): Promise<PostDra
     quality_score: post.quality,
     updated_at: new Date().toISOString(),
   };
-  let { data, error } = await supabase
-    .from("posts")
-    .update({ ...payload, image_credit: post.imageCredit ?? null })
-    .eq("user_id", userId)
-    .eq("id", post.id)
-    .select(POST_SELECT_WITH_CREDIT)
-    .single();
-
-  if (error && missingColumn(error.message, "image_credit")) {
-    ({ data, error } = await supabase
+  const updateError = await updatePostRow(supabase, { id: post.id, userId }, {
+    ...payload,
+    image_credit: post.imageCredit ?? null,
+  });
+  const { data, error } = updateError
+    ? { data: null, error: { message: updateError } }
+    : await selectWithFallback((columns) => supabase
       .from("posts")
-      .update(payload)
+      .select(columns)
       .eq("user_id", userId)
       .eq("id", post.id)
-      .select(POST_SELECT)
       .single());
-  }
 
   if (error) {
     throw toAppError("POST_UPDATE_FAILED", "Kunne ikke oppdatere post", error.message);

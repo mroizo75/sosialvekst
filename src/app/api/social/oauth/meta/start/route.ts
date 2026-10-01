@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { getAppUrl, getRequiredEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { metricsScopesFor } from "@/lib/metrics/scopes";
 
 const OAUTH_STATE_COOKIE = "social_oauth_state_meta";
 const RETURN_PATH_COOKIE = "social_oauth_return_path_meta";
@@ -22,6 +23,7 @@ export async function GET(request: Request) {
     "instagram_basic",
     "instagram_content_publish",
     "business_management",
+    ...metricsScopesFor("meta"),
   ].join(",");
 
   const authUrl = new URL("https://www.facebook.com/v23.0/dialog/oauth");

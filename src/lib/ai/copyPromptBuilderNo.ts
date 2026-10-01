@@ -29,7 +29,10 @@ type CopyPromptInput = {
   visualWorld?: VisualWorld;
   rejectionReasons?: string[];
   avoidRepeating?: string[];
+  performanceNotes?: string[];
 };
+
+const performanceLines = (notes?: string[]): string[] => (notes?.length ? ["", ...notes] : []);
 
 type StructuredPrompt = {
   system: string;
@@ -183,6 +186,7 @@ const buildStandardUserPrompt = (
   if (input.avoidRepeating?.length) {
     lines.push("", "Ikke gjenta disse:", ...input.avoidRepeating.slice(-5));
   }
+  lines.push(...performanceLines(input.performanceNotes));
   if (input.rejectionReasons?.length) {
     lines.push("", `Forrige utkast ble avvist fordi: ${input.rejectionReasons.join(" ")}`);
   }
@@ -225,6 +229,7 @@ const buildTikTokUserPrompt = (
   ...(input.avoidRepeating?.length
     ? ["", "Ikke gjenta disse:", ...input.avoidRepeating.slice(-5)]
     : []),
+  ...performanceLines(input.performanceNotes),
   ...(input.rejectionReasons?.length
     ? ["", `Forrige utkast ble avvist fordi: ${input.rejectionReasons.join(" ")}`]
     : []),

@@ -106,6 +106,25 @@ export type GenerationStep = {
   detail?: string;
 };
 
+export type DesignStyle = "steps" | "picks" | "myth" | "versus" | "moment" | "single";
+
+export type MediaFormat = "reel" | "image";
+
+export type VideoStatus = "pending" | "ready" | "failed";
+
+export type GenerationMeta = {
+  mediaFormat?: MediaFormat;
+  style?: DesignStyle;
+  format?: PostFormat;
+  pillar?: string;
+  motif?: string;
+  coverTitle?: string;
+  hook?: string;
+  topic: string;
+  slideCount: number;
+  realPlacePhoto: boolean;
+};
+
 export type PostDraft = {
   id: string;
   channel: SocialChannel;
@@ -116,9 +135,12 @@ export type PostDraft = {
   imageCredit?: string;
   additionalImageCredits?: string[];
   videoUrl?: string;
+  videoStatus?: VideoStatus;
+  reelSourceUrl?: string;
   status: PostStatus;
   quality: QualityScore;
   intent?: PostIntent;
   format?: PostFormat;
   generationTrace?: GenerationStep[];
+  generationMeta?: GenerationMeta;
 };

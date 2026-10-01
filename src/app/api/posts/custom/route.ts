@@ -84,7 +84,6 @@ export async function POST(request: Request) {
         mediaMode: "ai_only",
         imageProfile: "preview",
         brandContext,
-        skipVideo: true,
       });
 
       finalText = generated.text || finalText;

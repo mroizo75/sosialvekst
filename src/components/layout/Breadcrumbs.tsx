@@ -20,6 +20,7 @@ export const Breadcrumbs = () => {
     onboarding: b.myCompany,
     "velg-side": b.chooseFacebookPage,
     "koble-meta": b.connectFacebook,
+    statistikk: b.statistics,
   };
 
   const segments = pathname.split("/").filter(Boolean);

@@ -151,6 +151,7 @@ export const ContentPlanDialog = ({
   const [focusProduct, setFocusProduct] = useState("");
   const [availableProducts, setAvailableProducts] = useState<string[]>([]);
   const [availableServices, setAvailableServices] = useState<string[]>([]);
+  const [learnedHours, setLearnedHours] = useState<number[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -164,7 +165,19 @@ export const ContentPlanDialog = ({
         setAvailableServices(data.services ?? []);
       } catch { /* ignorer */ }
     };
+    const loadLearnedHours = async () => {
+      try {
+        const res = await fetch("/api/metrics/overview");
+        if (!res.ok) return;
+        const data = (await res.json()) as { recommendedHours?: unknown };
+        const hours = Array.isArray(data.recommendedHours)
+          ? data.recommendedHours.filter((hour): hour is number => Number.isInteger(hour) && hour >= 0 && hour <= 23)
+          : [];
+        setLearnedHours(hours);
+      } catch { /* statistikk er valgfritt */ }
+    };
     void load();
+    void loadLearnedHours();
   }, [open, savedMediaMode]);
 
   const fillWeeks = hasExistingPlan ? weeksUntil(latestScheduledAt) : 4;
@@ -227,6 +240,18 @@ export const ContentPlanDialog = ({
         minute: 0,
       })),
     );
+  };
+
+  const applyLearnedHours = () => {
+    if (learnedHours.length === 0) return;
+    setDays((prev) => {
+      const enabledOffsets = prev.filter((d) => d.enabled).map((d) => d.dayOffset);
+      return prev.map((d) => {
+        const position = enabledOffsets.indexOf(d.dayOffset);
+        if (position < 0) return d;
+        return { ...d, hour: learnedHours[position % learnedHours.length], minute: 0 };
+      });
+    });
   };
 
   const toggleChannel = (ch: SocialChannel) => {
@@ -450,6 +475,20 @@ export const ContentPlanDialog = ({
             <p className="text-[10px] text-muted-foreground">
               {cp.recommended}: {enabledDays.map((d) => `${cp.dayShortLabels[d.dayOffset]} ${formatHourMinute(RECOMMENDED_HOURS[d.dayOffset] ?? 11, 0)}`).join(", ")}
             </p>
+            {learnedHours.length > 0 && (
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1.5">
+                <p className="text-[11px] text-foreground">
+                  {cp.learnedHours.replace("{hours}", learnedHours.map((hour) => formatHourMinute(hour, 0)).join(", "))}
+                </p>
+                <button
+                  type="button"
+                  onClick={applyLearnedHours}
+                  className="shrink-0 text-[11px] font-medium text-primary hover:underline"
+                >
+                  {cp.useLearnedHours}
+                </button>
+              </div>
+            )}
           </div>
 
           {connectedChannels.length > 1 && (

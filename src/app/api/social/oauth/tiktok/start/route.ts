@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireUserId } from "@/lib/auth";
 import { getAppUrl, getRequiredEnv } from "@/lib/env";
+import { metricsScopesFor } from "@/lib/metrics/scopes";
 
 const OAUTH_STATE_COOKIE = "social_oauth_state_tiktok";
 const RETURN_PATH_COOKIE = "social_oauth_return_path_tiktok";
@@ -15,7 +16,7 @@ export async function GET(request: Request) {
   const clientKey = getRequiredEnv("TIKTOK_CLIENT_KEY");
   const callbackUrl = `${getAppUrl()}/api/social/oauth/tiktok/callback`;
   const state = crypto.randomUUID();
-  const scopes = ["user.info.basic", "video.publish"].join(",");
+  const scopes = ["user.info.basic", "video.publish", ...metricsScopesFor("tiktok")].join(",");
 
   const authUrl = new URL("https://www.tiktok.com/v2/auth/authorize/");
   authUrl.searchParams.set("client_key", clientKey);

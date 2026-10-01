@@ -4,7 +4,9 @@ import { findCopyIssues } from "@/lib/ai/validateCopy";
 import type { VisualBrief, VisualWorld } from "@/lib/ai/visualDirection";
 import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
-import type { BrandContext, PostFormat, SocialChannel } from "@/lib/types";
+import type { BrandContext, DesignStyle, PostFormat, SocialChannel } from "@/lib/types";
+
+export type { DesignStyle };
 
 export type GuideCard = {
   title: string;
@@ -34,9 +36,8 @@ type DesignInput = {
   feedIndex?: number;
   brief: VisualBrief;
   avoidRepeating?: string[];
+  performanceNotes?: string[];
 };
-
-export type DesignStyle = "steps" | "picks" | "myth" | "versus" | "moment" | "single";
 
 const FORMAT_STYLE: Record<PostFormat, DesignStyle> = {
   how_to: "steps",
@@ -362,6 +363,7 @@ export const designUserPrompt = (input: DesignInput, mode: "guide" | "headline",
     input.avoidRepeating?.length
       ? `Ikke gjenta vinkler eller titler fra disse innleggene: ${input.avoidRepeating.slice(-5).join(" | ")}`
       : null,
+    ...(input.performanceNotes ?? []),
     issues.length > 0 ? `Forrige utkast ble avvist fordi: ${issues.join(" ")}` : null,
   ];
   return lines.filter((line): line is string => Boolean(line)).join("\n");

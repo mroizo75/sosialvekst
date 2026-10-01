@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireUserId } from "@/lib/auth";
 import { getAppUrl, getRequiredEnv } from "@/lib/env";
+import { metricsScopesFor } from "@/lib/metrics/scopes";
 
 const OAUTH_STATE_COOKIE = "social_oauth_state_linkedin";
 const RETURN_PATH_COOKIE = "social_oauth_return_path_linkedin";
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
   const clientId = getRequiredEnv("LINKEDIN_CLIENT_ID");
   const callbackUrl = `${getAppUrl()}/api/social/oauth/linkedin/callback`;
   const state = crypto.randomUUID();
-  const scopes = (type === "organization" ? ORG_SCOPES : PERSONAL_SCOPES).join(" ");
+  const scopes = (type === "organization" ? ORG_SCOPES : [...PERSONAL_SCOPES, ...metricsScopesFor("linkedin")]).join(" ");
 
   const authUrl = new URL("https://www.linkedin.com/oauth/v2/authorization");
   authUrl.searchParams.set("response_type", "code");
