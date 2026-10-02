@@ -4,6 +4,7 @@ import { requireUserId } from "@/lib/auth";
 import { getAppUrl, getRequiredEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { metricsScopesFor } from "@/lib/metrics/scopes";
+import { toSafeReturnPath } from "@/lib/returnPath";
 
 const OAUTH_STATE_COOKIE = "social_oauth_state_meta";
 const RETURN_PATH_COOKIE = "social_oauth_return_path_meta";
@@ -12,19 +13,20 @@ export async function GET(request: Request) {
   await requireUserId();
 
   const url = new URL(request.url);
-  const returnTo = url.searchParams.get("returnTo") ?? "/dashboard";
+  const returnTo = toSafeReturnPath(url.searchParams.get("returnTo"), "/dashboard");
 
   const appId = getRequiredEnv("FACEBOOK_APP_ID");
   const callbackUrl = `${getAppUrl()}/api/social/oauth/meta/callback`;
   const state = crypto.randomUUID();
-  const scopes = [
+  const scopes = [...new Set([
     "pages_show_list",
+    "pages_read_engagement",
     "pages_manage_posts",
     "instagram_basic",
     "instagram_content_publish",
     "business_management",
     ...metricsScopesFor("meta"),
-  ].join(",");
+  ])].join(",");
 
   const authUrl = new URL("https://www.facebook.com/v23.0/dialog/oauth");
   authUrl.searchParams.set("client_id", appId);

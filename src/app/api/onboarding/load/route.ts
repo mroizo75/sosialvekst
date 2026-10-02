@@ -50,7 +50,7 @@ export async function GET() {
         .maybeSingle(),
       supabase
         .from("workspaces")
-        .select("name")
+        .select("name, is_default")
         .eq("id", workspaceId)
         .eq("user_id", userId)
         .maybeSingle(),
@@ -87,8 +87,10 @@ export async function GET() {
       ? (latestPlan.media_mode as MediaMode)
       : null;
     const mediaMode = planMediaMode ?? "hybrid";
-    const wsName = (workspaceResult.data as { name?: string } | null)?.name ?? "";
+    const workspace = workspaceResult.data as { name?: string; is_default?: boolean } | null;
+    const wsName = workspace?.name ?? "";
     const hasBrandProfile = Boolean(brand);
+    const signupWebsiteUrl = workspace?.is_default && !hasBrandProfile ? pendingWebsiteUrl : "";
     const hasContentPlan = Boolean(latestPlan);
 
     return NextResponse.json({
@@ -96,14 +98,14 @@ export async function GET() {
       hasBrandProfile,
       hasContentPlan,
       workspaceName: wsName,
-      companyName: hasBrandProfile ? (profile?.company_name ?? "") : wsName,
+      companyName: wsName,
       fullName: profile?.full_name || (typeof userMeta.fullName === "string" ? userMeta.fullName : "") || "",
       countryCode: profile?.country_code ?? "NO",
       targetAudience: brand?.target_audience ?? "",
       brandVoice: brand?.brand_voice ?? "",
       keyMessages: (brand?.key_messages as string[] | null) ?? [],
       logoUrl: normalizeR2Url(brand?.logo_url ?? null),
-      websiteUrl: brand?.website_url || pendingWebsiteUrl,
+      websiteUrl: brand?.website_url || signupWebsiteUrl,
       companyDescription: brand?.company_description ?? "",
       products: (brand?.products as string[] | null) ?? [],
       uniqueSellingPoints: (brand?.unique_selling_points as string[] | null) ?? [],

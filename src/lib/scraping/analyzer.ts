@@ -1,76 +1,105 @@
+import { z } from "zod";
+
+import { resolveCopyModel } from "@/lib/ai/models";
 import { getOpenAiClient } from "@/lib/openai";
-import type { ParsedWebsite } from "@/lib/scraping/parser";
+import type { CrawledPage } from "@/lib/scraping/crawler";
 
-export type WebsiteAnalysis = {
-  companyDescription: string;
-  products: string[];
-  uniqueSellingPoints: string[];
-};
+const MAX_PAGE_CHARS = 3000;
 
-const fallbackAnalysis: WebsiteAnalysis = {
-  companyDescription: "",
-  products: [],
-  uniqueSellingPoints: [],
-};
+const text = (max: number) => z.string().trim().transform((value) => value.slice(0, max)).catch("");
+const list = (maxItems: number) =>
+  z.array(z.string().trim().min(1)).transform((items) => [...new Set(items)].slice(0, maxItems)).catch([]);
 
-export const analyzeWebsiteContent = async (
-  parsed: ParsedWebsite,
-  companyName: string,
-): Promise<WebsiteAnalysis> => {
-  const client = getOpenAiClient();
-  if (!client) return fallbackAnalysis;
+export const brandProfileSuggestionSchema = z.object({
+  companyDescription: text(500),
+  industry: text(80),
+  foundedYear: text(10),
+  teamDescription: text(400),
+  products: list(10),
+  services: list(10),
+  uniqueSellingPoints: list(6),
+  priceRange: text(120),
+  competitorDifferentiators: text(400),
+  targetAudience: text(300),
+  brandVoice: text(200),
+  brandPersonality: text(200),
+  keyMessages: list(5),
+  coreValues: list(5),
+  customerPainPoints: list(5),
+  commonQuestions: list(5),
+  seasonalFocus: text(200),
+  tagline: text(120),
+});
 
-  const contextParts = [
+export type BrandProfileSuggestion = z.infer<typeof brandProfileSuggestionSchema>;
+
+export const emptySuggestion = (): BrandProfileSuggestion => brandProfileSuggestionSchema.parse({});
+
+const SYSTEM_PROMPT = [
+  "Du er en norsk merkevarestrateg som setter opp en bedriftsprofil for markedsføring i sosiale medier.",
+  "Du får innhold fra bedriftens nettsider og eventuelt Facebook-siden. Fyll ut profilen på norsk bokmål.",
+  "Regler:",
+  "- Fakta (produkter, tjenester, priser, årstall, team, fortrinn) skal KUN hentes fra kildene. Ikke dikt opp. Står det ikke i kildene, la feltet være tomt (\"\" eller []).",
+  "- Målgruppe, tone, personlighet, nøkkelbudskap, kjerneverdier, kundens utfordringer og vanlige spørsmål kan du utlede fra det bedriften faktisk skriver og selger, men hold deg tett til kildene.",
+  "- Skriv konkret og kort. Ingen markedsføringsfloskler.",
+  "Returner JSON med nøyaktig disse feltene:",
+  '"companyDescription" (1–2 setninger), "industry" (bransje, 1–3 ord), "foundedYear" (årstall eller ""),',
+  '"teamDescription", "products" (liste), "services" (liste), "uniqueSellingPoints" (liste),',
+  '"priceRange" (prisnivå eller konkrete priser fra kildene), "competitorDifferentiators" (hva skiller dem ut),',
+  '"targetAudience" (hvem de selger til), "brandVoice" (hvordan de snakker, f.eks. "varm, uformell og trygg"),',
+  '"brandPersonality", "keyMessages" (liste), "coreValues" (liste), "customerPainPoints" (liste med kundens problemer),',
+  '"commonQuestions" (liste med spørsmål kunder typisk stiller), "seasonalFocus" (sesonger eller perioder som er viktige for bedriften),',
+  '"tagline" (eksisterende slagord fra kildene, ellers "").',
+].join("\n");
+
+const describePage = ({ url, parsed }: CrawledPage): string =>
+  [
+    `### ${url}`,
     parsed.title ? `Tittel: ${parsed.title}` : "",
     parsed.metaDescription ? `Meta: ${parsed.metaDescription}` : "",
-    parsed.ogDescription ? `OG: ${parsed.ogDescription}` : "",
-    `Innhold: ${parsed.content}`,
-  ].filter(Boolean);
+    parsed.organization?.description ? `Strukturert beskrivelse: ${parsed.organization.description}` : "",
+    parsed.organization?.foundingDate ? `Grunnlagt: ${parsed.organization.foundingDate}` : "",
+    `Innhold: ${parsed.content.slice(0, MAX_PAGE_CHARS)}`,
+  ].filter(Boolean).join("\n");
 
-  const systemPrompt = [
-    "Du er en forretningsanalytiker som analyserer nettsider for norske bedrifter.",
-    "Analyser nettsideinnholdet og returner et JSON-objekt med folgende felt:",
-    '- "companyDescription": En kort beskrivelse av bedriften (1-2 setninger, maks 200 tegn).',
-    '- "products": En liste med produkter eller tjenester bedriften tilbyr (maks 8 elementer).',
-    '- "uniqueSellingPoints": En liste med unike salgsargumenter (maks 5 elementer).',
-    "Svar KUN med gyldig JSON uten markdown-formatering.",
-  ].join(" ");
+export type AnalyzeInput = {
+  companyName: string;
+  pages: CrawledPage[];
+  facebookSummary?: string;
+};
 
-  const userPrompt = [
+export const buildAnalysisPrompt = ({ companyName, pages, facebookSummary }: AnalyzeInput): string =>
+  [
     `Bedriftsnavn: ${companyName}`,
     "",
-    "Nettsideinnhold:",
-    contextParts.join("\n"),
+    "## Nettsider",
+    pages.map(describePage).join("\n\n"),
+    facebookSummary ? `\n## Facebook-siden\n${facebookSummary}` : "",
   ].join("\n");
 
+export const parseSuggestion = (raw: string | undefined): BrandProfileSuggestion => {
+  if (!raw?.trim()) return emptySuggestion();
+  try {
+    const json = JSON.parse(raw.replace(/```json\s*|```/g, "").trim()) as unknown;
+    const result = brandProfileSuggestionSchema.safeParse(json);
+    return result.success ? result.data : emptySuggestion();
+  } catch {
+    return emptySuggestion();
+  }
+};
+
+export const analyzeWebsiteContent = async (input: AnalyzeInput): Promise<BrandProfileSuggestion> => {
+  const client = getOpenAiClient();
+  if (!client) return emptySuggestion();
+
   const response = await client.responses.create({
-    model: "gpt-4.1-mini",
+    model: resolveCopyModel(),
+    text: { format: { type: "json_object" } },
     input: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: buildAnalysisPrompt(input) },
     ],
   });
 
-  const raw = response.output_text?.trim();
-  if (!raw) return fallbackAnalysis;
-
-  try {
-    const cleaned = raw.replace(/```json\s*|```/g, "").trim();
-    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
-
-    return {
-      companyDescription:
-        typeof parsed.companyDescription === "string"
-          ? parsed.companyDescription.slice(0, 500)
-          : "",
-      products: Array.isArray(parsed.products)
-        ? (parsed.products.filter((p): p is string => typeof p === "string").slice(0, 8))
-        : [],
-      uniqueSellingPoints: Array.isArray(parsed.uniqueSellingPoints)
-        ? (parsed.uniqueSellingPoints.filter((u): u is string => typeof u === "string").slice(0, 5))
-        : [],
-    };
-  } catch {
-    return fallbackAnalysis;
-  }
+  return parseSuggestion(response.output_text);
 };

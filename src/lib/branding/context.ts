@@ -112,6 +112,22 @@ const fetchProductImages = async (
   }));
 };
 
+// The company name belongs to the workspace; profiles.company_name is shared by all of a user's businesses.
+const fetchCompanyName = async (userId: string, workspaceId?: string): Promise<string | undefined> => {
+  const supabase = await createSupabaseServerClient();
+  if (workspaceId) {
+    const { data } = await supabase
+      .from("workspaces")
+      .select("name")
+      .eq("id", workspaceId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    return (data as { name?: string } | null)?.name?.trim() || undefined;
+  }
+  const { data } = await supabase.from("profiles").select("company_name").eq("user_id", userId).maybeSingle();
+  return (data as ProfileRow | null)?.company_name?.trim() || undefined;
+};
+
 export const toReelVoice = (value: unknown): ReelVoice => (value === "male" ? "male" : "female");
 
 export const fetchReelVoice = async (userId: string, workspaceId?: string): Promise<ReelVoice> => {
@@ -132,18 +148,18 @@ export const getBrandContext = async (userId: string, workspaceId?: string): Pro
   let brandQuery = supabase.from("brand_profiles").select(BRAND_FIELDS).eq("user_id", userId);
   if (workspaceId) brandQuery = brandQuery.eq("workspace_id", workspaceId);
 
-  const [profileResult, brandResult, productImages, reelVoice] = await Promise.all([
-    supabase.from("profiles").select("company_name").eq("user_id", userId).maybeSingle(),
+  const [companyName, brandResult, productImages, reelVoice] = await Promise.all([
+    fetchCompanyName(userId, workspaceId),
     brandQuery.maybeSingle(),
     fetchProductImages(userId, workspaceId),
     fetchReelVoice(userId, workspaceId),
   ]);
 
-  const profile = profileResult.data as ProfileRow | null;
   const brand = brandResult.data as BrandProfileRow | null;
 
   const storedLogoUrl = brand?.logo_url?.trim() || undefined;
-  const logoUrl = storedLogoUrl ?? await pickLatestLogoUrl(userId);
+  // Uploaded files are stored per user, not per workspace, so the newest-logo fallback is only safe without workspaces.
+  const logoUrl = storedLogoUrl ?? (workspaceId ? undefined : await pickLatestLogoUrl(userId));
   if (!logoUrl) {
     logger.warn("Ingen logo i merkevareprofil", {
       userId,
@@ -152,7 +168,7 @@ export const getBrandContext = async (userId: string, workspaceId?: string): Pro
   }
 
   return {
-    companyName: profile?.company_name ?? undefined,
+    companyName,
     companyDescription: brand?.company_description ?? undefined,
     industry: brand?.industry ?? undefined,
     foundedYear: brand?.founded_year ?? undefined,

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher";
@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Checkbox, Input, Textarea } from "@/components/ui/Input";
 import { localeToPreferredLanguage } from "@/lib/i18n/config";
+import { fillIfEmpty, fillListIfEmpty, isProfileSparse } from "@/lib/onboarding/autofill";
+import type { BrandProfileSuggestion } from "@/lib/scraping/analyzer";
 import type { BrandColors, MediaMode, ProductImage, ReelVoice, SocialChannel, TopicWindow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -44,11 +46,11 @@ type WizardPayload = {
 
 const REEL_VOICES: ReelVoice[] = ["female", "male"];
 
-type ScrapeResult = {
-  companyDescription: string;
-  products: string[];
-  uniqueSellingPoints: string[];
+type ScrapeResult = BrandProfileSuggestion & {
+  websiteUrl?: string;
   websiteTitle?: string;
+  brandColors: BrandColors | null;
+  logoUrl: string | null;
 };
 
 const CHANNEL_OPTIONS: Array<{ value: SocialChannel; label: string }> = [
@@ -148,6 +150,14 @@ export const OnboardingWizard = () => {
     connectedAccounts.filter((a) => !a.tokenStatus || a.tokenStatus === "valid").map((a) => a.channel),
   );
 
+  const channelsStepPath = encodeURIComponent("/onboarding?step=2");
+  const allConnectLinks: Array<{ key: string; channels: SocialChannel[]; label: string; href: string }> = [
+    { key: "meta", channels: ["facebook", "instagram"], label: t("dashboard.connect.facebook"), href: `/dashboard/koble-meta?returnTo=${channelsStepPath}` },
+    { key: "linkedin", channels: ["linkedin"], label: t("dashboard.connect.linkedin"), href: `/api/social/oauth/linkedin/start?returnTo=${channelsStepPath}` },
+    { key: "tiktok", channels: ["tiktok"], label: t("dashboard.connect.tiktok"), href: `/api/social/oauth/tiktok/start?returnTo=${channelsStepPath}` },
+  ];
+  const connectLinks = allConnectLinks.filter((link) => !link.channels.some((channel) => connectedChannels.has(channel)));
+
   const getChannelStatusLabel = (channel: SocialChannel): { text: string; className: string } => {
     const channelStatus = accountStatusMap.get(channel);
     if (!channelStatus) {
@@ -163,8 +173,9 @@ export const OnboardingWizard = () => {
   };
 
   const [websiteUrl, setWebsiteUrl] = useState("");
-  const [scrapeConsent, setScrapeConsent] = useState(false);
-  const [scrapeResult, setScrapeResult] = useState<ScrapeResult | null>(null);
+  const [scrapeConsent, setScrapeConsent] = useState(true);
+  const [showScrapeReview, setShowScrapeReview] = useState(false);
+  const autofillStartedRef = useRef(false);
   const [editableDescription, setEditableDescription] = useState("");
   const [editableProducts, setEditableProducts] = useState("");
   const [editableUsps, setEditableUsps] = useState("");
@@ -348,6 +359,56 @@ export const OnboardingWizard = () => {
     }
   };
 
+  const applySuggestion = useCallback((data: ScrapeResult) => {
+    setEditableDescription((prev) => fillIfEmpty(prev, data.companyDescription));
+    setEditableProducts((prev) => fillListIfEmpty(prev, data.products, ", "));
+    setEditableUsps((prev) => fillListIfEmpty(prev, data.uniqueSellingPoints, ", "));
+    setServicesText((prev) => fillListIfEmpty(prev, data.services, ", "));
+    setKeyMessagesText((prev) => fillListIfEmpty(prev, data.keyMessages, ", "));
+    setCoreValuesText((prev) => fillListIfEmpty(prev, data.coreValues, ", "));
+    setCustomerPainPointsText((prev) => fillListIfEmpty(prev, data.customerPainPoints, "\n"));
+    setCommonQuestionsText((prev) => fillListIfEmpty(prev, data.commonQuestions, "\n"));
+    setForm((prev) => ({
+      ...prev,
+      companyName: fillIfEmpty(prev.companyName, data.websiteTitle),
+      industry: fillIfEmpty(prev.industry, data.industry),
+      foundedYear: fillIfEmpty(prev.foundedYear, data.foundedYear),
+      teamDescription: fillIfEmpty(prev.teamDescription, data.teamDescription),
+      priceRange: fillIfEmpty(prev.priceRange, data.priceRange),
+      competitorDifferentiators: fillIfEmpty(prev.competitorDifferentiators, data.competitorDifferentiators),
+      targetAudience: fillIfEmpty(prev.targetAudience, data.targetAudience),
+      brandVoice: fillIfEmpty(prev.brandVoice, data.brandVoice),
+      brandPersonality: fillIfEmpty(prev.brandPersonality, data.brandPersonality),
+      seasonalFocus: fillIfEmpty(prev.seasonalFocus, data.seasonalFocus),
+      tagline: fillIfEmpty(prev.tagline, data.tagline),
+      logoUrl: fillIfEmpty(prev.logoUrl, data.logoUrl ?? undefined),
+      brandColors: prev.brandColors.primary || !data.brandColors ? prev.brandColors : data.brandColors,
+    }));
+  }, []);
+
+  const runAnalysis = useCallback(async (url: string, companyName: string) => {
+    setLoading(true);
+    setStatus(t("onboarding.analyzing"));
+    try {
+      const response = await fetch("/api/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, companyName: companyName.trim() || t("onboarding.companyFallback") }),
+      });
+      if (!response.ok) {
+        setStatus(t("onboarding.analyzeFailed"));
+        return;
+      }
+      applySuggestion((await response.json()) as ScrapeResult);
+      setShowScrapeReview(true);
+      setStatus(t("onboarding.analyzeDone"));
+    } catch {
+      setStatus(t("onboarding.analyzeFailed"));
+    } finally {
+      setLoading(false);
+    }
+  }, [applySuggestion, t]);
+
   const loadExistingData = useCallback(async () => {
     const [response, liveChannels] = await Promise.all([
       fetch("/api/onboarding/load"),
@@ -417,28 +478,27 @@ export const OnboardingWizard = () => {
     }
     if (data.companyDescription) {
       setEditableDescription(data.companyDescription);
-      setScrapeResult({
-        companyDescription: data.companyDescription,
-        products: data.products,
-        uniqueSellingPoints: data.uniqueSellingPoints,
-      });
+      setShowScrapeReview(true);
       setEditableProducts(data.products.join(", "));
       setEditableUsps(data.uniqueSellingPoints.join(", "));
     }
 
-    const onboardingComplete = data.hasContentPlan && data.hasBrandProfile && Boolean(data.targetAudience) && Boolean(data.brandVoice);
-    if (onboardingComplete) {
+    const profileAnswered = Boolean(data.targetAudience) && Boolean(data.brandVoice);
+    const channelsChosen = (data.channels ?? []).length > 0;
+    if (data.hasContentPlan && data.hasBrandProfile && profileAnswered) {
       setMode("settings");
-    } else if (data.hasBrandProfile && Boolean(data.targetAudience) && Boolean(data.brandVoice)) {
+      if (data.websiteUrl && isProfileSparse(data)) void runAnalysis(data.websiteUrl, data.companyName);
+      return;
+    }
+    if (data.hasBrandProfile && channelsChosen && profileAnswered) {
+      setStep(4);
+    } else if (data.hasBrandProfile && channelsChosen) {
       setStep(3);
-      setMode("wizard");
     } else if (data.hasBrandProfile && data.companyName) {
       setStep(2);
-      setMode("wizard");
-    } else {
-      setMode("wizard");
     }
-  }, [fetchConnectedAccounts, fetchProductImages, t]);
+    setMode("wizard");
+  }, [fetchConnectedAccounts, fetchProductImages, runAnalysis, t]);
 
   useEffect(() => {
     const timer = setTimeout(() => void loadExistingData(), 0);
@@ -476,6 +536,30 @@ export const OnboardingWizard = () => {
       setStep(requestedStep);
     }
   }, [mode]);
+
+  const profileSparse = isProfileSparse({
+    companyDescription: editableDescription,
+    industry: form.industry,
+    targetAudience: form.targetAudience,
+    brandVoice: form.brandVoice,
+    products: editableProducts,
+    services: servicesText,
+    keyMessages: keyMessagesText,
+    coreValues: coreValuesText,
+    customerPainPoints: customerPainPointsText,
+    commonQuestions: commonQuestionsText,
+  });
+
+  // The profile step runs after the accounts are connected, so the Facebook page is part of the analysis.
+  useEffect(() => {
+    if (mode !== "wizard" || step !== 3 || autofillStartedRef.current) return;
+    if (!websiteUrl || !scrapeConsent || !profileSparse) return;
+    const timer = setTimeout(() => {
+      autofillStartedRef.current = true;
+      void runAnalysis(websiteUrl, form.companyName);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [mode, step, websiteUrl, scrapeConsent, profileSparse, form.companyName, runAnalysis]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -576,34 +660,7 @@ export const OnboardingWizard = () => {
 
   const analyzeWebsite = async () => {
     if (!websiteUrl || !scrapeConsent) return;
-    setLoading(true);
-    setStatus(t("onboarding.analyzing"));
-
-    const response = await fetch("/api/scrape", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        url: websiteUrl,
-        companyName: form.companyName || t("onboarding.companyFallback"),
-      }),
-    });
-
-    if (!response.ok) {
-      setStatus(t("onboarding.analyzeFailed"));
-      setLoading(false);
-      return;
-    }
-
-    const data = (await response.json()) as ScrapeResult;
-    setScrapeResult(data);
-    setEditableDescription(data.companyDescription);
-    setEditableProducts(data.products.join(", "));
-    setEditableUsps(data.uniqueSellingPoints.join(", "));
-    if (data.websiteTitle && !form.companyName.trim()) {
-      update("companyName", data.websiteTitle);
-    }
-    setStatus(t("onboarding.analyzeDone"));
-    setLoading(false);
+    await runAnalysis(websiteUrl, form.companyName);
   };
 
   const parseLines = (value: string): string[] => {
@@ -861,21 +918,25 @@ export const OnboardingWizard = () => {
                 hint={t("onboarding.aboutTeamHint")}
               />
 
-              {!editableDescription && websiteUrl && (
-                <div className="flex gap-3 pt-1">
-                  <Checkbox
-                    label={t("onboarding.scrapeConsent")}
-                    checked={scrapeConsent}
-                    onChange={(e) => setScrapeConsent(e.target.checked)}
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void analyzeWebsite()}
-                    disabled={!websiteUrl || !scrapeConsent || loading}
-                  >
-                    {loading ? t("onboarding.scrapeLoading") : t("onboarding.scrapeFromWebsite")}
-                  </Button>
+              {websiteUrl && (
+                <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Checkbox
+                      label={t("onboarding.scrapeConsent")}
+                      checked={scrapeConsent}
+                      onChange={(e) => setScrapeConsent(e.target.checked)}
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void analyzeWebsite()}
+                      disabled={!websiteUrl || !scrapeConsent || loading}
+                    >
+                      {loading ? t("onboarding.scrapeLoading") : t("onboarding.scrapeFromWebsite")}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t("onboarding.scrapeFillsEmptyHint")}</p>
+                  {status && <p className="text-sm text-foreground">{status}</p>}
                 </div>
               )}
             </CardContent>
@@ -1351,64 +1412,6 @@ export const OnboardingWizard = () => {
               hint={t("onboarding.websiteHint")}
             />
 
-            <Checkbox
-              label={t("onboarding.scrapeConsent")}
-              checked={scrapeConsent}
-              onChange={(e) => setScrapeConsent(e.target.checked)}
-            />
-
-            <div className="flex gap-3">
-              <Button
-                onClick={() => void analyzeWebsite()}
-                disabled={!websiteUrl || !scrapeConsent || loading}
-              >
-                {loading ? t("onboarding.scrapeLoading") : t("onboarding.scrapeFromWebsite")}
-              </Button>
-              <Button variant="ghost" onClick={() => void save()} disabled={loading}>
-                {loading ? t("onboarding.saving") : t("onboarding.skipButton")}
-              </Button>
-            </div>
-
-            {scrapeResult && (
-              <div className="mt-4 space-y-4 rounded-xl border border-border bg-muted/30 p-5 animate-[slide-up_0.3s_ease-out]">
-                <p className="text-sm font-medium text-foreground">
-                  Her er det vi fant — rett opp om noe ikke stemmer:
-                </p>
-                <Textarea
-                  label={t("onboarding.shortDescription")}
-                  value={editableDescription}
-                  onChange={(e) => setEditableDescription(e.target.value)}
-                  rows={3}
-                />
-                <Input
-                  label={t("onboarding.products")}
-                  value={editableProducts}
-                  onChange={(e) => setEditableProducts(e.target.value)}
-                  hint={t("onboarding.commaHint")}
-                />
-                <Input
-                  label={t("onboarding.uniqueSelling")}
-                  value={editableUsps}
-                  onChange={(e) => setEditableUsps(e.target.value)}
-                  hint={t("onboarding.uniqueSellingHint")}
-                />
-                <Button onClick={() => void save()} disabled={loading}>
-                  {loading ? t("onboarding.saving") : t("onboarding.saveAndContinue")}
-                </Button>
-              </div>
-            )}
-
-            {status && <p className="text-sm text-muted-foreground">{status}</p>}
-          </CardContent>
-        </Card>
-      )}
-
-      {step === 2 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{wizardSteps[1]?.label}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
             <Input
               label={t("onboarding.yourName")}
               value={form.fullName}
@@ -1416,14 +1419,92 @@ export const OnboardingWizard = () => {
               placeholder={t("onboarding.yourNamePlaceholder")}
             />
 
-            {!form.companyName && (
+            <Checkbox
+              label={t("onboarding.scrapeConsent")}
+              checked={scrapeConsent}
+              onChange={(e) => setScrapeConsent(e.target.checked)}
+            />
+            <p className="text-xs text-muted-foreground">{t("onboarding.scrapeLaterHint")}</p>
+
+            <div className="flex gap-3 pt-2">
+              <Button onClick={() => void save()} disabled={loading || !form.companyName.trim()}>
+                {loading ? t("onboarding.saving") : t("onboarding.saveAndContinue")}
+              </Button>
+            </div>
+
+            {status && <p className="text-sm text-muted-foreground">{status}</p>}
+          </CardContent>
+        </Card>
+      )}
+
+      {step === 3 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{wizardSteps[2]?.label}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-4">
+              {websiteUrl && scrapeConsent ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-foreground">
+                    {loading ? t("onboarding.analyzing") : showScrapeReview ? t("onboarding.profileReviewIntro") : t("onboarding.scrapeFillsEmptyHint")}
+                  </p>
+                  <Button size="sm" variant="outline" onClick={() => void analyzeWebsite()} disabled={loading}>
+                    {loading ? t("onboarding.scrapeLoading") : showScrapeReview ? t("onboarding.refetchProfile") : t("onboarding.scrapeFromWebsite")}
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">{t("onboarding.noWebsiteHint")}</p>
+              )}
+            </div>
+
+            <fieldset disabled={loading} className="space-y-4 disabled:opacity-60">
+            <Textarea
+              label={t("onboarding.shortDescription")}
+              value={editableDescription}
+              onChange={(e) => setEditableDescription(e.target.value)}
+              rows={3}
+              placeholder={t("onboarding.shortDescriptionPlaceholder")}
+            />
+
+            <div className="grid gap-4 sm:grid-cols-2">
               <Input
-                label={t("onboarding.companyName")}
-                value={form.companyName}
-                onChange={(e) => update("companyName", e.target.value)}
-                placeholder={t("onboarding.companyNamePlaceholder")}
+                label={t("onboarding.industry")}
+                value={form.industry}
+                onChange={(e) => update("industry", e.target.value)}
+                placeholder={t("onboarding.industryPlaceholder")}
               />
-            )}
+              <Input
+                label={t("onboarding.priceLevel")}
+                value={form.priceRange}
+                onChange={(e) => update("priceRange", e.target.value)}
+                placeholder={t("onboarding.priceLevelPlaceholder")}
+              />
+            </div>
+
+            <Input
+              label={t("onboarding.products")}
+              value={editableProducts}
+              onChange={(e) => setEditableProducts(e.target.value)}
+              placeholder={t("onboarding.productsPlaceholder")}
+              hint={t("onboarding.commaHint")}
+            />
+
+            <Input
+              label={t("onboarding.services")}
+              value={servicesText}
+              onChange={(e) => setServicesText(e.target.value)}
+              placeholder={t("onboarding.servicesPlaceholder")}
+              hint={t("onboarding.commaHint")}
+            />
+
+            <Input
+              label={t("onboarding.uniqueSelling")}
+              value={editableUsps}
+              onChange={(e) => setEditableUsps(e.target.value)}
+              placeholder={t("onboarding.uniqueSellingPlaceholder")}
+              hint={t("onboarding.uniqueSellingHint")}
+            />
 
             <Input
               label={t("onboarding.customerSection.targetAudienceLabel")}
@@ -1475,9 +1556,12 @@ export const OnboardingWizard = () => {
                 className="block text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary-hover file:cursor-pointer"
               />
             </div>
+            </fieldset>
+
+            <p className="text-xs text-muted-foreground">{t("onboarding.moreFieldsLater")}</p>
 
             <div className="flex gap-3 pt-2">
-              <Button variant="outline" onClick={() => setStep(1)}>
+              <Button variant="outline" onClick={() => setStep(2)}>
                 {t("common.back")}
               </Button>
               <Button onClick={() => void save()} disabled={loading}>
@@ -1485,15 +1569,15 @@ export const OnboardingWizard = () => {
               </Button>
             </div>
 
-            {status && <p className="text-sm text-muted-foreground">{status}</p>}
+            {status && !loading && <p className="text-sm text-muted-foreground">{status}</p>}
           </CardContent>
         </Card>
       )}
 
-      {step === 3 && (
+      {step === 2 && (
         <Card>
           <CardHeader>
-            <CardTitle>{wizardSteps[2]?.label}</CardTitle>
+            <CardTitle>{wizardSteps[1]?.label}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
@@ -1532,34 +1616,31 @@ export const OnboardingWizard = () => {
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">{t("contentPlan.channels")}</label>
-              {connectedChannels.size === 0 ? (
-                <div className="rounded-xl border border-warning/30 bg-warning/5 p-4 space-y-3">
-                  <p className="text-sm font-medium text-foreground">{t("dashboard.connectAccountFirst")}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t("onboarding.connectRequired")}
-                  </p>
+              {connectLinks.length > 0 && (
+                <div
+                  className={cn(
+                    "rounded-xl border p-4 space-y-3",
+                    connectedChannels.size === 0 ? "border-warning/30 bg-warning/5" : "border-border bg-transparent",
+                  )}
+                >
+                  {connectedChannels.size === 0 && (
+                    <p className="text-sm font-medium text-foreground">{t("dashboard.connectAccountFirst")}</p>
+                  )}
+                  <p className="text-xs text-muted-foreground">{t("onboarding.connectFacebookHint")}</p>
                   <div className="flex flex-wrap gap-2">
-                    <a
-                      href="/dashboard/koble-meta"
-                      className="inline-flex h-8 items-center rounded-lg border border-border bg-card px-3 text-xs font-medium hover:bg-secondary transition-colors"
-                    >
-                      {t("dashboard.connect.facebook")}
-                    </a>
-                    <a
-                      href={`/api/social/oauth/linkedin/start?returnTo=${encodeURIComponent("/onboarding?step=3")}`}
-                      className="inline-flex h-8 items-center rounded-lg border border-border bg-card px-3 text-xs font-medium hover:bg-secondary transition-colors"
-                    >
-                      {t("dashboard.connect.linkedin")}
-                    </a>
-                    <a
-                      href={`/api/social/oauth/tiktok/start?returnTo=${encodeURIComponent("/onboarding?step=3")}`}
-                      className="inline-flex h-8 items-center rounded-lg border border-border bg-card px-3 text-xs font-medium hover:bg-secondary transition-colors"
-                    >
-                      {t("dashboard.connect.tiktok")}
-                    </a>
+                    {connectLinks.map((link) => (
+                      <a
+                        key={link.key}
+                        href={link.href}
+                        className="inline-flex h-8 items-center rounded-lg border border-border bg-transparent px-3 text-xs font-medium text-foreground hover:bg-secondary transition-colors"
+                      >
+                        {link.label}
+                      </a>
+                    ))}
                   </div>
                 </div>
-              ) : (
+              )}
+              {connectedChannels.size > 0 && (
                 <div className="space-y-2 rounded-xl border border-border bg-muted/20 p-4">
                   {CHANNEL_OPTIONS.map((option) => {
                     const isConnected = connectedChannels.has(option.value);
@@ -1580,6 +1661,9 @@ export const OnboardingWizard = () => {
                   })}
                 </div>
               )}
+              {connectedChannels.size === 0 && (
+                <p className="text-xs text-muted-foreground">{t("onboarding.connectRequired")}</p>
+              )}
             </div>
 
             <div className="rounded-xl bg-primary-light p-4">
@@ -1593,7 +1677,7 @@ export const OnboardingWizard = () => {
             </div>
 
             <div className="flex gap-3 pt-2">
-              <Button variant="outline" onClick={() => setStep(2)}>
+              <Button variant="outline" onClick={() => setStep(1)}>
                 {t("common.back")}
               </Button>
               <Button onClick={() => void save()} disabled={loading || form.channels.length === 0}>

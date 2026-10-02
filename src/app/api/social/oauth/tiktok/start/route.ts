@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { getAppUrl, getRequiredEnv } from "@/lib/env";
 import { metricsScopesFor } from "@/lib/metrics/scopes";
+import { toSafeReturnPath } from "@/lib/returnPath";
 
 const OAUTH_STATE_COOKIE = "social_oauth_state_tiktok";
 const RETURN_PATH_COOKIE = "social_oauth_return_path_tiktok";
@@ -11,7 +12,7 @@ export async function GET(request: Request) {
   await requireUserId();
 
   const url = new URL(request.url);
-  const returnTo = url.searchParams.get("returnTo") ?? "/dashboard";
+  const returnTo = toSafeReturnPath(url.searchParams.get("returnTo"), "/dashboard");
 
   const clientKey = getRequiredEnv("TIKTOK_CLIENT_KEY");
   const callbackUrl = `${getAppUrl()}/api/social/oauth/tiktok/callback`;
