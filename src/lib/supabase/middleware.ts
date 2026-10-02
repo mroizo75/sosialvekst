@@ -51,19 +51,18 @@ export const updateSession = async (request: NextRequest): Promise<SessionResult
       .from("brand_profiles")
       .select("target_audience, brand_voice")
       .eq("user_id", userId);
+    let subscriptionQuery = supabase
+      .from("subscriptions")
+      .select("status")
+      .eq("user_id", userId);
     if (activeWorkspaceId) {
       brandQuery = brandQuery.eq("workspace_id", activeWorkspaceId);
+      subscriptionQuery = subscriptionQuery.eq("workspace_id", activeWorkspaceId);
     }
 
     const [subscriptionResult, brandResult] = await Promise.all([
-      supabase
-        .from("subscriptions")
-        .select("status")
-        .eq("user_id", userId)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      brandQuery.maybeSingle(),
+      subscriptionQuery.order("updated_at", { ascending: false }).limit(1).maybeSingle(),
+      brandQuery.order("updated_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
 
     hasActiveSubscription =

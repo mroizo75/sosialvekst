@@ -55,6 +55,7 @@ const fakeSupabase = (row: Row) => {
 const reelPost = {
   id: "p1",
   user_id: "u1",
+  workspace_id: "w1",
   status: "draft",
   reel_source_url: "https://cdn.example/users/u1/images/source.jpg",
   video_status: "pending",
@@ -91,6 +92,7 @@ describe("rendering av reel", () => {
     });
     expect(updates.at(-1)).toEqual({ video_status: "ready", video_url: "https://cdn.example/users/u1/videos/reel.mp4" });
     expect(consumeVideoCredit).toHaveBeenCalledTimes(1);
+    expect(consumeVideoCredit).toHaveBeenCalledWith({ userId: "u1", workspaceId: "w1" }, "Reel for post p1", expect.anything());
     expect(overlayOnVideo).not.toHaveBeenCalled();
   });
 

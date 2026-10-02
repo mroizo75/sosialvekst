@@ -11,12 +11,17 @@ export type UserSubscription = {
 
 const ACTIVE_STATUSES: SubscriptionStatus[] = ["active", "trialing"];
 
-export const getLatestSubscription = async (userId: string): Promise<UserSubscription | null> => {
+// Each business (workspace) pays for its own plan, so the quota never leaks between businesses.
+export const getLatestSubscription = async (
+  userId: string,
+  workspaceId: string,
+): Promise<UserSubscription | null> => {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("subscriptions")
     .select("plan_code, extra_posts_per_week, status")
     .eq("user_id", userId)
+    .eq("workspace_id", workspaceId)
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -47,14 +52,13 @@ export const getPostsPerWeekAllowance = (subscription: UserSubscription | null):
   return base + Math.max(0, subscription.extraPostsPerWeek);
 };
 
-export const requireActiveSubscription = async (userId: string): Promise<UserSubscription> => {
-  const subscription = await getLatestSubscription(userId);
+export const requireActiveSubscription = async (userId: string, workspaceId: string): Promise<UserSubscription> => {
+  const subscription = await getLatestSubscription(userId, workspaceId);
   if (!subscription || !hasActiveSubscription(subscription)) {
     throw toAppError(
       "SUBSCRIPTION_REQUIRED",
-      "Aktivt abonnement kreves for publisering. Du kan fortsatt planlegge innhold.",
+      "Denne bedriften har ikke aktivt abonnement. Aktiver abonnement for bedriften for å publisere. Du kan fortsatt planlegge innhold.",
     );
   }
   return subscription;
 };
-

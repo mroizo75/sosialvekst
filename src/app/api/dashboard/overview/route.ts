@@ -29,7 +29,7 @@ export async function GET() {
       .order("scheduled_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    getLatestSubscription(userId),
+    getLatestSubscription(userId, workspaceId),
     supabase
       .from("content_plans")
       .select("media_mode")

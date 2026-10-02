@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
     const workspaceId = await requireWorkspaceId(userId);
-    await requireActiveSubscription(userId);
+    await requireActiveSubscription(userId, workspaceId);
     const payload = queueSchema.parse(await request.json().catch(() => ({})));
     const supabase = await createSupabaseServerClient();
 

@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 
+import { planForMode, resolveCheckoutWorkspace, saveWorkspaceSubscription } from "@/lib/billing";
 import { getRequiredEnv } from "@/lib/env";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
@@ -12,52 +13,6 @@ import { addVideoCredits, isVideoCreditCheckout, paidCreditAmount } from "@/lib/
 const handleEvent = async (event: Stripe.Event): Promise<void> => {
   const supabase = createSupabaseAdminClient();
 
-  const saveSubscriptionByUser = async (
-    userId: string,
-    payload: {
-      stripeCustomerId?: string;
-      stripeSubscriptionId?: string;
-      planCode?: string;
-      extraPostsPerWeek?: number;
-      status: "active" | "past_due" | "canceled";
-    },
-  ): Promise<void> => {
-    const row = {
-      user_id: userId,
-      stripe_customer_id: payload.stripeCustomerId ?? "",
-      stripe_subscription_id: payload.stripeSubscriptionId ?? "",
-      plan_code: payload.planCode ?? "base_3x4",
-      extra_posts_per_week: payload.extraPostsPerWeek ?? 0,
-      status: payload.status,
-      updated_at: new Date().toISOString(),
-    };
-
-    const { data: existingRows, error: existingError } = await supabase
-      .from("subscriptions")
-      .select("id")
-      .eq("user_id", userId)
-      .order("updated_at", { ascending: false })
-      .limit(1);
-
-    if (existingError) {
-      throw new Error(existingError.message);
-    }
-
-    const existingId = existingRows?.[0]?.id;
-    const { error } = existingId
-      ? await supabase
-          .from("subscriptions")
-          .update(row)
-          .eq("id", existingId)
-      : await supabase
-          .from("subscriptions")
-          .insert(row);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-  };
-
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
     const userId = session.metadata?.userId;
@@ -65,6 +20,7 @@ const handleEvent = async (event: Stripe.Event): Promise<void> => {
     if (!userId) {
       return;
     }
+    const workspaceId = await resolveCheckoutWorkspace(supabase, userId, session.metadata);
 
     if (isVideoCreditCheckout(session.metadata)) {
       const creditAmount = paidCreditAmount({ metadata: session.metadata, paymentStatus: session.payment_status });
@@ -76,22 +32,24 @@ const handleEvent = async (event: Stripe.Event): Promise<void> => {
         });
         return;
       }
-      const result = await addVideoCredits(userId, creditAmount, session.id);
+      const result = await addVideoCredits({ userId, workspaceId }, creditAmount, session.id, supabase);
       logger.info("Video credits purchased via Stripe", {
         eventId: event.id,
         sessionId: session.id,
         userId,
+        workspaceId,
         creditAmount,
         alreadyCredited: result.alreadyCredited,
       });
       return;
     }
 
-    await saveSubscriptionByUser(userId, {
+    await saveWorkspaceSubscription(supabase, {
+      userId,
+      workspaceId,
       stripeCustomerId: String(session.customer ?? ""),
       stripeSubscriptionId: String(session.subscription ?? ""),
-      planCode: mode === "extra_posts" ? "extra_5x4" : "base_3x4",
-      extraPostsPerWeek: mode === "extra_posts" ? 2 : 0,
+      ...planForMode(mode),
       status: "active",
     });
 
@@ -142,15 +100,9 @@ const handleEvent = async (event: Stripe.Event): Promise<void> => {
       return;
     }
 
-    const { data: byCustomer } = await supabase
-      .from("subscriptions")
-      .select("user_id")
-      .eq("stripe_customer_id", customerId)
-      .limit(1)
-      .maybeSingle();
-
-    if (!byCustomer?.user_id) {
-      logger.warn("Stripe subscription event uten matchende bruker", {
+    const ownerUserId = subscription.metadata?.userId;
+    if (!ownerUserId) {
+      logger.warn("Stripe subscription event uten matchende bedrift", {
         eventId: event.id,
         subscriptionId: subscription.id,
         customerId,
@@ -158,9 +110,12 @@ const handleEvent = async (event: Stripe.Event): Promise<void> => {
       return;
     }
 
-    await saveSubscriptionByUser(byCustomer.user_id, {
+    await saveWorkspaceSubscription(supabase, {
+      userId: ownerUserId,
+      workspaceId: await resolveCheckoutWorkspace(supabase, ownerUserId, subscription.metadata),
       stripeCustomerId: customerId,
       stripeSubscriptionId: subscription.id,
+      ...planForMode(subscription.metadata?.mode),
       status: normalizedStatus,
     });
     return;

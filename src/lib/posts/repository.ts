@@ -198,6 +198,7 @@ export const createContentPlan = async (input: {
       .from("content_plans")
       .insert({
         user_id: input.userId,
+        workspace_id: input.workspaceId,
         posts_per_week: input.postsPerWeek,
         total_weeks: input.totalWeeks,
         country_code: input.countryCode,

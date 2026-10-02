@@ -17,6 +17,7 @@ import { timeZoneForCountry } from "@/lib/schedule/audienceTime";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { GenerationMeta, GenerationStep, TopicWindow, VideoStatus } from "@/lib/types";
+import type { CreditOwner } from "@/lib/videoCredits";
 import {
   getReelBudget,
   queueReelRender,
@@ -89,8 +90,8 @@ const moreLikeThisNote = (meta: GenerationMeta): string =>
     : "Lag en ny post i samme form og tone som et innlegg som fikk godt engasjement. Ny vinkel og ny tittel.";
 
 // A pending render of this same post is replaced, so its reserved credit is available again.
-const reelBudgetFor = async (userId: string, videoStatus: VideoStatus | undefined): Promise<ReelBudget> => {
-  const budget = await getReelBudget(userId);
+const reelBudgetFor = async (owner: CreditOwner, videoStatus: VideoStatus | undefined): Promise<ReelBudget> => {
+  const budget = await getReelBudget(owner);
   return { remaining: budget.remaining + (videoStatus === "pending" ? 1 : 0) };
 };
 
@@ -270,8 +271,8 @@ export async function PATCH(request: Request, context: RouteContext) {
           { status: 400 },
         );
       }
-      await requireActiveSubscription(userId);
-      if ((await reelBudgetFor(userId, post.videoStatus)).remaining <= 0) {
+      await requireActiveSubscription(userId, workspaceId);
+      if ((await reelBudgetFor({ userId, workspaceId }, post.videoStatus)).remaining <= 0) {
         return NextResponse.json(
           toAppError("VIDEO_CREDITS_EXHAUSTED", "Du har ingen videokreditter igjen. Kjøp flere i kalenderen for å lage reels."),
           { status: 402 },
@@ -357,7 +358,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         postId, action, regenAction, channel: post.channel, userId,
       });
 
-      await requireActiveSubscription(userId);
+      await requireActiveSubscription(userId, workspaceId);
 
       const oldImageUrl = post.imageUrl;
       const topicFromPlan = await getTopicFromPlan(userId, postId);
@@ -385,7 +386,7 @@ export async function PATCH(request: Request, context: RouteContext) {
           : scheduled.getUTCDate() + scheduled.getUTCMonth() * 3,
         hasCustomerStories: (brandContext?.customerSuccessStories?.length ?? 0) > 0,
         pinned: source ? pinnedFromMeta(source.meta) : undefined,
-        reelsAllowed: reelsAllowedFor(mediaMode, await reelBudgetFor(userId, post.videoStatus)),
+        reelsAllowed: reelsAllowedFor(mediaMode, await reelBudgetFor({ userId, workspaceId }, post.videoStatus)),
       }, profile);
       const performanceNotes = [
         ...(source ? [moreLikeThisNote(source.meta)] : []),

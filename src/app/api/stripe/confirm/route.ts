@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUserId } from "@/lib/auth";
+import { planForMode, resolveCheckoutWorkspace, saveWorkspaceSubscription } from "@/lib/billing";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { getStripeClient } from "@/lib/stripe";
@@ -31,6 +32,8 @@ export async function POST(request: Request) {
       );
     }
 
+    const workspaceId = await resolveCheckoutWorkspace(supabase, userId, session.metadata);
+
     if (isVideoCreditCheckout(session.metadata)) {
       const creditAmount = paidCreditAmount({ metadata: session.metadata, paymentStatus: session.payment_status });
       if (creditAmount === 0) {
@@ -39,8 +42,8 @@ export async function POST(request: Request) {
           { status: 400 },
         );
       }
-      const credits = await addVideoCredits(userId, creditAmount, session.id, supabase);
-      return NextResponse.json({ ok: true, kind: "video_credits", balance: credits.balance });
+      const credits = await addVideoCredits({ userId, workspaceId }, creditAmount, session.id, supabase);
+      return NextResponse.json({ ok: true, kind: "video_credits", balance: credits.balance, workspaceId });
     }
 
     if (session.payment_status !== "paid" && session.status !== "complete") {
@@ -60,66 +63,16 @@ export async function POST(request: Request) {
         ? session.customer
         : session.customer?.id ?? "";
 
-    const normalizedStatus = "active";
+    await saveWorkspaceSubscription(supabase, {
+      userId,
+      workspaceId,
+      stripeCustomerId,
+      stripeSubscriptionId,
+      ...planForMode(mode),
+      status: "active",
+    });
 
-    const subscriptionPayload = {
-      user_id: userId,
-      stripe_customer_id: stripeCustomerId,
-      stripe_subscription_id: stripeSubscriptionId,
-      plan_code: mode === "extra_posts" ? "extra_5x4" : "base_3x4",
-      extra_posts_per_week: mode === "extra_posts" ? 2 : 0,
-      status: normalizedStatus,
-      updated_at: new Date().toISOString(),
-    };
-
-    const { data: existingRows, error: existingError } = await supabase
-      .from("subscriptions")
-      .select("id")
-      .eq("user_id", userId)
-      .order("updated_at", { ascending: false })
-      .limit(1);
-
-    if (existingError) {
-      logger.error("Stripe confirm read failed", {
-        userId,
-        sessionId: payload.sessionId,
-        dbError: existingError.message,
-      });
-      return NextResponse.json(
-        toAppError("CONFIRM_READ_FAILED", "Kunne ikke hente abonnement.", {
-          message: existingError.message,
-        }),
-        { status: 500 },
-      );
-    }
-
-    const existingId = existingRows?.[0]?.id;
-    const { error } = existingId
-      ? await supabase
-          .from("subscriptions")
-          .update(subscriptionPayload)
-          .eq("id", existingId)
-      : await supabase
-          .from("subscriptions")
-          .insert(subscriptionPayload);
-
-    if (error) {
-      logger.error("Stripe confirm upsert failed", {
-        userId,
-        sessionId: payload.sessionId,
-        stripeSubscriptionId,
-        stripeCustomerId,
-        dbError: error.message,
-      });
-      return NextResponse.json(
-        toAppError("CONFIRM_SAVE_FAILED", "Kunne ikke oppdatere abonnement.", {
-          message: error.message,
-        }),
-        { status: 500 },
-      );
-    }
-
-    return NextResponse.json({ ok: true, status: normalizedStatus });
+    return NextResponse.json({ ok: true, status: "active", workspaceId });
   } catch (error) {
     const appError = toUnknownAppError(error);
     logger.error("Stripe confirm failed", {

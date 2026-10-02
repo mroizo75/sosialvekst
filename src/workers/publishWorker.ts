@@ -4,6 +4,7 @@ import { attachedMediaFields, collectImageUrls } from "@/workers/metaMedia";
 
 type RunPublishWorkerInput = {
   userId?: string;
+  workspaceId?: string;
   limit?: number;
 };
 
@@ -841,6 +842,9 @@ export const runPublishWorker = async (input: RunPublishWorkerInput = {}): Promi
 
   if (input.userId) {
     query = query.eq("user_id", input.userId);
+  }
+  if (input.workspaceId) {
+    query = query.eq("workspace_id", input.workspaceId);
   }
 
   const { data: jobs, error: jobsError } = await query;

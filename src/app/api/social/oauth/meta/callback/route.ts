@@ -273,7 +273,7 @@ export async function GET(request: Request) {
       pageNames: oauthPages.map((p) => p.name ?? p.id),
     });
 
-    let allPages = [...oauthPages];
+    const allPages = [...oauthPages];
 
     if (allPages.length === 0) {
       logger.info("[meta/callback] /me/accounts ga 0 sider, prøver Business Manager...");

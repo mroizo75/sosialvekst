@@ -9,15 +9,36 @@ export type VideoBalance = {
   totalPurchased: number;
 };
 
+// Credits belong to one business (workspace); a user with several businesses has one balance per business.
+export type CreditOwner = {
+  userId: string;
+  workspaceId: string;
+};
+
+const assertOwner = (owner: CreditOwner): void => {
+  if (!owner.userId || !owner.workspaceId) {
+    throw toAppError("VIDEO_CREDITS_OWNER_MISSING", "Mangler bruker eller bedrift for videokreditter.", {
+      hasUser: Boolean(owner.userId),
+      hasWorkspace: Boolean(owner.workspaceId),
+    });
+  }
+};
+
+const balanceRow = (supabase: SupabaseClient, owner: CreditOwner) =>
+  supabase
+    .from("video_credits")
+    .select("id, balance, total_purchased")
+    .eq("user_id", owner.userId)
+    .eq("workspace_id", owner.workspaceId)
+    .maybeSingle();
+
 export const getVideoBalance = async (
-  userId: string,
+  owner: CreditOwner,
   supabase: SupabaseClient = createSupabaseAdminClient(),
 ): Promise<VideoBalance> => {
-  const { data } = await supabase
-    .from("video_credits")
-    .select("balance, total_purchased")
-    .eq("user_id", userId)
-    .maybeSingle();
+  assertOwner(owner);
+  const { data, error } = await balanceRow(supabase, owner);
+  if (error) throw toAppError("VIDEO_CREDITS_READ_FAILED", "Kunne ikke lese videokreditter.", error.message);
 
   return {
     balance: (data?.balance as number) ?? 0,
@@ -34,16 +55,13 @@ const creditsExhausted = () => Object.assign(
 
 // Compare-and-set on balance so two videos finishing at once cannot both spend the same credit.
 export const consumeVideoCredit = async (
-  userId: string,
+  owner: CreditOwner,
   description: string,
   supabase: SupabaseClient = createSupabaseAdminClient(),
 ): Promise<VideoBalance> => {
+  assertOwner(owner);
   for (let attempt = 1; attempt <= CONSUME_ATTEMPTS; attempt += 1) {
-    const { data: row, error: readError } = await supabase
-      .from("video_credits")
-      .select("id, balance, total_purchased")
-      .eq("user_id", userId)
-      .maybeSingle();
+    const { data: row, error: readError } = await balanceRow(supabase, owner);
     if (readError) throw toAppError("VIDEO_CREDITS_READ_FAILED", "Kunne ikke lese videokreditter.", readError.message);
 
     const currentBalance = (row?.balance as number) ?? 0;
@@ -59,7 +77,7 @@ export const consumeVideoCredit = async (
     if (updateError) throw toAppError("VIDEO_CREDITS_UPDATE_FAILED", "Kunne ikke trekke videokreditt.", updateError.message);
     if ((updated ?? []).length === 0) continue;
 
-    await recordUsage(supabase, userId, description, newBalance);
+    await recordUsage(supabase, owner, description, newBalance);
     return { balance: newBalance, totalPurchased: (row.total_purchased as number) ?? 0 };
   }
   throw toAppError("VIDEO_CREDITS_BUSY", "Videokreditten kunne ikke trekkes akkurat nå. Prøv igjen.");
@@ -67,18 +85,22 @@ export const consumeVideoCredit = async (
 
 const recordUsage = async (
   supabase: SupabaseClient,
-  userId: string,
+  owner: CreditOwner,
   description: string,
   newBalance: number,
 ): Promise<void> => {
-  await supabase.from("video_credit_transactions").insert({
-    user_id: userId,
+  const { error } = await supabase.from("video_credit_transactions").insert({
+    user_id: owner.userId,
+    workspace_id: owner.workspaceId,
     amount: -1,
     type: "usage",
     description,
   });
+  if (error) {
+    logger.warn("[videoCredits] Kunne ikke logge kredittbruk", { ...owner, error: error.message });
+  }
 
-  logger.info("[videoCredits] Kreditt brukt", { userId, newBalance, description });
+  logger.info("[videoCredits] Kreditt brukt", { ...owner, newBalance, description });
 };
 
 const UNIQUE_VIOLATION = "23505";
@@ -108,19 +130,15 @@ const isSessionCredited = async (supabase: SupabaseClient, stripeSessionId: stri
   return (data ?? []).length > 0;
 };
 
-const increaseBalance = async (supabase: SupabaseClient, userId: string, amount: number): Promise<VideoBalance> => {
+const increaseBalance = async (supabase: SupabaseClient, owner: CreditOwner, amount: number): Promise<VideoBalance> => {
   for (let attempt = 1; attempt <= CONSUME_ATTEMPTS; attempt += 1) {
-    const { data: row, error: readError } = await supabase
-      .from("video_credits")
-      .select("id, balance, total_purchased")
-      .eq("user_id", userId)
-      .maybeSingle();
+    const { data: row, error: readError } = await balanceRow(supabase, owner);
     if (readError) throw toAppError("VIDEO_CREDITS_READ_FAILED", "Kunne ikke lese videokreditter.", readError.message);
 
     if (!row?.id) {
       const { error: insertError } = await supabase
         .from("video_credits")
-        .insert({ user_id: userId, balance: amount, total_purchased: amount });
+        .insert({ user_id: owner.userId, workspace_id: owner.workspaceId, balance: amount, total_purchased: amount });
       if (!insertError) return { balance: amount, totalPurchased: amount };
       if (insertError.code === UNIQUE_VIOLATION) continue;
       throw toAppError("VIDEO_CREDITS_UPDATE_FAILED", "Kunne ikke legge til videokreditter.", insertError.message);
@@ -144,11 +162,12 @@ const increaseBalance = async (supabase: SupabaseClient, userId: string, amount:
 // The purchase row is written first and is unique per Stripe session, so the webhook and the
 // return-page confirmation can both call this without crediting the same payment twice.
 export const addVideoCredits = async (
-  userId: string,
+  owner: CreditOwner,
   amount: number,
   stripeSessionId: string,
   supabase: SupabaseClient = createSupabaseAdminClient(),
 ): Promise<VideoBalance & { alreadyCredited: boolean }> => {
+  assertOwner(owner);
   if (!Number.isInteger(amount) || amount <= 0) {
     throw toAppError("VIDEO_CREDITS_INVALID_AMOUNT", "Ugyldig antall videokreditter.", { amount });
   }
@@ -157,24 +176,25 @@ export const addVideoCredits = async (
   }
 
   if (await isSessionCredited(supabase, stripeSessionId)) {
-    return { ...(await getVideoBalance(userId, supabase)), alreadyCredited: true };
+    return { ...(await getVideoBalance(owner, supabase)), alreadyCredited: true };
   }
 
   const { error: claimError } = await supabase.from("video_credit_transactions").insert({
-    user_id: userId,
+    user_id: owner.userId,
+    workspace_id: owner.workspaceId,
     amount,
     type: "purchase",
     description: `Kjøp av ${amount} videokreditter`,
     stripe_session_id: stripeSessionId,
   });
   if (claimError?.code === UNIQUE_VIOLATION) {
-    return { ...(await getVideoBalance(userId, supabase)), alreadyCredited: true };
+    return { ...(await getVideoBalance(owner, supabase)), alreadyCredited: true };
   }
   if (claimError) {
     throw toAppError("VIDEO_CREDITS_UPDATE_FAILED", "Kunne ikke registrere kjøpet.", claimError.message);
   }
 
-  const result = await increaseBalance(supabase, userId, amount);
-  logger.info("[videoCredits] Kreditter lagt til", { userId, amount, newBalance: result.balance, stripeSessionId });
+  const result = await increaseBalance(supabase, owner, amount);
+  logger.info("[videoCredits] Kreditter lagt til", { ...owner, amount, newBalance: result.balance, stripeSessionId });
   return { ...result, alreadyCredited: false };
 };

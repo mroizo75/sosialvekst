@@ -23,7 +23,7 @@ export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
     const workspaceId = await requireWorkspaceId(userId);
-    await requireActiveSubscription(userId);
+    await requireActiveSubscription(userId, workspaceId);
     const json = await request.json();
     const payload = customPostSchema.parse(json);
 
@@ -54,6 +54,7 @@ export async function POST(request: Request) {
       .from("content_plans")
       .select("id")
       .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();

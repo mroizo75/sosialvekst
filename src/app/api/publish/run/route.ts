@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { requireActiveSubscription } from "@/lib/subscription";
+import { requireWorkspaceId } from "@/lib/workspace";
 import { runPublishWorker } from "@/workers/publishWorker";
 
 const isCronRequest = (request: Request): boolean => {
@@ -42,8 +43,9 @@ export async function POST(request: Request) {
     }
 
     const userId = await requireUserId();
-    await requireActiveSubscription(userId);
-    const result = await runPublishWorker({ userId, limit: 30 });
+    const workspaceId = await requireWorkspaceId(userId);
+    await requireActiveSubscription(userId, workspaceId);
+    const result = await runPublishWorker({ userId, workspaceId, limit: 30 });
     return NextResponse.json(result);
   } catch (error) {
     const appError = toUnknownAppError(error);

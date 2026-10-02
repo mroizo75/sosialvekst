@@ -54,7 +54,7 @@ export async function POST() {
   try {
     const userId = await requireUserId();
     const workspaceId = await requireWorkspaceId(userId);
-    await requireActiveSubscription(userId);
+    await requireActiveSubscription(userId, workspaceId);
     const brandContext = await getBrandContext(userId, workspaceId);
     const supabase = await createSupabaseServerClient();
     const admin = createSupabaseAdminClient();
@@ -63,6 +63,7 @@ export async function POST() {
       .from("posts")
       .select("id, channel, scheduled_at, image_url, plan_id")
       .eq("user_id", userId)
+      .eq("workspace_id", workspaceId)
       .order("scheduled_at", { ascending: true });
 
     if (fetchError) {
@@ -88,6 +89,7 @@ export async function POST() {
         .from("content_plans")
         .select("*")
         .eq("user_id", userId)
+        .eq("workspace_id", workspaceId)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -105,6 +107,7 @@ export async function POST() {
           .from("content_plans")
           .insert({
             user_id: userId,
+            workspace_id: workspaceId,
             posts_per_week: postsPerWeek,
             total_weeks: totalWeeks,
             country_code: "NO",
@@ -121,6 +124,7 @@ export async function POST() {
             .from("content_plans")
             .insert({
               user_id: userId,
+              workspace_id: workspaceId,
               posts_per_week: postsPerWeek,
               total_weeks: totalWeeks,
               country_code: "NO",
@@ -174,7 +178,8 @@ export async function POST() {
     const { error: deleteError } = await admin
       .from("posts")
       .delete()
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .eq("workspace_id", workspaceId);
 
     if (deleteError) {
       console.error("[regenerate-all] Sletting feilet:", deleteError.message);
@@ -234,6 +239,7 @@ export async function POST() {
     const inserts = newSlots.map((s) => ({
       id: s.id,
       user_id: userId,
+      workspace_id: workspaceId,
       plan_id: planId,
       channel: s.channel,
       status: "generating",
@@ -268,7 +274,7 @@ export async function POST() {
       } catch (err) {
         console.error("[regenerate-all] R2-sletting feilet:", err);
       }
-      await regenerateSlots(userId, newSlots, mediaMode, brandContext);
+      await regenerateSlots(userId, workspaceId, newSlots, mediaMode, brandContext);
       console.log(`[regenerate-all] Ferdig — ${newSlots.length} poster generert`);
     })().catch((err) => {
       console.error("[regenerate-all] Bakgrunnsjobb krasjet:", err);
@@ -313,12 +319,13 @@ const getTopicForWeek = (week: number, windows: TopicWindow[], brandContext?: Br
 
 async function regenerateSlots(
   userId: string,
+  workspaceId: string,
   slots: Slot[],
   mediaMode: "ai_only" | "hybrid" | "owned_only",
   brandContext?: BrandContext,
 ) {
   const admin = createSupabaseAdminClient();
-  const reelBudget = await getReelBudget(userId, admin);
+  const reelBudget = await getReelBudget({ userId, workspaceId }, admin);
   let completed = 0;
 
   for (const slot of slots) {
@@ -354,7 +361,7 @@ async function regenerateSlots(
         feedIndex: strategy.feedIndex,
       });
 
-      const error = await updatePostRow(admin, { id: slot.id, userId }, {
+      const error = await updatePostRow(admin, { id: slot.id, userId, workspaceId }, {
         text_content: post.text,
         image_url: post.imageUrl ?? null,
         video_url: null,

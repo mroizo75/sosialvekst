@@ -4,11 +4,13 @@ import { requireUserId } from "@/lib/auth";
 import { toUnknownAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { getVideoBalance } from "@/lib/videoCredits";
+import { requireWorkspaceId } from "@/lib/workspace";
 
 export async function GET() {
   try {
     const userId = await requireUserId();
-    const balance = await getVideoBalance(userId);
+    const workspaceId = await requireWorkspaceId(userId);
+    const balance = await getVideoBalance({ userId, workspaceId });
     return NextResponse.json(balance);
   } catch (error) {
     const appError = toUnknownAppError(error);

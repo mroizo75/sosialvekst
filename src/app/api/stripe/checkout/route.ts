@@ -9,6 +9,7 @@ import { getStripeClient } from "@/lib/stripe";
 import { resolveStripeCustomer } from "@/lib/stripeCustomer";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { requireWorkspaceId } from "@/lib/workspace";
 
 const VIDEO_CREDIT_MODES = ["video_credits_10", "video_credits_30", "video_credits_100"] as const;
 type VideoCreditMode = typeof VIDEO_CREDIT_MODES[number];
@@ -38,6 +39,7 @@ export async function POST(request: Request) {
   let videoCreditPriceEnv: string | undefined;
   try {
     const userId = await requireUserId();
+    const workspaceId = await requireWorkspaceId(userId);
     const stripe = getStripeClient();
     const supabase = await createSupabaseServerClient();
     const payload = schema.parse(await request.json());
@@ -90,8 +92,24 @@ export async function POST(request: Request) {
       .from("subscriptions")
       .select("stripe_customer_id")
       .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    if (!videoCreditMode) {
+      const { data: workspaceSubscription } = await supabase
+        .from("subscriptions")
+        .select("status, plan_code")
+        .eq("workspace_id", workspaceId)
+        .maybeSingle();
+      const alreadyActive = workspaceSubscription?.status === "active" || workspaceSubscription?.status === "trialing";
+      if (alreadyActive && (payload.mode === "base" || workspaceSubscription?.plan_code === "extra_5x4")) {
+        return NextResponse.json(
+          toAppError("SUBSCRIPTION_ALREADY_ACTIVE", "Denne bedriften har allerede et aktivt abonnement."),
+          { status: 409 },
+        );
+      }
+    }
 
     const { data: userResult } = await supabase.auth.getUser();
     const customerId = await resolveStripeCustomer({
@@ -103,7 +121,7 @@ export async function POST(request: Request) {
     });
 
     const checkoutMode = videoCreditMode ? "payment" : "subscription";
-    const metadata: Record<string, string> = { userId, mode: payload.mode };
+    const metadata: Record<string, string> = { userId, workspaceId, mode: payload.mode };
     if (videoCreditMode) {
       metadata.creditAmount = String(VIDEO_CREDIT_AMOUNTS[videoCreditMode]);
     }
@@ -116,6 +134,9 @@ export async function POST(request: Request) {
       customer: customerId,
       client_reference_id: userId,
       metadata,
+      ...(checkoutMode === "subscription"
+        ? { subscription_data: { metadata: { userId, workspaceId, mode: payload.mode } } }
+        : {}),
     });
 
     return NextResponse.json({ url: session.url });

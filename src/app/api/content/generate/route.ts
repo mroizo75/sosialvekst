@@ -188,7 +188,7 @@ export async function POST(request: Request) {
   try {
     const userId = await requireUserId();
     const workspaceId = await requireWorkspaceId(userId);
-    const subscription = await requireActiveSubscription(userId);
+    const subscription = await requireActiveSubscription(userId, workspaceId);
     const brandContext = await getBrandContext(userId, workspaceId);
     const json = await request.json();
     const payload = generateSchema.parse(json);
@@ -430,7 +430,7 @@ async function processSlots(
   const [slots, profiles, reelBudget] = await Promise.all([
     assignAngles(plannedSlots, topicWindows, brandContext),
     loadProfilesSafely(supabase, { userId, workspaceId }, plannedSlots.map((slot) => slot.channel), timeZoneForCountry(countryCode)),
-    getReelBudget(userId, supabase),
+    getReelBudget({ userId, workspaceId }, supabase),
   ]);
   let succeeded = 0;
   let completed = 0;
