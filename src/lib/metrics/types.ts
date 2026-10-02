@@ -14,7 +14,7 @@ export type PostMetrics = {
 };
 
 export type MetricsResult =
-  | { status: "ok"; metrics: PostMetrics }
+  | { status: "ok"; metrics: PostMetrics; limitedBy?: string }
   | { status: "missing_permission"; message: string };
 
 export type MetricsAccount = {

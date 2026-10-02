@@ -7,7 +7,7 @@ import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { getStripeClient } from "@/lib/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { addVideoCredits } from "@/lib/videoCredits";
+import { addVideoCredits, isVideoCreditCheckout, paidCreditAmount } from "@/lib/videoCredits";
 
 const handleEvent = async (event: Stripe.Event): Promise<void> => {
   const supabase = createSupabaseAdminClient();
@@ -66,17 +66,24 @@ const handleEvent = async (event: Stripe.Event): Promise<void> => {
       return;
     }
 
-    if (mode.startsWith("video_credits_")) {
-      const creditAmount = Number(session.metadata?.creditAmount ?? "0");
-      if (creditAmount > 0) {
-        await addVideoCredits(userId, creditAmount, session.id);
-        logger.info("Video credits purchased via Stripe", {
+    if (isVideoCreditCheckout(session.metadata)) {
+      const creditAmount = paidCreditAmount({ metadata: session.metadata, paymentStatus: session.payment_status });
+      if (creditAmount === 0) {
+        logger.warn("Kjøp av videokreditter uten betalt status", {
           eventId: event.id,
           sessionId: session.id,
-          userId,
-          creditAmount,
+          paymentStatus: session.payment_status,
         });
+        return;
       }
+      const result = await addVideoCredits(userId, creditAmount, session.id);
+      logger.info("Video credits purchased via Stripe", {
+        eventId: event.id,
+        sessionId: session.id,
+        userId,
+        creditAmount,
+        alreadyCredited: result.alreadyCredited,
+      });
       return;
     }
 

@@ -326,6 +326,62 @@ export const mergeAudioVideo = async (videoUrl: string, audioUrl: string): Promi
   return url;
 };
 
+export const generateSpeech = async (text: string, voice: string, speed = 1): Promise<string> => {
+  if (!text.trim()) throw new Error("Taletekst mangler.");
+  const result = await falFetchQueued<{ audio?: { url?: string } }>("fal-ai/elevenlabs/tts/turbo-v2.5", {
+    text,
+    voice,
+    language_code: "no",
+    speed,
+  });
+  const url = result.audio?.url;
+  if (!url) throw new Error("fal.ai elevenlabs/tts returnerte ingen lydfil.");
+  return url;
+};
+
+export const getMediaDuration = async (mediaUrl: string): Promise<number> => {
+  const result = await falFetchQueued<{ media?: { duration?: number } }>("fal-ai/ffmpeg-api/metadata", {
+    media_url: mediaUrl,
+  });
+  const duration = result.media?.duration;
+  if (typeof duration !== "number" || !Number.isFinite(duration)) {
+    throw new Error("fal.ai metadata returnerte ingen varighet.");
+  }
+  return duration;
+};
+
+export const normalizeLoudness = async (audioUrl: string, integratedLoudness: number): Promise<string> => {
+  const result = await falFetchQueued<{ audio?: { url?: string } }>("fal-ai/ffmpeg-api/loudnorm", {
+    audio_url: audioUrl,
+    integrated_loudness: integratedLoudness,
+    true_peak: -1.5,
+  });
+  const url = result.audio?.url;
+  if (!url) throw new Error("fal.ai loudnorm returnerte ingen lydfil.");
+  return url;
+};
+
+export type VoiceMixInput = {
+  videoUrl: string;
+  musicUrl: string;
+  voiceUrl: string;
+  videoMs: number;
+  voiceStartMs: number;
+  voiceMs: number;
+};
+
+export const mixVoiceOverMusic = async (input: VoiceMixInput): Promise<string> => {
+  const result = await falFetchQueued<{ video_url?: string }>("fal-ai/ffmpeg-api/compose", {
+    tracks: [
+      { id: "video", type: "video", keyframes: [{ timestamp: 0, duration: input.videoMs, url: input.videoUrl }] },
+      { id: "music", type: "audio", keyframes: [{ timestamp: 0, duration: input.videoMs, url: input.musicUrl }] },
+      { id: "voice", type: "audio", keyframes: [{ timestamp: input.voiceStartMs, duration: input.voiceMs, url: input.voiceUrl }] },
+    ],
+  });
+  if (!result.video_url) throw new Error("fal.ai compose returnerte ingen video.");
+  return result.video_url;
+};
+
 // The overlay is a single full-frame GIF; with shortest=false ffmpeg holds its frame for the whole video.
 export const overlayOnVideo = async (videoUrl: string, overlayGifUrl: string): Promise<string> => {
   const result = await falFetchQueued<{ video?: { url?: string } }>("fal-ai/workflow-utilities/overlay-video", {

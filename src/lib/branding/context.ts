@@ -1,7 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { listUserFiles } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
-import type { BrandColors, BrandContext, ProductImage } from "@/lib/types";
+import type { BrandColors, BrandContext, ProductImage, ReelVoice } from "@/lib/types";
 
 type ProfileRow = {
   company_name: string | null;
@@ -112,16 +112,31 @@ const fetchProductImages = async (
   }));
 };
 
+export const toReelVoice = (value: unknown): ReelVoice => (value === "male" ? "male" : "female");
+
+export const fetchReelVoice = async (userId: string, workspaceId?: string): Promise<ReelVoice> => {
+  const supabase = await createSupabaseServerClient();
+  let query = supabase.from("brand_profiles").select("reel_voice").eq("user_id", userId);
+  if (workspaceId) query = query.eq("workspace_id", workspaceId);
+  const { data, error } = await query.maybeSingle();
+  if (error) {
+    logger.warn("Kunne ikke lese stemmevalg, bruker kvinnestemme", { userId, error: error.message });
+    return "female";
+  }
+  return toReelVoice((data as { reel_voice?: unknown } | null)?.reel_voice);
+};
+
 export const getBrandContext = async (userId: string, workspaceId?: string): Promise<BrandContext> => {
   const supabase = await createSupabaseServerClient();
 
   let brandQuery = supabase.from("brand_profiles").select(BRAND_FIELDS).eq("user_id", userId);
   if (workspaceId) brandQuery = brandQuery.eq("workspace_id", workspaceId);
 
-  const [profileResult, brandResult, productImages] = await Promise.all([
+  const [profileResult, brandResult, productImages, reelVoice] = await Promise.all([
     supabase.from("profiles").select("company_name").eq("user_id", userId).maybeSingle(),
     brandQuery.maybeSingle(),
     fetchProductImages(userId, workspaceId),
+    fetchReelVoice(userId, workspaceId),
   ]);
 
   const profile = profileResult.data as ProfileRow | null;
@@ -166,5 +181,6 @@ export const getBrandContext = async (userId: string, workspaceId?: string): Pro
     websiteUrl: brand?.website_url ?? undefined,
     websiteContent: brand?.website_content ?? undefined,
     productImages: productImages.length > 0 ? productImages : undefined,
+    reelVoice,
   };
 };

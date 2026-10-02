@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireUserId } from "@/lib/auth";
+import { fetchReelVoice } from "@/lib/branding/context";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireWorkspaceId } from "@/lib/workspace";
@@ -27,7 +28,7 @@ export async function GET() {
     const userMeta = (user?.user_metadata ?? {}) as Record<string, unknown>;
     const pendingWebsiteUrl = typeof userMeta.pendingWebsiteUrl === "string" ? userMeta.pendingWebsiteUrl : "";
 
-    const [profileResult, brandResult, planResult, workspaceResult] = await Promise.all([
+    const [profileResult, brandResult, planResult, workspaceResult, reelVoice] = await Promise.all([
       supabase
         .from("profiles")
         .select("full_name, company_name, country_code")
@@ -53,6 +54,7 @@ export async function GET() {
         .eq("id", workspaceId)
         .eq("user_id", userId)
         .maybeSingle(),
+      fetchReelVoice(userId, workspaceId),
     ]);
 
     if (profileResult.error) {
@@ -122,6 +124,7 @@ export async function GET() {
       slogan: (brand as Record<string, unknown>)?.slogan ?? "",
       brandColors: (brand as Record<string, unknown>)?.brand_colors ?? {},
       fontStyle: (brand as Record<string, unknown>)?.font_style ?? "",
+      reelVoice,
       mediaMode,
       channels: channels.length > 0 ? channels : ["facebook", "instagram", "linkedin", "tiktok"],
     });

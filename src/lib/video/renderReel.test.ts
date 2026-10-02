@@ -1,7 +1,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { generateKlingVideo, mergeAudioVideo, overlayOnVideo } from "@/lib/ai/falClient";
+import {
+  generateKlingVideo,
+  generateSpeech,
+  getMediaDuration,
+  mergeAudioVideo,
+  mixVoiceOverMusic,
+  normalizeLoudness,
+  overlayOnVideo,
+} from "@/lib/ai/falClient";
 import { deleteFilesByUrls, uploadUserFile } from "@/lib/cloudflare/r2";
 import { getMusicTrackUrl } from "@/lib/video/musicLibrary";
 import { renderReelForPost } from "@/lib/video/renderReel";
@@ -11,6 +19,10 @@ vi.mock("@/lib/ai/falClient", () => ({
   generateKlingVideo: vi.fn(),
   mergeAudioVideo: vi.fn(),
   overlayOnVideo: vi.fn(),
+  generateSpeech: vi.fn(),
+  getMediaDuration: vi.fn(),
+  normalizeLoudness: vi.fn(),
+  mixVoiceOverMusic: vi.fn(),
   isFalAvailable: () => true,
 }));
 vi.mock("@/lib/cloudflare/r2", () => ({ uploadUserFile: vi.fn(), deleteFilesByUrls: vi.fn().mockResolvedValue(undefined) }));
@@ -166,6 +178,75 @@ describe("rendering av reel", () => {
     expect(result.status).toBe("ready");
     expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe("https://fal.example/merged.mp4");
     expect(consumeVideoCredit).toHaveBeenCalledTimes(1);
+  });
+
+  describe("speakerstemme", () => {
+    const voicePost = {
+      ...reelPost,
+      generation_meta: { ...reelPost.generation_meta, voiceScript: "Drømmer du om Kreta?", reelVoice: "male" },
+    };
+
+    beforeEach(() => {
+      vi.mocked(generateKlingVideo).mockResolvedValue({ url: "https://fal.example/clip.mp4" });
+      vi.mocked(getMusicTrackUrl).mockResolvedValue("https://cdn.example/shared/music/v1/beach-1.mp3");
+      vi.mocked(mergeAudioVideo).mockResolvedValue("https://fal.example/merged.mp4");
+      vi.mocked(generateSpeech).mockResolvedValue("https://fal.example/voice.mp3");
+      vi.mocked(normalizeLoudness).mockImplementation(async (url, lufs) => `${url}?lufs=${lufs}`);
+      vi.mocked(mixVoiceOverMusic).mockResolvedValue("https://fal.example/voiced.mp4");
+      vi.mocked(uploadUserFile).mockResolvedValue({ key: "k", publicUrl: "https://cdn.example/users/u1/videos/reel.mp4" });
+    });
+
+    it("legger valgt stemme over dempet musikk", async () => {
+      vi.mocked(getMediaDuration).mockResolvedValue(6.3);
+      const { client } = fakeSupabase(voicePost);
+
+      const result = await renderReelForPost(client, "p1");
+
+      expect(result.status).toBe("ready");
+      expect(generateSpeech).toHaveBeenCalledWith("Drømmer du om Kreta?", "George", 1);
+      expect(mixVoiceOverMusic).toHaveBeenCalledWith({
+        videoUrl: "https://fal.example/clip.mp4",
+        musicUrl: "https://cdn.example/shared/music/v1/beach-1.mp3?lufs=-30",
+        voiceUrl: "https://fal.example/voice.mp3?lufs=-16",
+        videoMs: 10_000,
+        voiceStartMs: 400,
+        voiceMs: 6300,
+      });
+      expect(mergeAudioVideo).not.toHaveBeenCalled();
+      expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe("https://fal.example/voiced.mp4");
+    });
+
+    it("leser raskere når talen blir for lang", async () => {
+      vi.mocked(getMediaDuration).mockResolvedValueOnce(10.4).mockResolvedValueOnce(8.9);
+      const { client } = fakeSupabase(voicePost);
+
+      await renderReelForPost(client, "p1");
+
+      expect(vi.mocked(generateSpeech).mock.calls.map((call) => call[2])).toEqual([1, 1.15]);
+      expect(vi.mocked(mixVoiceOverMusic).mock.calls[0]?.[0].voiceMs).toBe(8900);
+    });
+
+    it("bruker kun musikk når talen er for lang også i høy fart", async () => {
+      vi.mocked(getMediaDuration).mockResolvedValue(11);
+      const { client } = fakeSupabase(voicePost);
+
+      const result = await renderReelForPost(client, "p1");
+
+      expect(result.status).toBe("ready");
+      expect(mixVoiceOverMusic).not.toHaveBeenCalled();
+      expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe("https://fal.example/merged.mp4");
+    });
+
+    it("bruker kun musikk når talegeneratoren feiler", async () => {
+      vi.mocked(generateSpeech).mockRejectedValue(new Error("tts nede"));
+      const { client } = fakeSupabase(voicePost);
+
+      const result = await renderReelForPost(client, "p1");
+
+      expect(result.status).toBe("ready");
+      expect(mergeAudioVideo).toHaveBeenCalledWith("https://fal.example/clip.mp4", "https://cdn.example/shared/music/v1/beach-1.mp3");
+      expect(consumeVideoCredit).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("hopper over poster uten reel-kilde", async () => {

@@ -143,7 +143,14 @@ export const runMetricsWorker = async (input: RunMetricsWorkerInput = {}): Promi
       if (upsertError) throw new Error(upsertError.message);
 
       collected += 1;
-      await setMetricsStatus(job, "ok");
+      if (result.limitedBy) {
+        missingPermission += 1;
+        logger.warn("[metricsWorker] Bare offentlige tall hentet, mangler innsiktstilgang", {
+          channel: job.channel,
+          message: result.limitedBy,
+        });
+      }
+      await setMetricsStatus(job, result.limitedBy ? "missing_permission" : "ok");
     } catch (error) {
       failed += 1;
       logger.error("[metricsWorker] Henting av statistikk feilet", {

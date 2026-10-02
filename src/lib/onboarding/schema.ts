@@ -60,6 +60,7 @@ export const onboardingWizardSchema = z.object({
     accent: optionalText,
   }).optional().default({}),
   fontStyle: optionalText,
+  reelVoice: z.enum(["female", "male"]).default("female"),
 });
 
 export type OnboardingWizardSchema = z.infer<typeof onboardingWizardSchema>;

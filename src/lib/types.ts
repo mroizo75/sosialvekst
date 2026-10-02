@@ -54,6 +54,8 @@ export type BrandColors = {
   accent?: string;
 };
 
+export type ReelVoice = "female" | "male";
+
 export type BrandContext = {
   companyName?: string;
   companyDescription?: string;
@@ -85,6 +87,7 @@ export type BrandContext = {
   websiteUrl?: string;
   websiteContent?: string;
   productImages?: ProductImage[];
+  reelVoice?: ReelVoice;
 };
 
 export type OnboardingInput = {
@@ -120,6 +123,8 @@ export type GenerationMeta = {
   motif?: string;
   coverTitle?: string;
   reelOverlayUrl?: string;
+  voiceScript?: string;
+  reelVoice?: ReelVoice;
   hook?: string;
   topic: string;
   slideCount: number;

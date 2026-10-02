@@ -1,7 +1,7 @@
 export type MetricsScopeProvider = "meta" | "linkedin" | "tiktok";
 
 export const METRICS_SCOPES: Record<MetricsScopeProvider, string[]> = {
-  meta: ["read_insights", "pages_read_engagement", "instagram_manage_insights"],
+  meta: ["read_insights", "pages_read_engagement", "pages_read_user_content", "instagram_manage_insights"],
   linkedin: ["r_member_postAnalytics"],
   tiktok: ["video.list"],
 };

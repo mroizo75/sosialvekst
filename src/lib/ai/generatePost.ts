@@ -8,6 +8,7 @@ import { resolveCopyModel } from "@/lib/ai/models";
 import { composeDesignedSlide, type SlideLayout, type SlideShape } from "@/lib/ai/slideComposer";
 import { toReelFrame } from "@/lib/video/reelFrame";
 import { composeReelOverlay } from "@/lib/video/reelOverlay";
+import { buildVoiceScriptPrompt, normalizeVoiceScript } from "@/lib/video/voiceScript";
 import { buildCarouselVariantPrompt, buildVisualBrief, type VisualBrief, type VisualWorld } from "@/lib/ai/visualDirection";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
 import type { ContentPillar, VisualMotif } from "@/lib/ai/postStrategy";
@@ -1050,6 +1051,32 @@ const storeReelSource = async (
   }
 };
 
+const createVoiceScript = async (input: GeneratePostInput, caption: string): Promise<string | undefined> => {
+  const client = getOpenAiClient();
+  if (!client) {
+    note(input, "reel.tale", false, "ingen AI-klient, kun musikk");
+    return undefined;
+  }
+  try {
+    const prompt = buildVoiceScriptPrompt({ topic: input.topic, caption, brandContext: input.brandContext });
+    const response = await client.responses.create({
+      model: resolveCopyModel(),
+      max_output_tokens: 200,
+      input: [
+        { role: "system", content: prompt.system },
+        { role: "user", content: prompt.user },
+      ],
+    });
+    const script = normalizeVoiceScript(response.output_text ?? "", input.brandContext?.prohibitedTerms);
+    note(input, "reel.tale", Boolean(script), script ?? "manus avvist, kun musikk");
+    return script;
+  } catch (error) {
+    note(input, "reel.tale", false, errorText(error));
+    logger.warn("Kunne ikke lage talemanus for reel, bruker kun musikk", { userId: input.userId, error: errorText(error) });
+    return undefined;
+  }
+};
+
 export const generatePost = async (input: GeneratePostInput): Promise<PostDraft> => {
   const logoRef = describeMediaUrl(input.brandContext?.logoUrl);
   const trace: GenerationStep[] = [];
@@ -1249,6 +1276,8 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     placeName: brief.placeName,
   });
 
+  const voiceScript = reelSourceUrl ? await createVoiceScript(tracked, revision.finalText) : undefined;
+
   note(tracked, "kreditt", true, credits || "ingen fotokreditt (ingen ekte foto brukt)");
   logger.info("Genereringsrapport", {
     version: appVersion(),
@@ -1287,6 +1316,8 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       motif: input.visualMotif,
       coverTitle: socialDesign?.coverTitle,
       reelOverlayUrl: reelAssets?.overlayUrl,
+      voiceScript,
+      reelVoice: voiceScript ? input.brandContext?.reelVoice ?? "female" : undefined,
       hook: revision.finalText.split("\n").map((line) => line.trim()).find(Boolean),
       topic: input.topic,
       slideCount: imageUrl ? 1 + extraSlides.length : 0,

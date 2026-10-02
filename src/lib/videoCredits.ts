@@ -81,52 +81,100 @@ const recordUsage = async (
   logger.info("[videoCredits] Kreditt brukt", { userId, newBalance, description });
 };
 
+const UNIQUE_VIOLATION = "23505";
+
+export type CheckoutCreditInput = {
+  metadata?: Record<string, string> | null;
+  paymentStatus?: string | null;
+};
+
+export const isVideoCreditCheckout = (metadata: CheckoutCreditInput["metadata"]): boolean =>
+  (metadata?.mode ?? "").startsWith("video_credits_");
+
+export const paidCreditAmount = ({ metadata, paymentStatus }: CheckoutCreditInput): number => {
+  if (!isVideoCreditCheckout(metadata) || paymentStatus !== "paid") return 0;
+  const amount = Number(metadata?.creditAmount ?? "0");
+  return Number.isInteger(amount) && amount > 0 ? amount : 0;
+};
+
+const isSessionCredited = async (supabase: SupabaseClient, stripeSessionId: string): Promise<boolean> => {
+  const { data, error } = await supabase
+    .from("video_credit_transactions")
+    .select("id")
+    .eq("type", "purchase")
+    .eq("stripe_session_id", stripeSessionId)
+    .limit(1);
+  if (error) throw toAppError("VIDEO_CREDITS_READ_FAILED", "Kunne ikke lese kreditthistorikk.", error.message);
+  return (data ?? []).length > 0;
+};
+
+const increaseBalance = async (supabase: SupabaseClient, userId: string, amount: number): Promise<VideoBalance> => {
+  for (let attempt = 1; attempt <= CONSUME_ATTEMPTS; attempt += 1) {
+    const { data: row, error: readError } = await supabase
+      .from("video_credits")
+      .select("id, balance, total_purchased")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (readError) throw toAppError("VIDEO_CREDITS_READ_FAILED", "Kunne ikke lese videokreditter.", readError.message);
+
+    if (!row?.id) {
+      const { error: insertError } = await supabase
+        .from("video_credits")
+        .insert({ user_id: userId, balance: amount, total_purchased: amount });
+      if (!insertError) return { balance: amount, totalPurchased: amount };
+      if (insertError.code === UNIQUE_VIOLATION) continue;
+      throw toAppError("VIDEO_CREDITS_UPDATE_FAILED", "Kunne ikke legge til videokreditter.", insertError.message);
+    }
+
+    const currentBalance = (row.balance as number) ?? 0;
+    const balance = currentBalance + amount;
+    const totalPurchased = ((row.total_purchased as number) ?? 0) + amount;
+    const { data: updated, error: updateError } = await supabase
+      .from("video_credits")
+      .update({ balance, total_purchased: totalPurchased, updated_at: new Date().toISOString() })
+      .eq("id", row.id as string)
+      .eq("balance", currentBalance)
+      .select("id");
+    if (updateError) throw toAppError("VIDEO_CREDITS_UPDATE_FAILED", "Kunne ikke legge til videokreditter.", updateError.message);
+    if ((updated ?? []).length > 0) return { balance, totalPurchased };
+  }
+  throw toAppError("VIDEO_CREDITS_BUSY", "Videokredittene kunne ikke legges til akkurat nå. Prøv igjen.");
+};
+
+// The purchase row is written first and is unique per Stripe session, so the webhook and the
+// return-page confirmation can both call this without crediting the same payment twice.
 export const addVideoCredits = async (
   userId: string,
   amount: number,
   stripeSessionId: string,
-): Promise<VideoBalance> => {
-  const admin = createSupabaseAdminClient();
-
-  const { data: existing } = await admin
-    .from("video_credits")
-    .select("id, balance, total_purchased")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  let newBalance: number;
-  let newTotal: number;
-
-  if (existing?.id) {
-    newBalance = ((existing.balance as number) ?? 0) + amount;
-    newTotal = ((existing.total_purchased as number) ?? 0) + amount;
-    await admin
-      .from("video_credits")
-      .update({
-        balance: newBalance,
-        total_purchased: newTotal,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", existing.id as string);
-  } else {
-    newBalance = amount;
-    newTotal = amount;
-    await admin.from("video_credits").insert({
-      user_id: userId,
-      balance: newBalance,
-      total_purchased: newTotal,
-    });
+  supabase: SupabaseClient = createSupabaseAdminClient(),
+): Promise<VideoBalance & { alreadyCredited: boolean }> => {
+  if (!Number.isInteger(amount) || amount <= 0) {
+    throw toAppError("VIDEO_CREDITS_INVALID_AMOUNT", "Ugyldig antall videokreditter.", { amount });
+  }
+  if (!stripeSessionId) {
+    throw toAppError("VIDEO_CREDITS_MISSING_SESSION", "Mangler Stripe-økt for kjøpet.");
   }
 
-  await admin.from("video_credit_transactions").insert({
+  if (await isSessionCredited(supabase, stripeSessionId)) {
+    return { ...(await getVideoBalance(userId, supabase)), alreadyCredited: true };
+  }
+
+  const { error: claimError } = await supabase.from("video_credit_transactions").insert({
     user_id: userId,
     amount,
     type: "purchase",
     description: `Kjøp av ${amount} videokreditter`,
     stripe_session_id: stripeSessionId,
   });
+  if (claimError?.code === UNIQUE_VIOLATION) {
+    return { ...(await getVideoBalance(userId, supabase)), alreadyCredited: true };
+  }
+  if (claimError) {
+    throw toAppError("VIDEO_CREDITS_UPDATE_FAILED", "Kunne ikke registrere kjøpet.", claimError.message);
+  }
 
-  logger.info("[videoCredits] Kreditter lagt til", { userId, amount, newBalance, stripeSessionId });
-
-  return { balance: newBalance, totalPurchased: newTotal };
+  const result = await increaseBalance(supabase, userId, amount);
+  logger.info("[videoCredits] Kreditter lagt til", { userId, amount, newBalance: result.balance, stripeSessionId });
+  return { ...result, alreadyCredited: false };
 };

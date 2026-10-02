@@ -1441,16 +1441,46 @@ export const PostCalendar = () => {
 
   useEffect(() => {
     let cancelled = false;
-    void fetch("/api/video/balance")
-      .then(async (response) => (response.ok ? ((await response.json()) as { balance: number }) : null))
-      .then((data) => {
-        if (!cancelled && data) setVideoCredits(data.balance);
-      })
-      .catch(() => undefined);
+    const url = new URL(window.location.href);
+    const payment = url.searchParams.get("payment");
+    const sessionId = url.searchParams.get("session_id");
+
+    const confirmPurchase = async (id: string): Promise<void> => {
+      const response = await fetch("/api/stripe/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: id }),
+      });
+      const data = (await response.json().catch(() => ({}))) as { balance?: number; message?: string };
+      if (cancelled) return;
+      if (response.ok && typeof data.balance === "number") {
+        setVideoCredits(data.balance);
+        setStatus(t("calendar.creditsPurchased").replace("{count}", String(data.balance)));
+      } else {
+        setStatus(data.message ?? t("calendar.creditsPending"));
+      }
+    };
+
+    const loadBalance = async (): Promise<void> => {
+      const response = await fetch("/api/video/balance");
+      if (!response.ok || cancelled) return;
+      const data = (await response.json()) as { balance: number };
+      if (!cancelled) setVideoCredits(data.balance);
+    };
+
+    if (payment || sessionId) {
+      url.searchParams.delete("payment");
+      url.searchParams.delete("session_id");
+      window.history.replaceState({}, "", url.toString());
+    }
+    if (payment === "cancel") setStatus(t("calendar.paymentCancelled"));
+
+    const run = payment === "success" && sessionId ? confirmPurchase(sessionId) : loadBalance();
+    void run.catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   const hasGenerating = useMemo(
     () => posts.some((p) => p.status === "generating"),

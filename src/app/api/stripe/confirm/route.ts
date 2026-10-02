@@ -6,6 +6,7 @@ import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { getStripeClient } from "@/lib/stripe";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { addVideoCredits, isVideoCreditCheckout, paidCreditAmount } from "@/lib/videoCredits";
 
 const schema = z.object({
   sessionId: z.string().min(1),
@@ -28,6 +29,18 @@ export async function POST(request: Request) {
         toAppError("SESSION_NOT_OWNED", "Denne betalingen tilhører en annen bruker."),
         { status: 403 },
       );
+    }
+
+    if (isVideoCreditCheckout(session.metadata)) {
+      const creditAmount = paidCreditAmount({ metadata: session.metadata, paymentStatus: session.payment_status });
+      if (creditAmount === 0) {
+        return NextResponse.json(
+          toAppError("PAYMENT_NOT_COMPLETED", "Betalingen er ikke fullført ennå."),
+          { status: 400 },
+        );
+      }
+      const credits = await addVideoCredits(userId, creditAmount, session.id, supabase);
+      return NextResponse.json({ ok: true, kind: "video_credits", balance: credits.balance });
     }
 
     if (session.payment_status !== "paid" && session.status !== "complete") {

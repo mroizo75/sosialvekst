@@ -1,15 +1,30 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { generateKlingVideo, isFalAvailable, mergeAudioVideo, overlayOnVideo } from "@/lib/ai/falClient";
+import {
+  generateKlingVideo,
+  generateSpeech,
+  getMediaDuration,
+  isFalAvailable,
+  mergeAudioVideo,
+  mixVoiceOverMusic,
+  normalizeLoudness,
+  overlayOnVideo,
+} from "@/lib/ai/falClient";
 import { deleteFilesByUrls, uploadUserFile } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import type { GenerationMeta, MediaFormat, MediaMode, PostDraft, VideoStatus } from "@/lib/types";
+import type { GenerationMeta, MediaFormat, MediaMode, PostDraft, ReelVoice, VideoStatus } from "@/lib/types";
 import { chooseMood, getMusicTrackUrl } from "@/lib/video/musicLibrary";
 import { consumeVideoCredit, getVideoBalance } from "@/lib/videoCredits";
 
 export const REEL_DURATION_SECONDS = 10;
 const MAX_PARALLEL_RENDERS = 2;
+const REEL_VOICE_IDS: Record<ReelVoice, string> = { female: "Charlotte", male: "George" };
+const VOICE_SPEEDS = [1, 1.15];
+const VOICE_START_MS = 400;
+export const VOICE_MAX_SECONDS = 9.2;
+const MUSIC_BED_LUFS = -30;
+const VOICE_LUFS = -16;
 
 type ReelPostRow = {
   id: string;
@@ -81,14 +96,58 @@ const setVideoState = async (
   if (error) throw new Error(`Kunne ikke lagre videostatus: ${error.message}`);
 };
 
-const addMusic = async (videoUrl: string, meta: GenerationMeta | null, postId: string): Promise<string> => {
+type ReelAudio = "voice" | "music" | "none";
+
+const recordVoiceSpeech = async (script: string, voice: ReelVoice): Promise<{ url: string; seconds: number }> => {
+  for (const speed of VOICE_SPEEDS) {
+    const url = await generateSpeech(script, REEL_VOICE_IDS[voice], speed);
+    const seconds = await getMediaDuration(url);
+    if (seconds <= VOICE_MAX_SECONDS) return { url, seconds };
+  }
+  throw new Error(`Talen ble lengre enn ${VOICE_MAX_SECONDS} sekunder.`);
+};
+
+const addVoiceover = async (videoUrl: string, trackUrl: string, meta: GenerationMeta): Promise<string> => {
+  const speech = await recordVoiceSpeech(meta.voiceScript ?? "", meta.reelVoice ?? "female");
+  const [musicBed, voice] = await Promise.all([
+    normalizeLoudness(trackUrl, MUSIC_BED_LUFS),
+    normalizeLoudness(speech.url, VOICE_LUFS),
+  ]);
+  return mixVoiceOverMusic({
+    videoUrl,
+    musicUrl: musicBed,
+    voiceUrl: voice,
+    videoMs: REEL_DURATION_SECONDS * 1000,
+    voiceStartMs: VOICE_START_MS,
+    voiceMs: Math.ceil(speech.seconds * 1000),
+  });
+};
+
+const addAudio = async (
+  videoUrl: string,
+  meta: GenerationMeta | null,
+  postId: string,
+): Promise<{ url: string; audio: ReelAudio }> => {
+  let trackUrl: string;
   try {
     const mood = chooseMood([meta?.topic, meta?.coverTitle, meta?.motif].filter(Boolean).join(" "));
-    const trackUrl = await getMusicTrackUrl(mood, postId);
-    return await mergeAudioVideo(videoUrl, trackUrl);
+    trackUrl = await getMusicTrackUrl(mood, postId);
+  } catch (error) {
+    logger.warn("Musikk kunne ikke hentes til reel, bruker video uten lyd", { postId, error: errorText(error) });
+    return { url: videoUrl, audio: "none" };
+  }
+  if (meta?.voiceScript) {
+    try {
+      return { url: await addVoiceover(videoUrl, trackUrl, meta), audio: "voice" };
+    } catch (error) {
+      logger.warn("Speakerstemme kunne ikke legges på reel, bruker kun musikk", { postId, error: errorText(error) });
+    }
+  }
+  try {
+    return { url: await mergeAudioVideo(videoUrl, trackUrl), audio: "music" };
   } catch (error) {
     logger.warn("Musikk kunne ikke legges på reel, bruker video uten lyd", { postId, error: errorText(error) });
-    return videoUrl;
+    return { url: videoUrl, audio: "none" };
   }
 };
 
@@ -151,8 +210,8 @@ export const renderReelForPost = async (supabase: SupabaseClient, postId: string
     });
     if (!clip?.url) throw new Error("Videogeneratoren returnerte ingen video.");
 
-    const withMusic = await addMusic(clip.url, post.generation_meta, postId);
-    const finished = await addOverlay(withMusic, post.generation_meta, postId);
+    const withAudio = await addAudio(clip.url, post.generation_meta, postId);
+    const finished = await addOverlay(withAudio.url, post.generation_meta, postId);
     const videoUrl = await storeVideo(post.user_id, finished);
     try {
       await consumeVideoCredit(post.user_id, `Reel for post ${postId}`, supabase);
@@ -166,8 +225,8 @@ export const renderReelForPost = async (supabase: SupabaseClient, postId: string
     await setVideoState(supabase, post, { video_status: "ready", video_url: videoUrl });
     logger.info("Reel ferdig", {
       postId,
-      withMusic: withMusic !== clip.url,
-      withOverlay: finished !== withMusic,
+      audio: withAudio.audio,
+      withOverlay: finished !== withAudio.url,
       durationMs: Date.now() - t0,
     });
     return { status: "ready", videoUrl };

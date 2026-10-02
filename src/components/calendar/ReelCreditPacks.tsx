@@ -18,25 +18,25 @@ type ReelCreditPacksProps = {
 export const ReelCreditPacks = ({ className }: ReelCreditPacksProps) => {
   const { t } = useI18n();
   const [loadingMode, setLoadingMode] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const startCheckout = async (mode: string) => {
     setLoadingMode(mode);
-    setFailed(false);
+    setError(null);
     try {
       const response = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode, returnPath: "/kalender" }),
       });
-      const data = (await response.json()) as { url?: string };
+      const data = (await response.json().catch(() => ({}))) as { url?: string; message?: string };
       if (!response.ok || !data.url) {
-        setFailed(true);
+        setError(data.message ?? t("calendar.paymentFailed"));
         return;
       }
       window.location.assign(data.url);
     } catch {
-      setFailed(true);
+      setError(t("calendar.paymentFailed"));
     } finally {
       setLoadingMode(null);
     }
@@ -56,7 +56,7 @@ export const ReelCreditPacks = ({ className }: ReelCreditPacksProps) => {
           <span className="text-primary">{t(pack.priceKey)}</span>
         </button>
       ))}
-      {failed && <span className="text-xs text-destructive">{t("calendar.paymentFailed")}</span>}
+      {error && <span className="text-xs text-destructive">{error}</span>}
     </div>
   );
 };

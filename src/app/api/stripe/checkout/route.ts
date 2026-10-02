@@ -33,6 +33,7 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
+  let videoCreditPriceEnv: string | undefined;
   try {
     const userId = await requireUserId();
     const stripe = getStripeClient();
@@ -45,8 +46,10 @@ export async function POST(request: Request) {
     let priceId: string | undefined;
     if (videoCreditMode) {
       const envName = VIDEO_CREDIT_PRICE_ENVS[videoCreditMode];
+      videoCreditPriceEnv = envName;
       priceId = process.env[envName];
       if (!priceId) {
+        logger.error("Stripe-pris for videokreditter mangler", { envName });
         return NextResponse.json(
           toAppError("MISSING_STRIPE_PRICE", `Miljøvariabel ${envName} mangler.`),
           { status: 400 },
@@ -154,7 +157,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         toAppError(
           "STRIPE_PRICE_NOT_FOUND",
-          "Stripe-price finnes ikke. Sjekk at STRIPE_PRICE_BASE matcher samme Stripe-modus (test/live) som STRIPE_SECRET_KEY.",
+          `Stripe-price finnes ikke. Sjekk at ${videoCreditPriceEnv ?? "STRIPE_PRICE_BASE"} matcher samme Stripe-modus (test/live) som STRIPE_SECRET_KEY.`,
         ),
         { status: 400 },
       );

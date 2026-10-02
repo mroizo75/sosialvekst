@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Checkbox, Input, Textarea } from "@/components/ui/Input";
 import { localeToPreferredLanguage } from "@/lib/i18n/config";
-import type { BrandColors, MediaMode, ProductImage, SocialChannel, TopicWindow } from "@/lib/types";
+import type { BrandColors, MediaMode, ProductImage, ReelVoice, SocialChannel, TopicWindow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type WizardPayload = {
@@ -39,7 +39,10 @@ type WizardPayload = {
   slogan: string;
   brandColors: BrandColors;
   fontStyle: string;
+  reelVoice: ReelVoice;
 };
+
+const REEL_VOICES: ReelVoice[] = ["female", "male"];
 
 type ScrapeResult = {
   companyDescription: string;
@@ -198,6 +201,7 @@ export const OnboardingWizard = () => {
     slogan: "",
     brandColors: {},
     fontStyle: "",
+    reelVoice: "female",
   });
 
   const update = <K extends keyof WizardPayload>(key: K, value: WizardPayload[K]) => {
@@ -248,6 +252,7 @@ export const OnboardingWizard = () => {
     slogan: string;
     brandColors: BrandColors;
     fontStyle: string;
+    reelVoice?: ReelVoice;
     mediaMode: MediaMode;
     channels: SocialChannel[];
   };
@@ -397,6 +402,7 @@ export const OnboardingWizard = () => {
       slogan: data.slogan ?? "",
       brandColors: data.brandColors ?? {},
       fontStyle: data.fontStyle ?? "",
+      reelVoice: data.reelVoice === "male" ? "male" : "female",
     });
     setKeyMessagesText(data.keyMessages.join(", "));
     setCoreValuesText((data.coreValues ?? []).join(", "));
@@ -1155,6 +1161,29 @@ export const OnboardingWizard = () => {
                 placeholder={t("onboarding.brandSection.fontStylePlaceholder")}
                 hint={t("onboarding.brandSection.fontStyleHint")}
               />
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">{t("onboarding.brandSection.reelVoiceLabel")}</label>
+                <div className="flex gap-2">
+                  {REEL_VOICES.map((voice) => (
+                    <button
+                      key={voice}
+                      type="button"
+                      onClick={() => update("reelVoice", voice)}
+                      aria-pressed={form.reelVoice === voice}
+                      className={cn(
+                        "rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
+                        form.reelVoice === voice
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-transparent text-foreground hover:bg-muted",
+                      )}
+                    >
+                      {t(voice === "female" ? "onboarding.brandSection.reelVoiceFemale" : "onboarding.brandSection.reelVoiceMale")}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">{t("onboarding.brandSection.reelVoiceHint")}</p>
+              </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Logo</label>

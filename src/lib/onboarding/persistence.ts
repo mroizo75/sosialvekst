@@ -1,4 +1,5 @@
 import { toAppError } from "@/lib/errors";
+import { logger } from "@/lib/logger";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { OnboardingWizardSchema } from "@/lib/onboarding/schema";
 import type { OnboardingInput } from "@/lib/types";
@@ -97,5 +98,13 @@ export const persistOnboarding = async (
     if (brandUpsert.error) {
       throw toAppError("BRAND_SAVE_FAILED", "Kunne ikke lagre branding", brandUpsert.error.message);
     }
+  }
+
+  const voiceQuery = supabase.from("brand_profiles").update({ reel_voice: payload.reelVoice });
+  const { error: voiceError } = workspaceId
+    ? await voiceQuery.eq("workspace_id", workspaceId)
+    : await voiceQuery.eq("user_id", userId);
+  if (voiceError) {
+    logger.warn("Kunne ikke lagre stemmevalg for reels", { userId, error: voiceError.message });
   }
 };

@@ -44,6 +44,7 @@ export async function POST(request: Request) {
       slogan: body.slogan,
       brandColors: body.brandColors,
       fontStyle: body.fontStyle,
+      reelVoice: body.reelVoice,
     });
 
     const preferredLanguage =
