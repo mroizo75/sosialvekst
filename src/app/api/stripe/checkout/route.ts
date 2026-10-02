@@ -6,6 +6,8 @@ import { getAppUrl } from "@/lib/env";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { getStripeClient } from "@/lib/stripe";
+import { resolveStripeCustomer } from "@/lib/stripeCustomer";
+import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const VIDEO_CREDIT_MODES = ["video_credits_10", "video_credits_30", "video_credits_100"] as const;
@@ -91,17 +93,14 @@ export async function POST(request: Request) {
       .limit(1)
       .maybeSingle();
 
-    let customerId = subscriptionRow?.stripe_customer_id ?? "";
-
-    if (!customerId) {
-      const { data: userResult } = await supabase.auth.getUser();
-      const email = userResult.user?.email;
-      const customer = await stripe.customers.create({
-        email,
-        metadata: { userId },
-      });
-      customerId = customer.id;
-    }
+    const { data: userResult } = await supabase.auth.getUser();
+    const customerId = await resolveStripeCustomer({
+      customers: stripe.customers,
+      supabase: createSupabaseAdminClient(),
+      userId,
+      email: userResult.user?.email,
+      storedCustomerId: subscriptionRow?.stripe_customer_id,
+    });
 
     const checkoutMode = videoCreditMode ? "payment" : "subscription";
     const metadata: Record<string, string> = { userId, mode: payload.mode };
