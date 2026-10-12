@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { createProduct, listProducts } from "@/lib/products/repository";
-import { productInputSchema } from "@/lib/products/validation";
+import { productInputSchema, productValidationMessage } from "@/lib/products/validation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireWorkspaceId } from "@/lib/workspace";
 
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     const parsed = productInputSchema.safeParse(await request.json());
     if (!parsed.success) {
       return NextResponse.json(
-        toAppError("VALIDATION_ERROR", "Produktet mangler navn eller har ugyldige felt.", parsed.error.flatten()),
+        toAppError("VALIDATION_ERROR", productValidationMessage(parsed.error), parsed.error.flatten()),
         { status: 400 },
       );
     }

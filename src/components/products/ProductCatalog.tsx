@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { OrderContactCard } from "@/components/products/OrderContactCard";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
-import type { Product, ProductImage } from "@/lib/types";
+import { productOrderBlock } from "@/lib/products/productPrompt";
+import type { OrderContact, Product, ProductImage } from "@/lib/types";
 
 type ProductForm = {
   name: string;
@@ -14,6 +16,8 @@ type ProductForm = {
   targetAudience: string;
   benefits: string;
   productUrl: string;
+  price: string;
+  salePrice: string;
 };
 
 const EMPTY_FORM: ProductForm = {
@@ -23,7 +27,11 @@ const EMPTY_FORM: ProductForm = {
   targetAudience: "",
   benefits: "",
   productUrl: "",
+  price: "",
+  salePrice: "",
 };
+
+const DEFAULT_CONTACT: OrderContact = { messenger: true };
 
 const MAX_IMAGES = 4;
 
@@ -34,7 +42,16 @@ const toForm = (product: Product): ProductForm => ({
   targetAudience: product.targetAudience ?? "",
   benefits: product.benefits.join(", "),
   productUrl: product.productUrl ?? "",
+  price: product.price !== undefined ? String(product.price) : "",
+  salePrice: product.salePrice !== undefined ? String(product.salePrice) : "",
 });
+
+const parsePrice = (value: string): number | null => {
+  const normalized = value.trim().replace(/\s/g, "").replace(",", ".");
+  if (!normalized) return null;
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : null;
+};
 
 const toPayload = (form: ProductForm) => ({
   name: form.name.trim(),
@@ -43,6 +60,19 @@ const toPayload = (form: ProductForm) => ({
   targetAudience: form.targetAudience,
   benefits: form.benefits.split(",").map((item) => item.trim()).filter(Boolean),
   productUrl: form.productUrl.trim(),
+  price: parsePrice(form.price),
+  salePrice: parsePrice(form.salePrice),
+});
+
+const previewProduct = (form: ProductForm, contact: OrderContact): Product => ({
+  id: "preview",
+  name: form.name.trim() || "Produkt",
+  benefits: [],
+  productUrl: form.productUrl.trim() || undefined,
+  price: parsePrice(form.price) ?? undefined,
+  salePrice: parsePrice(form.salePrice) ?? undefined,
+  contact,
+  images: [],
 });
 
 const readMessage = async (response: Response, fallback: string): Promise<string> => {
@@ -60,16 +90,21 @@ export const ProductCatalog = () => {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState("");
+  const [contact, setContact] = useState<OrderContact>(DEFAULT_CONTACT);
 
   const loadProducts = useCallback(async () => {
     try {
-      const response = await fetch("/api/products");
-      if (!response.ok) {
-        setStatus(await readMessage(response, p.loadFailed));
+      const [productsResponse, contactResponse] = await Promise.all([
+        fetch("/api/products"),
+        fetch("/api/products/contact"),
+      ]);
+      if (!productsResponse.ok) {
+        setStatus(await readMessage(productsResponse, p.loadFailed));
         return;
       }
-      const data = (await response.json()) as { products: Product[] };
+      const data = (await productsResponse.json()) as { products: Product[] };
       setProducts(data.products ?? []);
+      if (contactResponse.ok) setContact((await contactResponse.json()) as OrderContact);
     } catch {
       setStatus(p.loadFailed);
     } finally {
@@ -194,8 +229,15 @@ export const ProductCatalog = () => {
 
   if (!loaded) return null;
 
+  const applyContact = (next: OrderContact) => {
+    setContact(next);
+    setProducts((prev) => prev.map((item) => ({ ...item, contact: next })));
+  };
+
   return (
     <div className="space-y-4">
+      <OrderContactCard contact={contact} onSaved={applyContact} />
+
       {products.length === 0 && editingId === null ? (
         <p className="text-sm text-muted-foreground">{p.empty}</p>
       ) : null}
@@ -276,13 +318,39 @@ export const ProductCatalog = () => {
             placeholder={p.benefitsPlaceholder}
             hint={p.benefitsHint}
           />
-          <Input
-            label={p.urlLabel}
-            type="url"
-            value={form.productUrl}
-            onChange={(e) => update("productUrl", e.target.value)}
-            placeholder={p.urlPlaceholder}
-          />
+          <div className="space-y-3 rounded-lg border border-border bg-card p-3">
+            <p className="text-sm font-semibold text-foreground">{p.salesTitle}</p>
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label={p.priceLabel}
+                inputMode="decimal"
+                value={form.price}
+                onChange={(e) => update("price", e.target.value)}
+                placeholder={p.pricePlaceholder}
+              />
+              <Input
+                label={p.salePriceLabel}
+                inputMode="decimal"
+                value={form.salePrice}
+                onChange={(e) => update("salePrice", e.target.value)}
+                placeholder={p.salePricePlaceholder}
+              />
+            </div>
+            <Input
+              label={p.urlLabel}
+              type="url"
+              value={form.productUrl}
+              onChange={(e) => update("productUrl", e.target.value)}
+              placeholder={p.urlPlaceholder}
+              hint={p.urlHint}
+            />
+            <div className="rounded-md bg-muted/40 px-3 py-2">
+              <p className="text-[11px] font-medium text-muted-foreground">{p.orderPreviewLabel}</p>
+              <p className="whitespace-pre-line text-sm text-foreground">
+                {productOrderBlock(previewProduct(form, contact), "facebook")}
+              </p>
+            </div>
+          </div>
 
           <div className="space-y-2">
             <p className="text-sm font-medium text-foreground">{p.imagesLabel}</p>

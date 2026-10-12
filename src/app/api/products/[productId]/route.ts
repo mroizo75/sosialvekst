@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { deleteProduct, updateProduct } from "@/lib/products/repository";
-import { productIdSchema, productInputSchema } from "@/lib/products/validation";
+import { productIdSchema, productInputSchema, productValidationMessage } from "@/lib/products/validation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireWorkspaceId } from "@/lib/workspace";
 
@@ -20,9 +20,12 @@ export async function PATCH(request: Request, context: RouteContext) {
     const workspaceId = await requireWorkspaceId(userId);
     const productId = productIdSchema.safeParse((await context.params).productId);
     const parsed = productInputSchema.safeParse(await request.json());
-    if (!productId.success || !parsed.success) {
+    if (!productId.success) {
+      return NextResponse.json(toAppError("VALIDATION_ERROR", "Ugyldig produkt."), { status: 400 });
+    }
+    if (!parsed.success) {
       return NextResponse.json(
-        toAppError("VALIDATION_ERROR", "Produktet mangler navn eller har ugyldige felt.", parsed.error?.flatten()),
+        toAppError("VALIDATION_ERROR", productValidationMessage(parsed.error), parsed.error.flatten()),
         { status: 400 },
       );
     }

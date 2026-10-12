@@ -47,6 +47,12 @@ export type ProductImage = {
   sortOrder: number;
 };
 
+export type OrderContact = {
+  phone?: string;
+  email?: string;
+  messenger: boolean;
+};
+
 export type Product = {
   id: string;
   name: string;
@@ -55,6 +61,9 @@ export type Product = {
   targetAudience?: string;
   benefits: string[];
   productUrl?: string;
+  price?: number;
+  salePrice?: number;
+  contact: OrderContact;
   images: ProductImage[];
 };
 

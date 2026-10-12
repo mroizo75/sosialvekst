@@ -27,6 +27,7 @@ import {
 import { deleteFilesByUrls, downloadObjectByPublicUrl, uploadUserFile, listUserFiles } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
+import { productOrderBlock } from "@/lib/products/productPrompt";
 import type {
   BrandContext,
   GenerationStep,
@@ -235,6 +236,7 @@ export type CaptionAssembly = {
   link?: string;
   hashtags?: string;
   credits?: string;
+  order?: string;
 };
 
 const CREDIT_PREFIX = /^(?:foto|bilde|photo)\s*:\s*/i;
@@ -270,9 +272,20 @@ export const replaceCreditLine = (text: string, records: Array<string | null | u
 export const slideShapeFor = (channel: SocialChannel): SlideShape =>
   channel === "instagram" ? "square" : "portrait";
 
-export const assembleCaption = ({ body, link, hashtags, credits }: CaptionAssembly): string => {
+const insertOrderBlock = (text: string, order: string): string => {
+  const hashed = splitHashtags(text);
+  const bare = peelBareHashtagLines(hashed.body);
+  const tags = [...hashed.hashtags, ...bare.hashtags].slice(0, 3);
+  const withOrder = bare.body ? `${bare.body}\n\n${order}` : order;
+  return tags.length > 0 ? `${withOrder}\n\n${tags.join(" ")}` : withOrder;
+};
+
+export const assembleCaption = ({ body, link, hashtags, credits, order }: CaptionAssembly): string => {
   const combined = `${body}${hashtags?.trim() ? `\n${hashtags.trim()}` : ""}`;
-  const linked = ensureWebsiteLinkInText(combined, link?.trim(), Boolean(link?.trim()));
+  const orderBlock = order?.trim();
+  const linked = orderBlock
+    ? insertOrderBlock(ensureWebsiteLinkInText(combined, link?.trim(), false), orderBlock)
+    : ensureWebsiteLinkInText(combined, link?.trim(), Boolean(link?.trim()));
   const creditLine = credits?.trim();
   if (!creditLine || linked.includes(creditLine)) return linked;
   return `${linked}\n\n${creditLine}`;
@@ -1268,8 +1281,9 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   const credits = creditLineFromRecords(uniqueAttributions([primary, ...extraSlides]).map(photoCreditRecord));
   const creditedText = assembleCaption({
     body: revision.finalText,
-    link: input.includeWebsiteLink ? websiteUrl : undefined,
+    link: input.product ? websiteUrl : input.includeWebsiteLink ? websiteUrl : undefined,
     credits: credits || undefined,
+    order: input.product ? productOrderBlock(input.product, input.channel) : undefined,
   });
   const decision = evaluatePolicy({
     text: creditedText,

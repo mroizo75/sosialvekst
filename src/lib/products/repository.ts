@@ -1,10 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { toAppError } from "@/lib/errors";
-import type { ProductInput } from "@/lib/products/validation";
-import type { Product, ProductImage } from "@/lib/types";
+import type { OrderContactInput, ProductInput } from "@/lib/products/validation";
+import type { OrderContact, Product, ProductImage } from "@/lib/types";
 
 export type ProductOwner = { userId: string; workspaceId: string };
+
+type ContactRow = {
+  contact_phone: string | null;
+  contact_email: string | null;
+  contact_messenger: boolean | null;
+};
 
 type ProductRow = {
   id: string;
@@ -14,11 +20,28 @@ type ProductRow = {
   target_audience: string | null;
   benefits: string[] | null;
   product_url: string | null;
+  price: number | string | null;
+  sale_price: number | string | null;
+  workspaces?: ContactRow | ContactRow[] | null;
   product_images?: Array<{ id: string; image_url: string; sort_order: number | null }> | null;
 };
 
+const CONTACT_SELECT = "contact_phone, contact_email, contact_messenger";
+
 const PRODUCT_SELECT =
-  "id, name, description, usage_settings, target_audience, benefits, product_url, product_images(id, image_url, sort_order)";
+  `id, name, description, usage_settings, target_audience, benefits, product_url, price, sale_price, workspaces(${CONTACT_SELECT}), product_images(id, image_url, sort_order)`;
+
+const toPrice = (value: number | string | null): number | undefined => {
+  if (value === null) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const toContact = (row: ContactRow | null | undefined): OrderContact => ({
+  phone: row?.contact_phone?.trim() || undefined,
+  email: row?.contact_email?.trim() || undefined,
+  messenger: row?.contact_messenger ?? true,
+});
 
 const toProduct = (row: ProductRow): Product => ({
   id: row.id,
@@ -28,6 +51,9 @@ const toProduct = (row: ProductRow): Product => ({
   targetAudience: row.target_audience ?? undefined,
   benefits: row.benefits ?? [],
   productUrl: row.product_url ?? undefined,
+  price: toPrice(row.price),
+  salePrice: toPrice(row.sale_price),
+  contact: toContact(Array.isArray(row.workspaces) ? row.workspaces[0] : row.workspaces),
   images: (row.product_images ?? [])
     .map((image): ProductImage => ({ id: image.id, imageUrl: image.image_url, sortOrder: image.sort_order ?? 0 }))
     .sort((a, b) => a.sortOrder - b.sortOrder),
@@ -40,7 +66,41 @@ const toRowValues = (input: ProductInput) => ({
   target_audience: input.targetAudience ?? null,
   benefits: input.benefits,
   product_url: input.productUrl ?? null,
+  price: input.price ?? null,
+  sale_price: input.salePrice ?? null,
 });
+
+export const getOrderContact = async (client: SupabaseClient, owner: ProductOwner): Promise<OrderContact> => {
+  const { data, error } = await client
+    .from("workspaces")
+    .select(CONTACT_SELECT)
+    .eq("id", owner.workspaceId)
+    .eq("user_id", owner.userId)
+    .maybeSingle();
+  if (error) throw toAppError("ORDER_CONTACT_FETCH_FAILED", "Kunne ikke hente bestillingskontakten.", error.message);
+  return toContact(data as ContactRow | null);
+};
+
+export const updateOrderContact = async (
+  client: SupabaseClient,
+  owner: ProductOwner,
+  input: OrderContactInput,
+): Promise<OrderContact> => {
+  const { data, error } = await client
+    .from("workspaces")
+    .update({
+      contact_phone: input.phone ?? null,
+      contact_email: input.email ?? null,
+      contact_messenger: input.messenger,
+    })
+    .eq("id", owner.workspaceId)
+    .eq("user_id", owner.userId)
+    .select(CONTACT_SELECT)
+    .maybeSingle();
+  if (error) throw toAppError("ORDER_CONTACT_UPDATE_FAILED", "Kunne ikke lagre bestillingskontakten.", error.message);
+  if (!data) throw toAppError("WORKSPACE_NOT_FOUND", "Fant ikke bedriften.");
+  return toContact(data as ContactRow);
+};
 
 const isDuplicateName = (message: string): boolean => message.includes("products_workspace_name_unique");
 

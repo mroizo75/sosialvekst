@@ -75,17 +75,22 @@ const buildCoreRules = (
   includeWebsite: boolean,
   websiteUrl: string | undefined,
   tiktok: boolean,
+  selling: boolean,
 ): string[] => {
   const rules = [
     "Skriv for noen som ikke kjenner merkevaren. Første 1–2 linjer skal stoppe scrolling. Ikke åpne med et spørsmål. Åpne med en konkret observasjon, et sted eller en detalj fra bildet.",
     `«${companyName}» kan nevnes etter at interessen er skapt, bare når det faller naturlig. Aldri i åpningen, og ikke i hvert innlegg.`,
     "Selg utfallet kunden vil ha. Ikke søk, plattform, utvalg, kundeservice eller bookingfunksjoner.",
     "Skriv på korrekt bokmål. Korte setninger, aktive verb og konkrete detaljer. Snakk til leseren med «du». Ikke bruk annonsespråk som kunne stått hos hvem som helst.",
-    "CTA skal passe dette innlegget: et konkret valg-spørsmål, eller se utvalget. Aldri «kontakt oss», «les mer», «send dette til», «lagre denne» eller «tagg en».",
+    selling
+      ? "CTA er en kort oppfordring til å bestille produktet. Aldri «les mer», «send dette til», «lagre denne» eller «tagg en»."
+      : "CTA skal passe dette innlegget: et konkret valg-spørsmål, eller se utvalget. Aldri «kontakt oss», «les mer», «send dette til», «lagre denne» eller «tagg en».",
     "Ikke finn på kundehistorier, sitater, prosenter, «best pris» eller «billigere enn andre». Bruk bare historier som står i bedriftskonteksten.",
-    tiktok || !includeWebsite || !websiteUrl
-      ? "Ikke ta med nettadresse."
-      : `Ta med denne lenken én gang til slutt, uten å skrive «Les mer»: ${websiteUrl}`,
+    selling
+      ? "Ikke ta med nettadresse, telefonnummer eller e-post. Bestillingslinjen legges til automatisk."
+      : tiktok || !includeWebsite || !websiteUrl
+        ? "Ikke ta med nettadresse."
+        : `Ta med denne lenken én gang til slutt, uten å skrive «Les mer»: ${websiteUrl}`,
     "Hashtags er ikke strategien. Maks 3 konkrete tags på egen linje, uten tegnsetting. Siste setning før hashtags skal være komplett.",
     "Ikke skriv om søk, sammenligning, antall hoteller eller antall land med mindre søylen er commercial eller trust.",
     "Innlegget skal tåle spørsmålet om hvorfor en fremmed stopper. Hvis svaret bare er at vi vil selge, skriv om.",
@@ -178,9 +183,9 @@ const buildStandardUserPrompt = (
     "- Hook i de første 1–2 linjene, om kundens verden.",
     "- Gi leseren en grunn til å lese ferdig eller svare.",
     input.product
-      ? `- «${input.product.name}» er med i teksten, i en situasjon der det brukes.`
+      ? `- «${input.product.name}» er med i teksten, i en situasjon der det brukes, og teksten slutter med en oppfordring til å bestille.`
       : "- Produktet kommer naturlig etterpå, eller uteblir.",
-    includeWebsite && websiteUrl
+    !input.product && includeWebsite && websiteUrl
       ? `- Én lenke til slutt, uten «Les mer»: ${websiteUrl}`
       : "- Ingen nettadresse.",
     "- 0–3 hashtags.",
@@ -244,7 +249,7 @@ const buildTikTokUserPrompt = (
 export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredPrompt => {
   const brandContext = input.brandContext ?? {};
   const companyName = brandContext.companyName ?? "bedriften";
-  const websiteUrl = input.product?.productUrl?.trim() || brandContext.websiteUrl?.trim();
+  const websiteUrl = brandContext.websiteUrl?.trim();
   const intent = input.intent ?? "brand_awareness";
   const format = input.format ?? "tip";
   const pillar = input.contentPillar ?? "inspiration";
@@ -264,6 +269,7 @@ export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredProm
       includeWebsite,
       websiteUrl,
       isTikTok,
+      Boolean(input.product),
     ).map((rule, index) => `${index + 1}. ${rule}`),
     "",
     formatCopyExamples(pillar, input.visualWorld),
