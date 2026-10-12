@@ -981,6 +981,7 @@ export const nb = {
     pickerHint: "Velg et produkt for å markedsføre det. AI viser det i en naturlig setting og nevner det i teksten.",
     pickerNoProducts: "Legg inn produkter for å kunne markedsføre dem i poster.",
     pickerSaved: "Produktet er valgt. Trykk «Lag helt nytt innlegg» eller «Nytt bilde» for å bruke det.",
+    pickerLockedHint: "Produktet er lagret. Posten er låst, så trykk «Avbryt godkjenning» eller «Avbryt publisering» først for å lage den på nytt med produktet.",
     salesTitle: "Salg og bestilling",
     priceLabel: "Pris (kr)",
     pricePlaceholder: "F.eks. 349",

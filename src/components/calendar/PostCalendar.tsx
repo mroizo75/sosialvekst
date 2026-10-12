@@ -1261,6 +1261,22 @@ const DetailPanel = ({
                   </span>
                 </div>
 
+                {productsLoaded && post.status !== "published" ? (
+                  <div className="space-y-1.5">
+                    <ProductPicker
+                      products={products}
+                      value={post.productId ?? null}
+                      onChange={(productId) => onProductChange(post.id, productId)}
+                      disabled={isProcessing}
+                    />
+                    {post.productId ? (
+                      <p className="text-[11px] font-medium text-primary">
+                        {canUnlock ? dictionary.products.pickerLockedHint : dictionary.products.pickerSaved}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {aiBlocked ? (
                   <div className="flex items-start gap-3 rounded-lg border border-destructive/20 bg-destructive/5 p-3">
                     <IconAlertCircle className="size-5 shrink-0 text-destructive/60" />
@@ -1283,20 +1299,6 @@ const DetailPanel = ({
                   </div>
                 ) : (
                   <>
-                    {productsLoaded ? (
-                      <div className="space-y-1.5">
-                        <ProductPicker
-                          products={products}
-                          value={post.productId ?? null}
-                          onChange={(productId) => onProductChange(post.id, productId)}
-                          disabled={isProcessing}
-                        />
-                        {post.productId ? (
-                          <p className="text-[11px] font-medium text-primary">{dictionary.products.pickerSaved}</p>
-                        ) : null}
-                      </div>
-                    ) : null}
-
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"

@@ -1,3 +1,5 @@
+import { toFile } from "openai";
+
 import { generateFlexEdit, generateProductPhotography, isFalAvailable } from "@/lib/ai/falClient";
 import { buildProductScenePrompt } from "@/lib/ai/productScenePrompt";
 import { uploadUserFile } from "@/lib/cloudflare/r2";
@@ -35,12 +37,14 @@ const CHANNEL_IMAGE_SIZE: Record<SocialChannel, "square_hd" | "landscape_16_9" |
   tiktok: "portrait_16_9",
 };
 
-const OPENAI_IMAGE_SIZE: Record<SocialChannel, string> = {
+const OPENAI_IMAGE_SIZE: Record<SocialChannel, "1024x1024" | "1536x1024" | "1024x1536"> = {
   instagram: "1024x1024",
   facebook: "1536x1024",
   linkedin: "1536x1024",
   tiktok: "1024x1536",
 };
+
+const OPENAI_EDIT_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 const fetchImageBytes = async (url: string): Promise<Uint8Array> => {
   const response = await fetch(url);
@@ -48,6 +52,25 @@ const fetchImageBytes = async (url: string): Promise<Uint8Array> => {
     throw new Error(`Kunne ikke hente bilde fra URL (${response.status})`);
   }
   return new Uint8Array(await response.arrayBuffer());
+};
+
+const contentTypeFor = (url: string, header: string | null): string => {
+  const declared = header?.split(";")[0]?.trim().toLowerCase();
+  if (declared && OPENAI_EDIT_TYPES.has(declared)) return declared;
+  const path = url.toLowerCase().split("?")[0];
+  if (path.endsWith(".png")) return "image/png";
+  if (path.endsWith(".webp")) return "image/webp";
+  return "image/jpeg";
+};
+
+const fetchReferenceFile = async (url: string, index: number): Promise<File> => {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Kunne ikke hente produktbilde ${index + 1} (${response.status})`);
+  }
+  const type = contentTypeFor(url, response.headers.get("content-type"));
+  const extension = type === "image/png" ? "png" : type === "image/webp" ? "webp" : "jpg";
+  return toFile(await response.arrayBuffer(), `product-${index + 1}.${extension}`, { type });
 };
 
 const uploadResultImage = async (userId: string, imageBytes: Uint8Array): Promise<string> => {
@@ -73,31 +96,20 @@ const tryOpenAiEdit = async (input: ImageEngineInput): Promise<EngineResult | nu
     format: input.format,
   });
 
-  const referenceImages = input.product.images.slice(0, MAX_REFERENCE_IMAGES);
-  const imageFiles: Array<{ url: string; detail?: string }> = referenceImages.map((pi) => ({
-    url: pi.imageUrl,
-    detail: "high" as const,
-  }));
-
   try {
-    const imageClient = client as unknown as {
-      images: {
-        edit: (args: {
-          model: string;
-          prompt: string;
-          image: Array<{ url: string; detail?: string }>;
-          size: string;
-          quality: string;
-        }) => Promise<{ data?: Array<{ b64_json?: string; url?: string }> }>;
-      };
-    };
+    const imageFiles = await Promise.all(
+      input.product.images
+        .slice(0, MAX_REFERENCE_IMAGES)
+        .map((image, index) => fetchReferenceFile(image.imageUrl, index)),
+    );
 
-    const response = await imageClient.images.edit({
+    const response = await client.images.edit({
       model: "gpt-image-1",
       prompt: scenePrompt,
       image: imageFiles,
+      input_fidelity: "high",
       size: OPENAI_IMAGE_SIZE[input.channel],
-      quality: "high",
+      quality: "medium",
     });
 
     const payload = response.data?.[0];

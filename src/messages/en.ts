@@ -995,6 +995,7 @@ export const en: NbDictionary = {
     pickerHint: "Pick a product to market it. The AI shows it in a natural setting and mentions it in the text.",
     pickerNoProducts: "Add products to market them in posts.",
     pickerSaved: "Product selected. Press \u201cCreate a brand-new post\u201d or \u201cNew image\u201d to use it.",
+    pickerLockedHint: "Product saved. The post is locked, so press \u201cCancel approval\u201d or \u201cCancel publishing\u201d first to recreate it with the product.",
     salesTitle: "Sales and ordering",
     priceLabel: "Price (NOK)",
     pricePlaceholder: "E.g. 349",

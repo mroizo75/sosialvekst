@@ -227,6 +227,36 @@ export async function PATCH(request: Request, context: RouteContext) {
     const fallbackTopic = brandContext?.companyDescription?.slice(0, 180)
       ?? fallbackAngle(brandContext);
     const action = payload.action ?? (payload.regenerate ? "regenerate_all" : "save");
+    const productOnlyChange = action === "save"
+      && payload.productId !== undefined
+      && payload.text === undefined
+      && payload.imageUrl === undefined
+      && payload.videoUrl === undefined
+      && payload.additionalImageUrls === undefined;
+
+    if (productOnlyChange) {
+      if (post.status === "published") {
+        return NextResponse.json(
+          toAppError("POST_LOCKED", "Publiserte poster kan ikke få nytt produkt."),
+          { status: 400 },
+        );
+      }
+      if (productChanged) {
+        const productError = await updatePostRow(
+          await createSupabaseServerClient(),
+          { id: post.id, userId, workspaceId },
+          { product_id: productId },
+        );
+        if (productError) {
+          return NextResponse.json(
+            toAppError("POST_PRODUCT_SAVE_FAILED", "Kunne ikke lagre produktet på posten.", productError),
+            { status: 500 },
+          );
+        }
+      }
+      return NextResponse.json(await getPostById(userId, post.id));
+    }
+
     const shouldUnlockFirst =
       (action === "unlock" || action === "reject_and_regenerate") &&
       (post.status === "approved" || post.status === "scheduled");
