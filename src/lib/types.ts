@@ -43,9 +43,19 @@ export type TopicWindow = {
 
 export type ProductImage = {
   id: string;
-  productName: string;
   imageUrl: string;
   sortOrder: number;
+};
+
+export type Product = {
+  id: string;
+  name: string;
+  description?: string;
+  usageSettings?: string;
+  targetAudience?: string;
+  benefits: string[];
+  productUrl?: string;
+  images: ProductImage[];
 };
 
 export type BrandColors = {
@@ -86,7 +96,6 @@ export type BrandContext = {
   logoUrl?: string;
   websiteUrl?: string;
   websiteContent?: string;
-  productImages?: ProductImage[];
   reelVoice?: ReelVoice;
 };
 
@@ -145,6 +154,7 @@ export type PostDraft = {
   reelSourceUrl?: string;
   status: PostStatus;
   quality: QualityScore;
+  productId?: string;
   intent?: PostIntent;
   format?: PostFormat;
   generationTrace?: GenerationStep[];

@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CreatePostDialog } from "@/components/calendar/CreatePostDialog";
 import { ReelCreditPacks } from "@/components/calendar/ReelCreditPacks";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { ProductPicker } from "@/components/products/ProductPicker";
+import { useProducts } from "@/components/products/useProducts";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import { localeToPreferredLanguage } from "@/lib/i18n/config";
@@ -316,6 +318,7 @@ type DetailPanelProps = {
   onReject: (id: string) => void;
   onUnlock: (id: string) => void;
   onRegenerateVideo: (id: string) => void;
+  onProductChange: (id: string, productId: string | null) => void;
   videoStatus?: VideoStatus;
   liveVideoUrl?: string;
   processingAction: string | null;
@@ -508,6 +511,7 @@ const DetailPanel = ({
   onReject,
   onUnlock,
   onRegenerateVideo,
+  onProductChange,
   videoStatus,
   liveVideoUrl,
   processingAction,
@@ -515,6 +519,7 @@ const DetailPanel = ({
   aiEditsRemaining,
 }: DetailPanelProps) => {
   const { t, dictionary, locale } = useI18n();
+  const { products, loaded: productsLoaded } = useProducts();
   const dateLocale = localeToPreferredLanguage[locale];
   const statusLabels = dictionary.calendar.statuses as Record<string, string>;
   const jobStatusLabels = dictionary.calendar.jobStatuses as Record<string, string>;
@@ -1278,6 +1283,20 @@ const DetailPanel = ({
                   </div>
                 ) : (
                   <>
+                    {productsLoaded ? (
+                      <div className="space-y-1.5">
+                        <ProductPicker
+                          products={products}
+                          value={post.productId ?? null}
+                          onChange={(productId) => onProductChange(post.id, productId)}
+                          disabled={isProcessing}
+                        />
+                        {post.productId ? (
+                          <p className="text-[11px] font-medium text-primary">{dictionary.products.pickerSaved}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
+
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         type="button"
@@ -1519,7 +1538,7 @@ export const PostCalendar = () => {
   const updatePost = async (
     postId: string,
     action: PostAction,
-    payload: Record<string, string | string[] | undefined> = {},
+    payload: Record<string, string | string[] | null | undefined> = {},
   ) => {
     // TODO: Aktiver igjen etter test
     // if (isAiAction && aiEditsRemaining <= 0) {
@@ -2215,6 +2234,7 @@ export const PostCalendar = () => {
             onReject={(id) => void updatePost(id, "reject_and_regenerate")}
             onUnlock={(id) => void updatePost(id, "unlock")}
             onRegenerateVideo={(id) => void updatePost(id, "regenerate_video")}
+            onProductChange={(id, productId) => void updatePost(id, "save", { productId })}
             videoStatus={posts.find((item) => item.id === selectedPost.id)?.videoStatus ?? selectedPost.videoStatus}
             liveVideoUrl={posts.find((item) => item.id === selectedPost.id)?.videoUrl}
             processingAction={processingPost?.id === selectedPost.id ? processingPost.action : null}

@@ -3,6 +3,8 @@
 import { useState } from "react";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { ProductPicker } from "@/components/products/ProductPicker";
+import { useProducts } from "@/components/products/useProducts";
 import { Button } from "@/components/ui/Button";
 import { Input, Textarea } from "@/components/ui/Input";
 import type { PostDraft, SocialChannel } from "@/lib/types";
@@ -27,12 +29,15 @@ export const CreatePostDialog = ({ onClose, onCreated }: CreatePostDialogProps) 
   const [scheduledTime, setScheduledTime] = useState("11:00");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [productId, setProductId] = useState<string | null>(null);
+  const { products, loaded: productsLoaded } = useProducts();
+  const hasAiInput = Boolean(topic.trim() || productId);
 
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
   const handleSubmit = async () => {
-    if (mode === "ai" && !topic.trim()) {
+    if (mode === "ai" && !hasAiInput) {
       setError(cp.errorTopic);
       return;
     }
@@ -54,9 +59,22 @@ export const CreatePostDialog = ({ onClose, onCreated }: CreatePostDialogProps) 
     setLoading(true);
     setError("");
 
+    const selectedProductId = productId ?? undefined;
     const body = mode === "ai"
-      ? { channel, scheduledAt: scheduledAt.toISOString(), topic: topic.trim(), useAi: true }
-      : { channel, scheduledAt: scheduledAt.toISOString(), text: text.trim(), imageUrl: imageUrl || undefined };
+      ? {
+          channel,
+          scheduledAt: scheduledAt.toISOString(),
+          topic: topic.trim() || undefined,
+          useAi: true,
+          productId: selectedProductId,
+        }
+      : {
+          channel,
+          scheduledAt: scheduledAt.toISOString(),
+          text: text.trim(),
+          imageUrl: imageUrl || undefined,
+          productId: selectedProductId,
+        };
 
     const response = await fetch("/api/posts/custom", {
       method: "POST",
@@ -147,6 +165,10 @@ export const CreatePostDialog = ({ onClose, onCreated }: CreatePostDialogProps) 
             />
           </div>
 
+          {productsLoaded ? (
+            <ProductPicker products={products} value={productId} onChange={setProductId} disabled={loading} />
+          ) : null}
+
           {mode === "ai" ? (
             <Textarea
               label={cp.topicLabel}
@@ -189,7 +211,7 @@ export const CreatePostDialog = ({ onClose, onCreated }: CreatePostDialogProps) 
         <div className="border-t border-border p-4">
           <Button
             onClick={() => void handleSubmit()}
-            disabled={loading || !scheduledDate || (mode === "ai" ? !topic.trim() : !text.trim())}
+            disabled={loading || !scheduledDate || (mode === "ai" ? !hasAiInput : !text.trim())}
             className="w-full"
           >
             {loading

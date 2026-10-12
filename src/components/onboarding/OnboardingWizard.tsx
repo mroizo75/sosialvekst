@@ -5,13 +5,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher";
+import { ProductCatalog } from "@/components/products/ProductCatalog";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Checkbox, Input, Textarea } from "@/components/ui/Input";
 import { localeToPreferredLanguage } from "@/lib/i18n/config";
 import { fillIfEmpty, fillListIfEmpty, isProfileSparse } from "@/lib/onboarding/autofill";
 import type { BrandProfileSuggestion } from "@/lib/scraping/analyzer";
-import type { BrandColors, MediaMode, ProductImage, ReelVoice, SocialChannel, TopicWindow } from "@/lib/types";
+import type { BrandColors, MediaMode, ReelVoice, SocialChannel, TopicWindow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type WizardPayload = {
@@ -273,11 +274,6 @@ export const OnboardingWizard = () => {
   const [customerSuccessStoriesText, setCustomerSuccessStoriesText] = useState("");
   const [servicesText, setServicesText] = useState("");
   const [commonQuestionsText, setCommonQuestionsText] = useState("");
-
-  const [productImages, setProductImages] = useState<ProductImage[]>([]);
-  const [productImageName, setProductImageName] = useState("");
-  const [uploadingProductImage, setUploadingProductImage] = useState(false);
-
   const fetchConnectedAccounts = useCallback(async (): Promise<SocialChannel[]> => {
     try {
       const response = await fetch("/api/social/accounts");
@@ -290,74 +286,6 @@ export const OnboardingWizard = () => {
       return [];
     }
   }, []);
-
-  const fetchProductImages = useCallback(async () => {
-    try {
-      const response = await fetch("/api/products/images");
-      if (!response.ok) return;
-      const data = (await response.json()) as { items: ProductImage[] };
-      setProductImages(data.items ?? []);
-    } catch {
-      /* ignorerer nettverksfeil */
-    }
-  }, []);
-
-  const uploadProductImage = async (file: File) => {
-    if (!productImageName.trim()) {
-      setStatus(t("onboarding.enterProductName"));
-      return;
-    }
-    setUploadingProductImage(true);
-    setStatus(t("onboarding.uploadingProductImage"));
-
-    const payload = new FormData();
-    payload.append("file", file);
-    payload.append("mediaKind", "image");
-
-    const uploadResponse = await fetch("/api/media/upload", {
-      method: "POST",
-      body: payload,
-    });
-
-    if (!uploadResponse.ok) {
-      setStatus(t("onboarding.uploadImageFailed"));
-      setUploadingProductImage(false);
-      return;
-    }
-
-    const uploadData = (await uploadResponse.json()) as { publicUrl: string };
-
-    const saveResponse = await fetch("/api/products/images", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        productName: productImageName.trim(),
-        imageUrl: uploadData.publicUrl,
-        sortOrder: productImages.filter((pi) => pi.productName === productImageName.trim()).length,
-      }),
-    });
-
-    if (!saveResponse.ok) {
-      setStatus(t("onboarding.productImageSaveFailed"));
-      setUploadingProductImage(false);
-      return;
-    }
-
-    setStatus(t("onboarding.productImageAdded"));
-    setUploadingProductImage(false);
-    await fetchProductImages();
-  };
-
-  const deleteProductImage = async (id: string) => {
-    const response = await fetch("/api/products/images", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    if (response.ok) {
-      setProductImages((prev) => prev.filter((pi) => pi.id !== id));
-    }
-  };
 
   const applySuggestion = useCallback((data: ScrapeResult) => {
     setEditableDescription((prev) => fillIfEmpty(prev, data.companyDescription));
@@ -413,7 +341,6 @@ export const OnboardingWizard = () => {
     const [response, liveChannels] = await Promise.all([
       fetch("/api/onboarding/load"),
       fetchConnectedAccounts(),
-      fetchProductImages(),
     ]);
 
     if (!response.ok) {
@@ -498,7 +425,7 @@ export const OnboardingWizard = () => {
       setStep(2);
     }
     setMode("wizard");
-  }, [fetchConnectedAccounts, fetchProductImages, runAnalysis, t]);
+  }, [fetchConnectedAccounts, runAnalysis, t]);
 
   useEffect(() => {
     const timer = setTimeout(() => void loadExistingData(), 0);
@@ -994,67 +921,7 @@ export const OnboardingWizard = () => {
               <p className="text-sm text-muted-foreground">
                 {t("onboarding.productImagesBody")}
               </p>
-
-              {productImages.length > 0 && (
-                <div className="space-y-3">
-                  {Object.entries(
-                    productImages.reduce<Record<string, ProductImage[]>>((acc, pi) => {
-                      const key = pi.productName;
-                      if (!acc[key]) acc[key] = [];
-                      acc[key].push(pi);
-                      return acc;
-                    }, {}),
-                  ).map(([name, images]) => (
-                    <div key={name} className="rounded-xl border border-border bg-muted/20 p-3">
-                      <p className="text-sm font-medium text-foreground mb-2">{name}</p>
-                      <div className="flex flex-wrap gap-2">
-                        {images.map((pi) => (
-                          <div key={pi.id} className="group relative">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={pi.imageUrl}
-                              alt={pi.productName}
-                              className="size-16 rounded-lg border border-border object-cover"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => void deleteProductImage(pi.id)}
-                              className="absolute -right-1.5 -top-1.5 hidden size-5 items-center justify-center rounded-full bg-destructive text-[10px] text-white group-hover:flex"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="space-y-3 rounded-xl border border-dashed border-border p-3">
-                <Input
-                  label={t("onboarding.productImagesSection.productNameLabel")}
-                  value={productImageName}
-                  onChange={(e) => setProductImageName(e.target.value)}
-                  placeholder={t("onboarding.productImagesSection.productNamePlaceholder")}
-                  hint={t("onboarding.productImagesSection.productNameHint")}
-                />
-                <input
-                  type="file"
-                  accept="image/*"
-                  disabled={uploadingProductImage || !productImageName.trim()}
-                  onChange={(e) => {
-                    const selected = e.target.files?.[0];
-                    if (!selected) return;
-                    void uploadProductImage(selected);
-                    e.target.value = "";
-                  }}
-                  className="block text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary-hover file:cursor-pointer disabled:opacity-50"
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t("onboarding.productImagesBody")}
-                </p>
-              </div>
+              <ProductCatalog />
             </CardContent>
           </Card>
 

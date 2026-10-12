@@ -5,7 +5,8 @@ import { formatCopyExamples } from "@/lib/ai/copyExamples";
 import type { ContentPillar } from "@/lib/ai/postStrategy";
 import type { VisualWorld } from "@/lib/ai/visualDirection";
 import { buildSystemContext } from "@/lib/ai/systemPrompt";
-import type { BrandContext, PostFormat, PostIntent, SocialChannel } from "@/lib/types";
+import { productCopyLines } from "@/lib/products/productPrompt";
+import type { BrandContext, PostFormat, PostIntent, Product, SocialChannel } from "@/lib/types";
 
 export type CopyVisual = {
   placeName: string | null;
@@ -20,6 +21,7 @@ type CopyPromptInput = {
   channel: SocialChannel;
   brandRules: BrandRules;
   brandContext?: BrandContext;
+  product?: Product;
   intent?: PostIntent;
   format?: PostFormat;
   ctaType?: string;
@@ -157,6 +159,7 @@ const buildStandardUserPrompt = (
     "",
     `CTA-RETNING: ${input.ctaType ?? "Et konkret valg eller svar som passer innholdet."}`,
     "",
+    ...(input.product ? productCopyLines(input.product) : []),
   ];
 
   if (input.reelScript) {
@@ -174,7 +177,9 @@ const buildStandardUserPrompt = (
     "KRAV TIL OUTPUT:",
     "- Hook i de første 1–2 linjene, om kundens verden.",
     "- Gi leseren en grunn til å lese ferdig eller svare.",
-    "- Produktet kommer naturlig etterpå, eller uteblir.",
+    input.product
+      ? `- «${input.product.name}» er med i teksten, i en situasjon der det brukes.`
+      : "- Produktet kommer naturlig etterpå, eller uteblir.",
     includeWebsite && websiteUrl
       ? `- Én lenke til slutt, uten «Les mer»: ${websiteUrl}`
       : "- Ingen nettadresse.",
@@ -217,6 +222,7 @@ const buildTikTokUserPrompt = (
   "",
   `Målgruppe: ${input.brandRules.targetAudience}.`,
   "",
+  ...(input.product ? productCopyLines(input.product) : []),
   input.reelScript
     ? "Hook først. Deretter maks ett kort poeng. Avslutt gjerne med et spørsmål. Ingen intro."
     : "Første setning er hooken.",
@@ -238,7 +244,7 @@ const buildTikTokUserPrompt = (
 export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredPrompt => {
   const brandContext = input.brandContext ?? {};
   const companyName = brandContext.companyName ?? "bedriften";
-  const websiteUrl = brandContext.websiteUrl?.trim();
+  const websiteUrl = input.product?.productUrl?.trim() || brandContext.websiteUrl?.trim();
   const intent = input.intent ?? "brand_awareness";
   const format = input.format ?? "tip";
   const pillar = input.contentPillar ?? "inspiration";

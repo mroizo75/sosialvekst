@@ -4,7 +4,8 @@ import { findCopyIssues } from "@/lib/ai/validateCopy";
 import type { VisualBrief, VisualWorld } from "@/lib/ai/visualDirection";
 import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
-import type { BrandContext, DesignStyle, PostFormat, SocialChannel } from "@/lib/types";
+import { productDesignLine } from "@/lib/products/productPrompt";
+import type { BrandContext, DesignStyle, PostFormat, Product, SocialChannel } from "@/lib/types";
 
 export type { DesignStyle };
 
@@ -30,6 +31,7 @@ type DesignInput = {
   topic: string;
   channel: SocialChannel;
   brandContext?: BrandContext;
+  product?: Product;
   contentPillar?: ContentPillar;
   visualMotif?: VisualMotif;
   format?: PostFormat;
@@ -350,6 +352,7 @@ export const designUserPrompt = (input: DesignInput, mode: "guide" | "headline",
     listLine("Det som skiller bedriften ut", ctx.uniqueSellingPoints),
     listLine("Kundenes typiske problemer", ctx.customerPainPoints),
     `Tema: ${input.topic}.`,
+    input.product ? productDesignLine(input.product) : null,
     input.contentPillar ? `Innholdssøyle: ${input.contentPillar}.` : null,
     `Modus: ${mode}.`,
     ...STYLE_BRIEFS[style],

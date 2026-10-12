@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContentPlanDialog } from "@/components/dashboard/ContentPlanDialog";
 import type { GenerateConfig } from "@/components/dashboard/ContentPlanDialog";
 import { useI18n } from "@/components/i18n/I18nProvider";
+import { useProducts } from "@/components/products/useProducts";
 import { Button } from "@/components/ui/Button";
 import { localeToPreferredLanguage } from "@/lib/i18n/config";
 import type { MediaMode, SocialChannel } from "@/lib/types";
@@ -404,6 +405,7 @@ export const DashboardPanel = () => {
           startDate: config.startDate,
           postingDays: config.postingDays,
           postingHours: config.postingHours,
+          productId: config.productId,
         }),
       });
       const data = (await response.json().catch(() => ({}))) as { message?: string };
@@ -955,39 +957,17 @@ export const DashboardPanel = () => {
   );
 };
 
-type ProductImageItem = {
-  id: string;
-  productName: string;
-  imageUrl: string;
-  sortOrder: number;
-};
-
 const ProductImageStatus = () => {
   const { t, locale } = useI18n();
-  const [items, setItems] = useState<ProductImageItem[]>([]);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const response = await fetch("/api/products/images");
-        if (!response.ok) return;
-        const data = (await response.json()) as { items: ProductImageItem[] };
-        setItems(data.items ?? []);
-      } catch {
-        /* ignorer */
-      } finally {
-        setLoaded(true);
-      }
-    };
-    void load();
-  }, []);
+  const { products, loaded } = useProducts();
 
   if (!loaded) return null;
 
-  const uniqueProducts = new Set(items.map((i) => i.productName));
+  const items = products.flatMap((product) =>
+    product.images.map((image) => ({ id: image.id, imageUrl: image.imageUrl, productName: product.name })),
+  );
   const productsPlural =
-    uniqueProducts.size === 1 ? "" : locale === "en" ? "s" : "er";
+    products.length === 1 ? "" : locale === "en" ? "s" : "er";
   const imagesPlural = items.length === 1 ? "" : locale === "en" ? "s" : "r";
 
   return (
@@ -1001,10 +981,10 @@ const ProductImageStatus = () => {
         <div>
           <h2 className="text-base font-bold text-foreground">{t("dashboard.productImages")}</h2>
           <p className="text-xs text-muted-foreground">
-            {items.length === 0
+            {products.length === 0
               ? t("dashboard.noProductImages")
               : t("dashboard.productImageSummary", {
-                  products: uniqueProducts.size,
+                  products: products.length,
                   productsPlural,
                   images: items.length,
                   imagesPlural,
@@ -1035,10 +1015,10 @@ const ProductImageStatus = () => {
         </div>
       )}
       <a
-        href="/onboarding"
+        href="/produkter"
         className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-foreground hover:bg-secondary transition-colors"
       >
-        {items.length === 0 ? t("dashboard.uploadProductImages") : t("dashboard.manageImages")}
+        {products.length === 0 ? t("dashboard.uploadProductImages") : t("dashboard.manageImages")}
         <svg className="size-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
         </svg>

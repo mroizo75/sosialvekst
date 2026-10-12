@@ -2,7 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 
 import { updateSession } from "@/lib/supabase/middleware";
 
-const PROTECTED_ROUTES = ["/onboarding", "/calendar", "/kalender", "/media", "/dashboard", "/publiser"];
+const PROTECTED_ROUTES = ["/onboarding", "/calendar", "/kalender", "/media", "/produkter", "/dashboard", "/publiser"];
 const ONBOARDING_REQUIRED_ROUTES = ["/calendar", "/kalender", "/media", "/dashboard", "/publiser"];
 const SUBSCRIPTION_REQUIRED_ROUTES = ["/publiser"];
 const AUTH_ROUTES = ["/login", "/register"];

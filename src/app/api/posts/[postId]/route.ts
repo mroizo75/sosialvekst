@@ -13,6 +13,7 @@ import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { loadProfilesSafely, profilePromptLines } from "@/lib/metrics/learning";
 import { getPostById, savePost, setPostAdditionalImages, updatePostRow } from "@/lib/posts/repository";
+import { requireProduct } from "@/lib/products/repository";
 import { timeZoneForCountry } from "@/lib/schedule/audienceTime";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -67,6 +68,7 @@ const updateSchema = z.object({
     ])
     .optional(),
   sourcePostId: z.string().uuid().optional(),
+  productId: z.string().uuid().nullable().optional(),
   regenerate: z.boolean().optional(),
 });
 
@@ -207,6 +209,11 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
 
     const payload = updateSchema.parse(await request.json());
+    const productChanged = payload.productId !== undefined && payload.productId !== (post.productId ?? null);
+    const productId = payload.productId !== undefined ? payload.productId : post.productId ?? null;
+    const product = productId
+      ? await requireProduct(await createSupabaseServerClient(), { userId, workspaceId }, productId)
+      : undefined;
     const companyName = brandContext?.companyName;
     let updatedText = payload.text ?? post.text;
     let updatedImageUrl = payload.imageUrl === "" ? undefined : payload.imageUrl ?? post.imageUrl;
@@ -406,6 +413,7 @@ export async function PATCH(request: Request, context: RouteContext) {
           mediaMode,
           imageProfile,
           brandContext,
+          product,
           intent: strategy.intent,
           format: strategy.format,
           ctaType: strategy.ctaType,
@@ -517,9 +525,10 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     await setPostAdditionalImages(userId, post.id, updatedAdditionalImageUrls, updatedAdditionalImageCredits);
 
-    if (generationMeta || reelUpdate) {
-      const metaError = await updatePostRow(await createSupabaseServerClient(), { id: post.id, userId }, {
+    if (generationMeta || reelUpdate || productChanged) {
+      const metaError = await updatePostRow(await createSupabaseServerClient(), { id: post.id, userId, workspaceId }, {
         ...(generationMeta ? { generation_meta: generationMeta } : {}),
+        ...(productChanged ? { product_id: productId } : {}),
         ...reelUpdate,
       });
       if (metaError) logger.warn("[post/patch] Kunne ikke lagre generation_meta/reel", { postId: post.id, error: metaError });
@@ -534,6 +543,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     const appError = toUnknownAppError(error);
     const status = appError.code === "AI_EDIT_LIMIT_REACHED" ? 403
       : appError.code === "SUBSCRIPTION_REQUIRED" ? 402
+      : appError.code === "PRODUCT_NOT_FOUND" ? 404
       : appError.code === "GENERATION_TIMEOUT" ? 504
       : appError.code === "INTERNAL_ERROR" ? 500
       : 400;

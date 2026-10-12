@@ -1,9 +1,10 @@
-import type { BrandContext, SocialChannel } from "@/lib/types";
+import { productSceneDirection } from "@/lib/products/productPrompt";
+import type { BrandContext, Product, SocialChannel } from "@/lib/types";
 
 type ProductSceneInput = {
   topic: string;
   channel: SocialChannel;
-  productName: string;
+  product: Product;
   brandContext?: BrandContext;
   format?: string;
 };
@@ -46,64 +47,60 @@ const getIndustrySceneContext = (brandContext?: BrandContext): string => {
 export const buildProductScenePrompt = (input: ProductSceneInput): string => {
   const ctx = input.brandContext ?? {};
   const companyName = ctx.companyName ?? "the brand";
+  const productName = input.product.name;
   const channelComp = CHANNEL_COMPOSITION[input.channel];
   const formatDirection = input.format ? FORMAT_SCENE_DIRECTION[input.format] : undefined;
   const industryContext = getIndustrySceneContext(input.brandContext);
+  const description = input.product.description?.trim();
 
   const sections: string[] = [];
 
   sections.push([
-    "TASK: Generate a professional product photography image.",
-    `The image MUST prominently feature the product "${input.productName}" from ${companyName}.`,
+    "TASK: Generate a professional lifestyle photo for a social media post.",
+    `The image MUST prominently feature the product "${productName}" from ${companyName}.`,
+    description ? `What the product is: ${description}` : "",
     "The product in the reference image(s) is the EXACT product that must appear in the generated image.",
     "Preserve the product's exact shape, color, label, packaging, and all visual details from the reference.",
-  ].join("\n"));
+  ].filter(Boolean).join("\n"));
 
   sections.push([
     "PRODUCT FIDELITY (CRITICAL — non-negotiable):",
-    `- The product "${input.productName}" MUST be clearly visible and recognizable as the SAME product from the reference image(s).`,
+    `- The product "${productName}" MUST be clearly visible and recognizable as the SAME product from the reference image(s).`,
     "- Preserve exact colors, shape, proportions, label design, and packaging of the product.",
     "- The product must NOT be obscured, cropped, distorted, or altered in any way.",
     "- If the product has text/labels, they must remain legible and correctly oriented.",
-    "- The product should occupy at least 25-40% of the image area.",
+    "- The product should occupy at least 20-40% of the image area.",
     "- No competing products. Keep this product's own label exactly as in the reference.",
   ].join("\n"));
 
   sections.push([
     "SCENE AND CONTEXT:",
     `Topic of the social media post: "${input.topic}".`,
-    formatDirection ?? "Product shown in a professional, contextually relevant setting.",
+    productSceneDirection(input.product),
+    formatDirection ?? "Product shown in a contextually relevant, real-world setting.",
     industryContext,
-    "The scene should feel authentic and aspirational — like a professional product photo shoot.",
-    "Include contextual props or environment elements that reinforce the topic, but the product remains the clear hero.",
+    "The scene should feel authentic, like a real moment photographed on location, not a studio packshot.",
+    "Include environment elements that show where and when the product is used, but the product remains the clear hero.",
+  ].filter(Boolean).join("\n"));
+
+  sections.push([
+    "PEOPLE IN THE SCENE:",
+    "A person may appear when they are using or wearing the product in its real setting.",
+    "Never show anyone sitting at a computer, laptop or office desk.",
+    "The product remains the focal point.",
   ].join("\n"));
-
-  const industry = `${ctx.industry ?? ""} ${ctx.companyDescription ?? ""}`.toLowerCase();
-  const isTravel = /reise|hotel|hotell|ferie|turisme|travel|destinasjon|syden/.test(industry);
-  const allowPeople =
-    !isTravel &&
-    (input.format === "behind_the_scenes" || input.format === "how_to" || input.format === "tip");
-
-  if (allowPeople) {
-    sections.push([
-      "PEOPLE IN THE SCENE:",
-      "A person may appear only if they are using the product in a real work or customer setting.",
-      "Never show anyone sitting at a computer, laptop or office desk.",
-      "The product remains the focal point.",
-    ].join("\n"));
-  }
 
   sections.push([
     "COMPOSITION AND FORMAT:",
     channelComp,
-    "Use professional studio or on-location lighting.",
+    "Use natural on-location lighting that fits the setting (for example evening light for an evening scene).",
     "Shallow depth of field with product in sharp focus.",
     "Color grading: natural, clean, and brand-appropriate.",
   ].join("\n"));
 
   sections.push([
     "PHOTOGRAPHY QUALITY REQUIREMENTS:",
-    "- Professional product photography standard (equivalent to a commercial photo shoot).",
+    "- Professional commercial photography standard.",
     "- Natural, directional lighting with soft shadows. No harsh artificial look.",
     "- Clean composition with clear visual hierarchy: product first, context second.",
     "- Realistic textures and materials — no plastic/CGI appearance.",

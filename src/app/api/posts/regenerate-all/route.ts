@@ -8,6 +8,7 @@ import { getBrandContext } from "@/lib/branding/context";
 import { deleteFilesByUrls } from "@/lib/cloudflare/r2";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { replacePostMedia, updatePostRow } from "@/lib/posts/repository";
+import { getProduct } from "@/lib/products/repository";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -20,7 +21,7 @@ import {
   scheduleInTimeZone,
   timeZoneForCountry,
 } from "@/lib/schedule/audienceTime";
-import type { BrandContext, SocialChannel, TopicWindow } from "@/lib/types";
+import type { BrandContext, Product, SocialChannel, TopicWindow } from "@/lib/types";
 import { getReelBudget, reelColumns, reelsAllowedFor, reserveReel, startReelRender } from "@/lib/video/renderReel";
 
 const DEFAULT_POSTS_PER_WEEK = 3;
@@ -82,6 +83,7 @@ export async function POST() {
     let postsPerWeek = DEFAULT_POSTS_PER_WEEK;
     let totalWeeks = DEFAULT_TOTAL_WEEKS;
     let mediaMode: "ai_only" | "hybrid" | "owned_only" = "ai_only";
+    let planProductId: string | null = null;
 
     let planId = ((oldPosts ?? []).find((p) => p.plan_id)?.plan_id as string) ?? null;
     if (!planId) {
@@ -100,6 +102,7 @@ export async function POST() {
         totalWeeks = normalizePositiveInt(existingPlan.total_weeks, DEFAULT_TOTAL_WEEKS);
         mediaMode = String(existingPlan.media_mode ?? "ai_only") as "ai_only" | "hybrid" | "owned_only";
         channelsFromPlan = normalizeChannels((existingPlan as { channels?: unknown }).channels);
+        planProductId = (existingPlan as { product_id?: string | null }).product_id ?? null;
       } else {
         let newPlan: { id: string } | null = null;
         let planError: { message?: string } | null = null;
@@ -156,7 +159,12 @@ export async function POST() {
       totalWeeks = normalizePositiveInt(selectedPlan?.total_weeks, DEFAULT_TOTAL_WEEKS);
       mediaMode = String(selectedPlan?.media_mode ?? "ai_only") as "ai_only" | "hybrid" | "owned_only";
       channelsFromPlan = normalizeChannels((selectedPlan as { channels?: unknown } | null)?.channels);
+      planProductId = (selectedPlan as { product_id?: string | null } | null)?.product_id ?? null;
     }
+
+    const product = planProductId
+      ? await getProduct(admin, { userId, workspaceId }, planProductId) ?? undefined
+      : undefined;
 
     const { data: planData } = await admin
       .from("content_plans")
@@ -240,6 +248,7 @@ export async function POST() {
       id: s.id,
       user_id: userId,
       workspace_id: workspaceId,
+      ...(product ? { product_id: product.id } : {}),
       plan_id: planId,
       channel: s.channel,
       status: "generating",
@@ -274,7 +283,7 @@ export async function POST() {
       } catch (err) {
         console.error("[regenerate-all] R2-sletting feilet:", err);
       }
-      await regenerateSlots(userId, workspaceId, newSlots, mediaMode, brandContext);
+      await regenerateSlots(userId, workspaceId, newSlots, mediaMode, brandContext, product);
       console.log(`[regenerate-all] Ferdig — ${newSlots.length} poster generert`);
     })().catch((err) => {
       console.error("[regenerate-all] Bakgrunnsjobb krasjet:", err);
@@ -323,6 +332,7 @@ async function regenerateSlots(
   slots: Slot[],
   mediaMode: "ai_only" | "hybrid" | "owned_only",
   brandContext?: BrandContext,
+  product?: Product,
 ) {
   const admin = createSupabaseAdminClient();
   const reelBudget = await getReelBudget({ userId, workspaceId }, admin);
@@ -349,6 +359,7 @@ async function regenerateSlots(
         mediaMode,
         imageProfile: "preview",
         brandContext,
+        product,
         intent: strategy.intent,
         format: strategy.format,
         ctaType: strategy.ctaType,

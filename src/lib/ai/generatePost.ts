@@ -36,7 +36,7 @@ import type {
   PostDraft,
   PostFormat,
   PostIntent,
-  ProductImage,
+  Product,
   SocialChannel,
 } from "@/lib/types";
 
@@ -47,6 +47,7 @@ type GeneratePostInput = {
   mediaMode: MediaMode;
   userId: string;
   brandContext?: BrandContext;
+  product?: Product;
   intent?: PostIntent;
   format?: PostFormat;
   ctaType?: string;
@@ -395,6 +396,7 @@ const brandRulesFor = (input: GeneratePostInput) => mergeBrandRules({
 
 const profileTermsFor = (input: GeneratePostInput, placeName?: string | null): string[] =>
   [
+    input.product?.name ?? "",
     ...(input.brandContext?.products ?? []),
     ...(input.brandContext?.services ?? []),
     placeName ?? "",
@@ -444,6 +446,7 @@ const createText = async (
       channel: input.channel,
       brandRules,
       brandContext: input.brandContext,
+      product: input.product,
       intent: input.intent,
       format: input.format,
       ctaType: input.ctaType,
@@ -594,14 +597,14 @@ const findSlidePhoto = async (
     note(input, step, false, `fant ikke ekte foto av ${brief.placeName}${subject ? ` / ${subject}` : ""}, bruker AI-foto`);
     logger.warn("Fant ikke ekte foto av stedet, bruker AI-foto", { place: brief.placeName, subject });
   }
-  const productImages = input.brandContext?.productImages ?? [];
-  if (slideIndex === 0 && productImages.length > 0) {
-    const productUrl = await tryProductImageGeneration(input, productImages);
+  if (slideIndex === 0 && input.product && input.product.images.length > 0) {
+    const productUrl = await tryProductImageGeneration(input, input.product);
     const productBytes = await loadBuffer(productUrl, "produktfoto");
     if (productBytes) {
-      note(input, step, true, "produktbilde");
+      note(input, step, true, `produktbilde av ${input.product.name}`);
       return { bytes: productBytes };
     }
+    note(input, step, false, `produktbilde av ${input.product.name} feilet, bruker AI-foto`);
   }
   try {
     const photoUrl = await generateProfessionalImage({
@@ -710,9 +713,8 @@ const createImageUrl = async (input: GeneratePostInput): Promise<SlideImage | un
     return renderDesignedSlide(input, input.socialDesign, brief, 0);
   }
 
-  const productImages = input.brandContext?.productImages ?? [];
-  if (productImages.length > 0) {
-    const productResult = await tryProductImageGeneration(input, productImages);
+  if (input.product && input.product.images.length > 0) {
+    const productResult = await tryProductImageGeneration(input, input.product);
     if (productResult) return asSlideImage(await applyBrandLogo(productResult, input, "product"), productResult);
   }
 
@@ -766,14 +768,14 @@ const createImageUrl = async (input: GeneratePostInput): Promise<SlideImage | un
 
 const tryProductImageGeneration = async (
   input: GeneratePostInput,
-  productImages: ProductImage[],
+  product: Product,
 ): Promise<string | undefined> => {
   try {
     const result = await generateProductImage({
       userId: input.userId,
       channel: input.channel,
       topic: input.topic,
-      productImages,
+      product,
       brandContext: input.brandContext,
       format: input.format,
     });
@@ -1108,6 +1110,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       topic: input.topic,
       channel: input.channel,
       brandContext: input.brandContext,
+      product: input.product,
       contentPillar: input.contentPillar,
       visualMotif: input.visualMotif,
       format: input.format,
@@ -1247,7 +1250,9 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   }
 
   const companyName = input.brandContext?.companyName;
-  const websiteUrl = input.channel === "tiktok" ? undefined : input.brandContext?.websiteUrl?.trim();
+  const websiteUrl = input.channel === "tiktok"
+    ? undefined
+    : input.product?.productUrl?.trim() || input.brandContext?.websiteUrl?.trim();
   const brandRules = brandRulesFor(input);
   const profileTerms = profileTermsFor(input, brief.placeName);
   const revision = runRevisionLoop({

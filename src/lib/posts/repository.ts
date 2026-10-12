@@ -16,6 +16,7 @@ type DbPostRow = {
   quality_score: PostDraft["quality"];
   image_credit?: string | null;
   video_status?: VideoStatus | null;
+  product_id?: string | null;
 };
 
 type DbPostMediaRow = {
@@ -43,11 +44,12 @@ const POST_SELECT =
   "id, channel, status, scheduled_at, text_content, image_url, video_url, quality_score";
 const POST_SELECT_WITH_CREDIT =
   "id, channel, status, scheduled_at, text_content, image_url, video_url, image_credit, quality_score";
-const POST_SELECT_FULL = `${POST_SELECT_WITH_CREDIT}, video_status`;
+const POST_SELECT_REELS = `${POST_SELECT_WITH_CREDIT}, video_status`;
+const POST_SELECT_FULL = `${POST_SELECT_REELS}, product_id`;
 
 // Newest columns first; later entries drop columns whose migrations may not have run yet.
-const POST_SELECT_CHAIN = [POST_SELECT_FULL, POST_SELECT_WITH_CREDIT, POST_SELECT];
-const OPTIONAL_SELECT_COLUMNS = ["video_status", "image_credit"];
+const POST_SELECT_CHAIN = [POST_SELECT_FULL, POST_SELECT_REELS, POST_SELECT_WITH_CREDIT, POST_SELECT];
+const OPTIONAL_SELECT_COLUMNS = ["product_id", "video_status", "image_credit"];
 
 type SelectResult = { data: unknown; error: { message: string } | null };
 
@@ -73,6 +75,7 @@ const OPTIONAL_POST_COLUMNS: Record<string, string> = {
   generation_meta: "024_post_metrics.sql",
   reel_source_url: "025_reels.sql",
   video_status: "025_reels.sql",
+  product_id: "030_products.sql",
 };
 
 export const updatePostRow = async (
@@ -129,6 +132,7 @@ const toPostDraft = (row: DbPostRow): PostDraft => ({
   videoUrl: row.video_url ?? undefined,
   videoStatus: row.video_status ?? undefined,
   imageCredit: row.image_credit ?? undefined,
+  productId: row.product_id ?? undefined,
   quality: row.quality_score,
 });
 
@@ -167,6 +171,7 @@ export const createContentPlan = async (input: {
   mediaMode: MediaMode;
   topicWindows: TopicWindow[];
   channels?: SocialChannel[];
+  productId?: string;
 }): Promise<string> => {
   const supabase = await createSupabaseServerClient();
 
@@ -179,6 +184,7 @@ export const createContentPlan = async (input: {
     media_mode: input.mediaMode,
     topic_windows: input.topicWindows,
     channels: input.channels ?? ["facebook", "instagram", "linkedin", "tiktok"],
+    ...(input.productId ? { product_id: input.productId } : {}),
   };
 
   let data: { id?: string } | null = null;
@@ -204,6 +210,7 @@ export const createContentPlan = async (input: {
         country_code: input.countryCode,
         media_mode: input.mediaMode,
         topic_windows: input.topicWindows,
+        ...(input.productId ? { product_id: input.productId } : {}),
       })
       .select("id")
       .single();

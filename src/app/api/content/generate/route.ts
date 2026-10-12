@@ -9,6 +9,8 @@ import { getBrandContext } from "@/lib/branding/context";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { loadProfilesSafely, profilePromptLines, type PerformanceProfile } from "@/lib/metrics/learning";
 import { createContentPlan, replacePostMedia, updatePostRow } from "@/lib/posts/repository";
+import { productTopic } from "@/lib/products/productPrompt";
+import { requireProduct } from "@/lib/products/repository";
 import {
   addCalendarDays,
   audienceHoursForCountry,
@@ -21,7 +23,7 @@ import { requireWorkspaceId } from "@/lib/workspace";
 import { getPostsPerWeekAllowance, requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { BrandContext, SocialChannel, TopicWindow } from "@/lib/types";
+import type { BrandContext, Product, SocialChannel, TopicWindow } from "@/lib/types";
 import {
   getReelBudget,
   reelColumns,
@@ -49,6 +51,7 @@ const generateSchema = z.object({
       }),
     )
     .default([]),
+  productId: z.string().uuid().optional(),
 });
 
 const defaultPostingDayOffsets = [0, 2, 4];
@@ -204,6 +207,14 @@ export async function POST(request: Request) {
       );
     }
 
+    const supabase = await createSupabaseServerClient();
+    const product = payload.productId
+      ? await requireProduct(supabase, { userId, workspaceId }, payload.productId)
+      : undefined;
+    const topicWindows = product && payload.topicWindows.length === 0
+      ? [{ topic: productTopic(product), startWeek: 1, endWeek: payload.totalWeeks }]
+      : payload.topicWindows;
+
     const planId = await createContentPlan({
       userId,
       workspaceId,
@@ -211,8 +222,9 @@ export async function POST(request: Request) {
       totalWeeks: payload.totalWeeks,
       countryCode: payload.countryCode,
       mediaMode: payload.mediaMode,
-      topicWindows: payload.topicWindows,
+      topicWindows,
       channels: payload.channels,
+      productId: product?.id,
     });
 
     const slots = buildSlots(
@@ -220,18 +232,18 @@ export async function POST(request: Request) {
       payload.totalWeeks,
       payload.channels,
       payload.countryCode,
-      payload.topicWindows,
+      topicWindows,
       payload.startDate,
       payload.postingDays,
       payload.postingHours,
       brandContext,
     );
 
-    const supabase = await createSupabaseServerClient();
     const placeholderRows = slots.map((slot) => ({
       id: slot.id,
       user_id: userId,
       workspace_id: workspaceId,
+      ...(product ? { product_id: product.id } : {}),
       plan_id: planId,
       channel: slot.channel,
       status: "generating",
@@ -258,7 +270,7 @@ export async function POST(request: Request) {
       post_count: slots.length,
     });
 
-    void processSlots(userId, workspaceId, slots, payload.mediaMode, payload.topicWindows, payload.countryCode, brandContext);
+    void processSlots(userId, workspaceId, slots, payload.mediaMode, topicWindows, payload.countryCode, brandContext, product);
 
     const placeholderPosts = slots.map((s) => ({
       id: s.id,
@@ -279,6 +291,9 @@ export async function POST(request: Request) {
     const appError = toUnknownAppError(error);
     if (appError.code === "SUBSCRIPTION_REQUIRED") {
       return NextResponse.json(appError, { status: 403 });
+    }
+    if (appError.code === "PRODUCT_NOT_FOUND") {
+      return NextResponse.json(appError, { status: 404 });
     }
     return NextResponse.json(
       toAppError("CONTENT_GENERATION_FAILED", "Kunne ikke starte generering", appError),
@@ -344,6 +359,7 @@ async function generateSingleSlot(
   brandContext: BrandContext | undefined,
   profile: PerformanceProfile | undefined,
   reelBudget: ReelBudget,
+  product: Product | undefined,
 ): Promise<boolean> {
   try {
     const strategy = assignPostStrategy({
@@ -369,6 +385,7 @@ async function generateSingleSlot(
         mediaMode,
         imageProfile: "preview",
         brandContext,
+        product,
         intent: strategy.intent,
         format: strategy.format,
         ctaType: strategy.ctaType,
@@ -425,6 +442,7 @@ async function processSlots(
   topicWindows: TopicWindow[],
   countryCode: string,
   brandContext?: BrandContext,
+  product?: Product,
 ) {
   const supabase = createSupabaseAdminClient();
   const [slots, profiles, reelBudget] = await Promise.all([
@@ -443,7 +461,7 @@ async function processSlots(
     console.log(`[generate] Batch ${batchLabel} (${batch.map((s) => s.channel).join(", ")})`);
 
     const results = await Promise.allSettled(
-      batch.map((slot) => generateSingleSlot(supabase, userId, workspaceId, slot, mediaMode, brandContext, profiles.get(slot.channel), reelBudget)),
+      batch.map((slot) => generateSingleSlot(supabase, userId, workspaceId, slot, mediaMode, brandContext, profiles.get(slot.channel), reelBudget, product)),
     );
 
     for (const result of results) {

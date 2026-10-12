@@ -6,9 +6,10 @@ import { assignPostStrategy } from "@/lib/ai/postStrategy";
 import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
+import { listProducts } from "@/lib/products/repository";
 import { requireWorkspaceId } from "@/lib/workspace";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import type { BrandContext, SocialChannel, TopicWindow } from "@/lib/types";
+import type { BrandContext, Product, SocialChannel, TopicWindow } from "@/lib/types";
 
 const STUCK_THRESHOLD_MS = 5 * 60 * 1000;
 const MAX_RETRY_ATTEMPTS = 3;
@@ -17,6 +18,7 @@ type StuckPost = {
   id: string;
   user_id: string;
   plan_id: string | null;
+  product_id: string | null;
   channel: SocialChannel;
   status: string;
   scheduled_at: string;
@@ -98,6 +100,7 @@ const getMediaModeFromPlan = async (
 const recoverPost = async (
   post: StuckPost,
   brandContext: BrandContext,
+  product: Product | undefined,
 ): Promise<{ id: string; recovered: boolean; error?: string }> => {
   const admin = createSupabaseAdminClient();
 
@@ -125,6 +128,7 @@ const recoverPost = async (
       mediaMode,
       imageProfile: "preview",
       brandContext,
+      product,
       intent: strategy.intent,
       format: strategy.format,
       ctaType: strategy.ctaType,
@@ -180,7 +184,7 @@ export async function POST() {
 
     const { data: stuckPosts, error: fetchError } = await admin
       .from("posts")
-      .select("id, user_id, plan_id, channel, status, scheduled_at, updated_at, created_at, retry_count")
+      .select("id, user_id, plan_id, product_id, channel, status, scheduled_at, updated_at, created_at, retry_count")
       .eq("user_id", userId)
       .eq("workspace_id", workspaceId)
       .in("status", ["generating", "failed"])
@@ -215,10 +219,14 @@ export async function POST() {
     }
 
     const brandContext = await getBrandContext(userId, workspaceId);
+    const products = new Map(
+      (await listProducts(admin, { userId, workspaceId })).map((product) => [product.id, product]),
+    );
 
     const results = [];
     for (const post of eligible) {
-      const result = await recoverPost(post as StuckPost, brandContext);
+      const product = post.product_id ? products.get(post.product_id) : undefined;
+      const result = await recoverPost(post, brandContext, product);
       results.push(result);
     }
 

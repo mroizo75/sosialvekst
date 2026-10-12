@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { useProducts } from "@/components/products/useProducts";
 import { Button } from "@/components/ui/Button";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { Checkbox } from "@/components/ui/Input";
@@ -37,6 +38,7 @@ export type GenerateConfig = {
   startDate?: string;
   topicWindows: TopicWindow[];
   mediaMode: MediaMode;
+  productId?: string;
 };
 
 const RECOMMENDED_HOURS: Record<number, number> = {
@@ -149,6 +151,8 @@ export const ContentPlanDialog = ({
 
   const [focusTopic, setFocusTopic] = useState("");
   const [focusProduct, setFocusProduct] = useState("");
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const { products: catalogProducts } = useProducts(open);
   const [availableProducts, setAvailableProducts] = useState<string[]>([]);
   const [availableServices, setAvailableServices] = useState<string[]>([]);
   const [learnedHours, setLearnedHours] = useState<number[]>([]);
@@ -293,10 +297,32 @@ export const ContentPlanDialog = ({
       startDate,
       topicWindows,
       mediaMode,
+      productId: selectedProductId ?? undefined,
     });
   };
 
   if (!open) return null;
+
+  const catalogNames = new Set(catalogProducts.map((product) => product.name.toLowerCase()));
+  const topicOnlyItems = [...availableProducts, ...availableServices].filter(
+    (item) => !catalogNames.has(item.toLowerCase()),
+  );
+  const nothingSelected = !focusProduct && !selectedProductId;
+
+  const selectCatalogProduct = (productId: string) => {
+    setFocusProduct("");
+    setSelectedProductId(selectedProductId === productId ? null : productId);
+  };
+
+  const selectTopicItem = (item: string) => {
+    setSelectedProductId(null);
+    setFocusProduct(focusProduct === item ? "" : item);
+  };
+
+  const clearProductSelection = () => {
+    setFocusProduct("");
+    setSelectedProductId(null);
+  };
 
   const effectiveWeeks = fillMode === "fill" ? fillWeeks : totalWeeks;
   const totalPosts = postsPerWeek * effectiveWeeks * selectedChannels.length;
@@ -355,27 +381,42 @@ export const ContentPlanDialog = ({
             </div>
           )}
 
-          {(availableProducts.length > 0 || availableServices.length > 0) && (
+          {(catalogProducts.length > 0 || topicOnlyItems.length > 0) && (
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-foreground">{cp.productService}</label>
               <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setFocusProduct("")}
+                  onClick={clearProductSelection}
                   className={cn(
                     "rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                    !focusProduct
+                    nothingSelected
                       ? "border-primary bg-primary/10 text-primary"
                       : "border-border text-muted-foreground hover:bg-muted/40",
                   )}
                 >
                   {cp.all}
                 </button>
-                {[...availableProducts, ...availableServices].map((item) => (
+                {catalogProducts.map((product) => (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => selectCatalogProduct(product.id)}
+                    className={cn(
+                      "rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      selectedProductId === product.id
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:bg-muted/40",
+                    )}
+                  >
+                    ✦ {product.name}
+                  </button>
+                ))}
+                {topicOnlyItems.map((item) => (
                   <button
                     key={item}
                     type="button"
-                    onClick={() => setFocusProduct(focusProduct === item ? "" : item)}
+                    onClick={() => selectTopicItem(item)}
                     className={cn(
                       "rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors",
                       focusProduct === item
@@ -387,6 +428,9 @@ export const ContentPlanDialog = ({
                   </button>
                 ))}
               </div>
+              {catalogProducts.length > 0 && (
+                <p className="text-[10px] text-muted-foreground">{cp.productHint}</p>
+              )}
             </div>
           )}
 

@@ -1,7 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { listUserFiles } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
-import type { BrandColors, BrandContext, ProductImage, ReelVoice } from "@/lib/types";
+import type { BrandColors, BrandContext, ReelVoice } from "@/lib/types";
 
 type ProfileRow = {
   company_name: string | null;
@@ -35,13 +35,6 @@ type BrandProfileRow = {
   slogan: string | null;
   brand_colors: Record<string, string> | null;
   font_style: string | null;
-};
-
-type ProductImageRow = {
-  id: string;
-  product_name: string;
-  image_url: string;
-  sort_order: number;
 };
 
 const BRAND_FIELDS = [
@@ -85,33 +78,6 @@ const pickLatestLogoUrl = async (userId: string): Promise<string | undefined> =>
   }
 };
 
-const fetchProductImages = async (
-  userId: string,
-  workspaceId: string | undefined,
-): Promise<ProductImage[]> => {
-  const supabase = await createSupabaseServerClient();
-  let query = supabase
-    .from("product_images")
-    .select("id, product_name, image_url, sort_order")
-    .eq("user_id", userId)
-    .order("product_name")
-    .order("sort_order", { ascending: true });
-
-  if (workspaceId) {
-    query = query.eq("workspace_id", workspaceId);
-  }
-
-  const { data } = await query;
-  if (!data || data.length === 0) return [];
-
-  return (data as ProductImageRow[]).map((row) => ({
-    id: row.id,
-    productName: row.product_name,
-    imageUrl: row.image_url,
-    sortOrder: row.sort_order,
-  }));
-};
-
 // The company name belongs to the workspace; profiles.company_name is shared by all of a user's businesses.
 const fetchCompanyName = async (userId: string, workspaceId?: string): Promise<string | undefined> => {
   const supabase = await createSupabaseServerClient();
@@ -148,10 +114,9 @@ export const getBrandContext = async (userId: string, workspaceId?: string): Pro
   let brandQuery = supabase.from("brand_profiles").select(BRAND_FIELDS).eq("user_id", userId);
   if (workspaceId) brandQuery = brandQuery.eq("workspace_id", workspaceId);
 
-  const [companyName, brandResult, productImages, reelVoice] = await Promise.all([
+  const [companyName, brandResult, reelVoice] = await Promise.all([
     fetchCompanyName(userId, workspaceId),
     brandQuery.maybeSingle(),
-    fetchProductImages(userId, workspaceId),
     fetchReelVoice(userId, workspaceId),
   ]);
 
@@ -196,7 +161,6 @@ export const getBrandContext = async (userId: string, workspaceId?: string): Pro
     logoUrl: logoUrl ?? undefined,
     websiteUrl: brand?.website_url ?? undefined,
     websiteContent: brand?.website_content ?? undefined,
-    productImages: productImages.length > 0 ? productImages : undefined,
     reelVoice,
   };
 };

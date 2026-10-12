@@ -6,6 +6,8 @@ import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
 import { toAppError, toUnknownAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
+import { productTopic } from "@/lib/products/productPrompt";
+import { requireProduct } from "@/lib/products/repository";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireWorkspaceId } from "@/lib/workspace";
@@ -17,6 +19,7 @@ const customPostSchema = z.object({
   imageUrl: z.string().url().optional().or(z.literal("")),
   topic: z.string().optional(),
   useAi: z.boolean().optional(),
+  productId: z.string().uuid().optional(),
 });
 
 export async function POST(request: Request) {
@@ -34,9 +37,9 @@ export async function POST(request: Request) {
       );
     }
 
-    if (payload.useAi && !payload.topic?.trim()) {
+    if (payload.useAi && !payload.topic?.trim() && !payload.productId) {
       return NextResponse.json(
-        toAppError("MISSING_TOPIC", "Skriv inn et tema for AI-generering."),
+        toAppError("MISSING_TOPIC", "Skriv inn et tema eller velg et produkt for AI-generering."),
         { status: 400 },
       );
     }
@@ -66,25 +69,31 @@ export async function POST(request: Request) {
       );
     }
 
+    const product = payload.productId
+      ? await requireProduct(supabase, { userId, workspaceId }, payload.productId)
+      : undefined;
     let finalText = payload.text?.trim() ?? "";
     let finalImageUrl = payload.imageUrl || null;
+    const topic = payload.topic?.trim() || (product ? productTopic(product) : "");
 
-    if (payload.useAi && payload.topic) {
+    if (payload.useAi && topic) {
       logger.info("[custom-post] Starter AI-generering", {
         userId,
         channel: payload.channel,
-        topic: payload.topic.slice(0, 60),
+        topic: topic.slice(0, 60),
+        productId: product?.id ?? null,
       });
 
       const brandContext = await getBrandContext(userId, workspaceId);
       const generated = await generatePost({
         userId,
-        topic: payload.topic,
+        topic,
         channel: payload.channel,
         scheduledAt: payload.scheduledAt,
         mediaMode: "ai_only",
         imageProfile: "preview",
         brandContext,
+        product,
       });
 
       finalText = generated.text || finalText;
@@ -115,6 +124,7 @@ export async function POST(request: Request) {
         id: postId,
         user_id: userId,
         workspace_id: workspaceId,
+        ...(product ? { product_id: product.id } : {}),
         plan_id: plan.id,
         channel: payload.channel,
         status: "draft",
@@ -140,10 +150,14 @@ export async function POST(request: Request) {
       scheduledAt: data.scheduled_at,
       text: data.text_content,
       imageUrl: data.image_url ?? undefined,
+      productId: product?.id,
       quality: data.quality_score,
     });
   } catch (error) {
     const appError = toUnknownAppError(error);
+    if (appError.code === "PRODUCT_NOT_FOUND") {
+      return NextResponse.json(appError, { status: 404 });
+    }
     return NextResponse.json(
       toAppError("CUSTOM_POST_ERROR", "Feil ved opprettelse av post", appError),
       { status: 400 },
