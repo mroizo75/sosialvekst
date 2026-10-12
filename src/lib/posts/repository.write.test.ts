@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it, vi } from "vitest";
 
-import { replacePostMedia, updatePostRow } from "@/lib/posts/repository";
+import { replacePostMedia, selectWithFallback, updatePostRow } from "@/lib/posts/repository";
 
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
 
@@ -80,6 +80,32 @@ describe("lagring av genererte innlegg", () => {
 
     expect(error).toBeNull();
     expect(calls.at(-1)?.values).toEqual({ text_content: "Hei" });
+  });
+
+  it("leser product_id selv om en eldre kolonne som image_credit mangler", async () => {
+    const queried: string[] = [];
+    const result = await selectWithFallback(async (columns) => {
+      queried.push(columns);
+      return columns.includes("image_credit")
+        ? { data: null, error: { message: "column posts.image_credit does not exist" } }
+        : { data: { id: "p1", product_id: "prod-1" }, error: null };
+    });
+
+    expect(result.data).toEqual({ id: "p1", product_id: "prod-1" });
+    expect(queried).toHaveLength(2);
+    expect(queried[1]).toContain("product_id");
+    expect(queried[1]).toContain("video_status");
+  });
+
+  it("gir tilbake feil som ikke handler om en manglende kolonne", async () => {
+    let calls = 0;
+    const result = await selectWithFallback(async () => {
+      calls += 1;
+      return { data: null, error: { message: "permission denied for table posts" } };
+    });
+
+    expect(result.error?.message).toBe("permission denied for table posts");
+    expect(calls).toBe(1);
   });
 
   it("hopper over lagring når bare generation_meta skulle skrives og kolonnen mangler", async () => {

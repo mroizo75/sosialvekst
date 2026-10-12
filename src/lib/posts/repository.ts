@@ -40,27 +40,28 @@ const normalizeR2Url = (url: string | null): string | undefined => {
   return `${publicBase}${match[0]}`;
 };
 
-const POST_SELECT =
-  "id, channel, status, scheduled_at, text_content, image_url, video_url, quality_score";
-const POST_SELECT_WITH_CREDIT =
-  "id, channel, status, scheduled_at, text_content, image_url, video_url, image_credit, quality_score";
-const POST_SELECT_REELS = `${POST_SELECT_WITH_CREDIT}, video_status`;
-const POST_SELECT_FULL = `${POST_SELECT_REELS}, product_id`;
-
-// Newest columns first; later entries drop columns whose migrations may not have run yet.
-const POST_SELECT_CHAIN = [POST_SELECT_FULL, POST_SELECT_REELS, POST_SELECT_WITH_CREDIT, POST_SELECT];
-const OPTIONAL_SELECT_COLUMNS = ["product_id", "video_status", "image_credit"];
+const POST_BASE_COLUMNS = ["id", "channel", "status", "scheduled_at", "text_content", "image_url", "video_url", "quality_score"];
+const OPTIONAL_SELECT_COLUMNS: Record<string, string> = {
+  image_credit: "022_image_credits.sql",
+  video_status: "025_reels.sql",
+  product_id: "030_products.sql",
+};
 
 type SelectResult = { data: unknown; error: { message: string } | null };
 
-const selectWithFallback = async (run: (columns: string) => PromiseLike<SelectResult>): Promise<SelectResult> => {
-  let result: SelectResult = { data: null, error: null };
-  for (const columns of POST_SELECT_CHAIN) {
-    result = await run(columns);
-    const missingOptional = OPTIONAL_SELECT_COLUMNS.some((column) => missingColumn(result.error?.message, column));
-    if (!result.error || !missingOptional) return result;
+// Each missing column is dropped on its own, so an old migration never hides a newer column like product_id.
+export const selectWithFallback = async (
+  run: (columns: string) => PromiseLike<SelectResult>,
+): Promise<SelectResult> => {
+  let optional = Object.keys(OPTIONAL_SELECT_COLUMNS);
+  for (;;) {
+    const result = await run([...POST_BASE_COLUMNS, ...optional].join(", "));
+    if (!result.error) return result;
+    const missing = optional.find((column) => missingColumn(result.error?.message, column));
+    if (!missing) return result;
+    logger.warn(`Kolonnen ${missing} mangler, leser uten. Kjør migrering ${OPTIONAL_SELECT_COLUMNS[missing]}`);
+    optional = optional.filter((column) => column !== missing);
   }
-  return result;
 };
 const MEDIA_SELECT = "post_id, file_url, sort_order";
 const MEDIA_SELECT_WITH_CREDIT = "post_id, file_url, sort_order, credit";
