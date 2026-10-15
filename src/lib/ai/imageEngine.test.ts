@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Product } from "@/lib/types";
 
 const edit = vi.fn();
+const fal = vi.hoisted(() => ({
+  available: false,
+  packshot: vi.fn(async () => ({ url: "https://fal.test/packshot.png" })),
+}));
 
 vi.mock("@/lib/openai", () => ({
   getOpenAiClient: () => ({ images: { edit } }),
@@ -11,9 +15,9 @@ vi.mock("@/lib/cloudflare/r2", () => ({
   uploadUserFile: vi.fn(async () => ({ publicUrl: "https://cdn.test/scene.png" })),
 }));
 vi.mock("@/lib/ai/falClient", () => ({
-  isFalAvailable: () => false,
+  isFalAvailable: () => fal.available,
   generateFlexEdit: vi.fn(async () => null),
-  generateProductPhotography: vi.fn(async () => null),
+  generateProductPhotography: fal.packshot,
 }));
 
 const { generateProductImage } = await import("@/lib/ai/imageEngine");
@@ -41,6 +45,8 @@ describe("generateProductImage", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     edit.mockReset();
+    fal.packshot.mockClear();
+    fal.available = false;
   });
 
   it("sender de opplastede produktbildene som filer med høy gjengivelse", async () => {
@@ -55,6 +61,29 @@ describe("generateProductImage", () => {
     expect(args.image.every((file) => file instanceof File)).toBe(true);
     expect(args.image.map((file) => file.type)).toEqual(["image/jpeg", "image/png"]);
     expect(args.prompt).toContain("Kveldstur med hunden");
+  });
+
+  it("gir karusell-slides en egen vinkel i prompten", async () => {
+    edit.mockResolvedValue({ data: [{ b64_json: Buffer.from("png").toString("base64") }] });
+
+    await generateProductImage({ userId: "u1", channel: "instagram", topic: "Lue", product: hat, variation: "Synlig på hundetur" });
+
+    const args = edit.mock.calls[0][0] as { prompt: string };
+    expect(args.prompt).toContain("Synlig på hundetur");
+    expect(args.prompt).toContain("COMMERCIAL GOAL");
+  });
+
+  it("bruker packshot bare på forsiden, ikke på slides", async () => {
+    edit.mockRejectedValue(new Error("rate limit"));
+    fal.available = true;
+
+    const slide = await generateProductImage({ userId: "u1", channel: "instagram", topic: "Lue", product: hat, variation: "Slide 2" });
+    expect(slide).toBeNull();
+    expect(fal.packshot).not.toHaveBeenCalled();
+
+    const cover = await generateProductImage({ userId: "u1", channel: "instagram", topic: "Lue", product: hat });
+    expect(cover?.engine).toBe("fal_product_photo");
+    expect(fal.packshot).toHaveBeenCalledTimes(1);
   });
 
   it("gir null når alle motorer feiler, så det aldri lages et generisk produkt", async () => {

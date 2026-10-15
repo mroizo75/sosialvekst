@@ -14,6 +14,7 @@ type ImageEngineInput = {
   product: Product;
   brandContext?: BrandContext;
   format?: string;
+  variation?: string;
 };
 
 const MAX_REFERENCE_IMAGES = 4;
@@ -94,6 +95,7 @@ const tryOpenAiEdit = async (input: ImageEngineInput): Promise<EngineResult | nu
     product: input.product,
     brandContext: input.brandContext,
     format: input.format,
+    variation: input.variation,
   });
 
   try {
@@ -158,6 +160,7 @@ const tryFalFlexEdit = async (input: ImageEngineInput): Promise<EngineResult | n
     product: input.product,
     brandContext: input.brandContext,
     format: input.format,
+    variation: input.variation,
   });
 
   const imageUrls = input.product.images.slice(0, MAX_REFERENCE_IMAGES).map((pi) => pi.imageUrl);
@@ -180,12 +183,12 @@ export const generateProductImage = async (
 ): Promise<EngineResult | null> => {
   if (input.product.images.length === 0) return null;
 
-  // The fal packshot engine cannot place the product in a scene, so it is only the last resort.
+  // The fal packshot engine ignores the prompt, so it is only the cover's last resort; on slides it would repeat the same shot.
   const openaiResult = await tryOpenAiEdit(input);
   if (openaiResult) return openaiResult;
 
   const flexResult = await tryFalFlexEdit(input);
   if (flexResult) return flexResult;
 
-  return tryFalProductPhoto(input);
+  return input.variation ? null : tryFalProductPhoto(input);
 };

@@ -7,6 +7,7 @@ type ProductSceneInput = {
   product: Product;
   brandContext?: BrandContext;
   format?: string;
+  variation?: string;
 };
 
 const CHANNEL_COMPOSITION: Record<SocialChannel, string> = {
@@ -76,6 +77,9 @@ export const buildProductScenePrompt = (input: ProductSceneInput): string => {
   sections.push([
     "SCENE AND CONTEXT:",
     `Topic of the social media post: "${input.topic}".`,
+    input.variation
+      ? `This image is one slide in a carousel about: "${input.variation}". Show a different moment, angle or setting than the cover, with the same product.`
+      : "",
     productSceneDirection(input.product),
     formatDirection ?? "Product shown in a contextually relevant, real-world setting.",
     industryContext,
@@ -88,6 +92,13 @@ export const buildProductScenePrompt = (input: ProductSceneInput): string => {
     "A person may appear when they are using or wearing the product in its real setting.",
     "Never show anyone sitting at a computer, laptop or office desk.",
     "The product remains the focal point.",
+  ].join("\n"));
+
+  sections.push([
+    "COMMERCIAL GOAL:",
+    "This image sells the product. It should look like a premium campaign photo the brand would pay for.",
+    "Make the product look desirable: flattering light on the product, clean materials, crisp detail.",
+    "Improve on the reference photos' lighting and backdrop. Only the product itself must stay identical.",
   ].join("\n"));
 
   sections.push([

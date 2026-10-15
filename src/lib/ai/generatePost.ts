@@ -598,19 +598,33 @@ const ownProductImageUrl = (input: GeneratePostInput, product: Product, slideInd
   return product.images[index]?.imageUrl;
 };
 
-// A generic AI photo would show a different-looking product, so product posts only use the business's own images.
+// With "AI only" the uploaded photos are references for the AI and never appear in the post themselves.
+const allowsOwnProductPhotos = (input: GeneratePostInput): boolean => input.mediaMode !== "ai_only";
+
+// A generic AI photo would show a different-looking product, so product posts never use one.
 const productSlidePhoto = async (
   input: GeneratePostInput,
   product: Product,
   slideIndex: number,
+  variation?: string,
 ): Promise<SlidePhoto> => {
   const step = `slide${slideIndex}.foto`;
-  if (slideIndex === 0) {
-    const sceneBytes = await loadBuffer(await tryProductImageGeneration(input, product), "produktscene");
+  const ownPhotos = allowsOwnProductPhotos(input);
+  if (slideIndex === 0 || !ownPhotos) {
+    const sceneBytes = await loadBuffer(await tryProductImageGeneration(input, product, variation), "produktscene");
     if (sceneBytes) {
-      note(input, step, true, `${product.name} i bruk, laget fra dine produktbilder`);
+      note(input, step, true, `${product.name} laget med AI fra dine produktbilder`);
       return { bytes: sceneBytes };
     }
+  }
+  if (!ownPhotos) {
+    note(
+      input,
+      step,
+      slideIndex > 0,
+      slideIndex === 0 ? `AI-scenen med ${product.name} feilet` : "fargekort (AI-scenen feilet)",
+    );
+    return {};
   }
   const ownUrl = ownProductImageUrl(input, product, slideIndex);
   if (!ownUrl) {
@@ -639,7 +653,8 @@ const findSlidePhoto = async (
 ): Promise<SlidePhoto> => {
   const step = `slide${slideIndex}.foto`;
   if (input.product && hasProductImages(input)) {
-    return productSlidePhoto(input, input.product, slideIndex);
+    const variation = slideIndex > 0 ? design.cards[slideIndex - 1]?.title : undefined;
+    return productSlidePhoto(input, input.product, slideIndex, variation);
   }
   if (brief.placeName) {
     const subject = slideIndex > 0 ? design.cards[slideIndex - 1]?.title : undefined;
@@ -762,7 +777,8 @@ const createImageUrl = async (input: GeneratePostInput): Promise<SlideImage | un
 
   if (input.product && hasProductImages(input)) {
     const productUrl = await tryProductImageGeneration(input, input.product)
-      ?? ownProductImageUrl(input, input.product, 0);
+      ?? (allowsOwnProductPhotos(input) ? ownProductImageUrl(input, input.product, 0) : undefined);
+    if (!productUrl) return undefined;
     return asSlideImage(await applyBrandLogo(productUrl, input, "product"), productUrl);
   }
 
@@ -817,6 +833,7 @@ const createImageUrl = async (input: GeneratePostInput): Promise<SlideImage | un
 const tryProductImageGeneration = async (
   input: GeneratePostInput,
   product: Product,
+  variation?: string,
 ): Promise<string | undefined> => {
   try {
     const result = await generateProductImage({
@@ -826,6 +843,7 @@ const tryProductImageGeneration = async (
       product,
       brandContext: input.brandContext,
       format: input.format,
+      variation,
     });
 
     if (result) {
