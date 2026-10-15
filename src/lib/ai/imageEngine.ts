@@ -1,6 +1,12 @@
 import { toFile } from "openai";
 
-import { generateFlexEdit, generateProductPhotography, isFalAvailable } from "@/lib/ai/falClient";
+import {
+  generateFlexEdit,
+  generateProductEdit,
+  generateProductPhotography,
+  isFalAvailable,
+} from "@/lib/ai/falClient";
+import { describeProductAppearance, verifyProductMatch } from "@/lib/ai/productFidelity";
 import { buildProductScenePrompt } from "@/lib/ai/productScenePrompt";
 import { uploadUserFile } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
@@ -17,12 +23,19 @@ type ImageEngineInput = {
   variation?: string;
 };
 
-const MAX_REFERENCE_IMAGES = 4;
+type EngineName = "fal_product_edit" | "openai_edit" | "fal_flex_edit" | "fal_product_photo";
 
 type EngineResult = {
   url: string;
-  engine: "openai_edit" | "fal_product_photo" | "fal_flex_edit";
+  engine: EngineName;
 };
+
+type Engine = {
+  name: EngineName;
+  run: (input: ImageEngineInput, prompt: string) => Promise<Uint8Array | null>;
+};
+
+const MAX_REFERENCE_IMAGES = 4;
 
 const CHANNEL_ASPECT_RATIO: Record<SocialChannel, "1:1" | "16:9" | "9:16" | "4:3" | "3:4"> = {
   instagram: "1:1",
@@ -46,6 +59,9 @@ const OPENAI_IMAGE_SIZE: Record<SocialChannel, "1024x1024" | "1536x1024" | "1024
 };
 
 const OPENAI_EDIT_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+
+const referenceUrls = (product: Product): string[] =>
+  product.images.slice(0, MAX_REFERENCE_IMAGES).map((image) => image.imageUrl);
 
 const fetchImageBytes = async (url: string): Promise<Uint8Array> => {
   const response = await fetch(url);
@@ -85,97 +101,94 @@ const uploadResultImage = async (userId: string, imageBytes: Uint8Array): Promis
   return uploaded.publicUrl;
 };
 
-const tryOpenAiEdit = async (input: ImageEngineInput): Promise<EngineResult | null> => {
+const runFalProductEdit = async (input: ImageEngineInput, prompt: string): Promise<Uint8Array | null> => {
+  if (!isFalAvailable()) return null;
+  const result = await generateProductEdit({
+    prompt,
+    imageUrls: referenceUrls(input.product),
+    aspectRatio: CHANNEL_ASPECT_RATIO[input.channel],
+  });
+  return result?.url ? fetchImageBytes(result.url) : null;
+};
+
+const runOpenAiEdit = async (input: ImageEngineInput, prompt: string): Promise<Uint8Array | null> => {
   const client = getOpenAiClient();
   if (!client) return null;
 
-  const scenePrompt = buildProductScenePrompt({
-    topic: input.topic,
-    channel: input.channel,
-    product: input.product,
-    brandContext: input.brandContext,
-    format: input.format,
-    variation: input.variation,
+  const imageFiles = await Promise.all(referenceUrls(input.product).map(fetchReferenceFile));
+  const response = await client.images.edit({
+    model: "gpt-image-1",
+    prompt,
+    image: imageFiles,
+    input_fidelity: "high",
+    size: OPENAI_IMAGE_SIZE[input.channel],
+    quality: "medium",
   });
 
-  try {
-    const imageFiles = await Promise.all(
-      input.product.images
-        .slice(0, MAX_REFERENCE_IMAGES)
-        .map((image, index) => fetchReferenceFile(image.imageUrl, index)),
-    );
-
-    const response = await client.images.edit({
-      model: "gpt-image-1",
-      prompt: scenePrompt,
-      image: imageFiles,
-      input_fidelity: "high",
-      size: OPENAI_IMAGE_SIZE[input.channel],
-      quality: "medium",
-    });
-
-    const payload = response.data?.[0];
-    if (!payload) return null;
-
-    let imageBytes: Uint8Array | null = null;
-    if (payload.b64_json) {
-      imageBytes = new Uint8Array(Buffer.from(payload.b64_json, "base64"));
-    } else if (payload.url) {
-      imageBytes = await fetchImageBytes(payload.url);
-    }
-    if (!imageBytes) return null;
-
-    const publicUrl = await uploadResultImage(input.userId, imageBytes);
-    return { url: publicUrl, engine: "openai_edit" };
-  } catch (error) {
-    logger.warn("OpenAI images.edit feilet", {
-      userId: input.userId,
-      error: error instanceof Error ? error.message : "ukjent",
-    });
-    return null;
-  }
+  const payload = response.data?.[0];
+  if (payload?.b64_json) return new Uint8Array(Buffer.from(payload.b64_json, "base64"));
+  if (payload?.url) return fetchImageBytes(payload.url);
+  return null;
 };
 
-const tryFalProductPhoto = async (input: ImageEngineInput): Promise<EngineResult | null> => {
+const runFalFlexEdit = async (input: ImageEngineInput, prompt: string): Promise<Uint8Array | null> => {
   if (!isFalAvailable()) return null;
+  const result = await generateFlexEdit({
+    prompt,
+    imageUrls: referenceUrls(input.product),
+    imageSize: CHANNEL_IMAGE_SIZE[input.channel],
+  });
+  return result?.url ? fetchImageBytes(result.url) : null;
+};
 
+const runFalProductPhoto = async (input: ImageEngineInput): Promise<Uint8Array | null> => {
+  if (!isFalAvailable()) return null;
   const result = await generateProductPhotography({
     productImageUrl: input.product.images[0].imageUrl,
     aspectRatio: CHANNEL_ASPECT_RATIO[input.channel],
   });
-
-  if (!result?.url) return null;
-
-  const imageBytes = await fetchImageBytes(result.url);
-  const publicUrl = await uploadResultImage(input.userId, imageBytes);
-  return { url: publicUrl, engine: "fal_product_photo" };
+  return result?.url ? fetchImageBytes(result.url) : null;
 };
 
-const tryFalFlexEdit = async (input: ImageEngineInput): Promise<EngineResult | null> => {
-  if (!isFalAvailable()) return null;
+const SCENE_ENGINES: Engine[] = [
+  { name: "fal_product_edit", run: runFalProductEdit },
+  { name: "openai_edit", run: runOpenAiEdit },
+  { name: "fal_flex_edit", run: runFalFlexEdit },
+];
 
-  const scenePrompt = buildProductScenePrompt({
-    topic: input.topic,
-    channel: input.channel,
-    product: input.product,
-    brandContext: input.brandContext,
-    format: input.format,
-    variation: input.variation,
-  });
+// The packshot engine ignores the prompt, so on carousel slides it would repeat the cover's shot.
+const enginesFor = (input: ImageEngineInput): Engine[] =>
+  input.variation ? SCENE_ENGINES : [...SCENE_ENGINES, { name: "fal_product_photo", run: runFalProductPhoto }];
 
-  const imageUrls = input.product.images.slice(0, MAX_REFERENCE_IMAGES).map((pi) => pi.imageUrl);
+const toDataUrl = (bytes: Uint8Array): string => `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`;
 
-  const result = await generateFlexEdit({
-    prompt: scenePrompt,
-    imageUrls,
-    imageSize: CHANNEL_IMAGE_SIZE[input.channel],
-  });
+const tryEngine = async (
+  engine: Engine,
+  input: ImageEngineInput,
+  prompt: string,
+): Promise<Uint8Array | null> => {
+  try {
+    const bytes = await engine.run(input, prompt);
+    if (!bytes) return null;
 
-  if (!result?.url) return null;
-
-  const imageBytes = await fetchImageBytes(result.url);
-  const publicUrl = await uploadResultImage(input.userId, imageBytes);
-  return { url: publicUrl, engine: "fal_flex_edit" };
+    const check = await verifyProductMatch(input.product, toDataUrl(bytes));
+    if (check && !check.match) {
+      logger.warn("Produktbildet ble forkastet fordi produktet var endret", {
+        userId: input.userId,
+        engine: engine.name,
+        differences: check.differences.slice(0, 300),
+      });
+      return null;
+    }
+    return bytes;
+  } catch (error) {
+    logger.warn("Produktbildemotor feilet", {
+      userId: input.userId,
+      engine: engine.name,
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    return null;
+  }
 };
 
 export const generateProductImage = async (
@@ -183,12 +196,20 @@ export const generateProductImage = async (
 ): Promise<EngineResult | null> => {
   if (input.product.images.length === 0) return null;
 
-  // The fal packshot engine ignores the prompt, so it is only the cover's last resort; on slides it would repeat the same shot.
-  const openaiResult = await tryOpenAiEdit(input);
-  if (openaiResult) return openaiResult;
+  const appearance = await describeProductAppearance(input.product);
+  const prompt = buildProductScenePrompt({
+    topic: input.topic,
+    channel: input.channel,
+    product: input.product,
+    brandContext: input.brandContext,
+    format: input.format,
+    variation: input.variation,
+    appearance: appearance ?? undefined,
+  });
 
-  const flexResult = await tryFalFlexEdit(input);
-  if (flexResult) return flexResult;
-
-  return input.variation ? null : tryFalProductPhoto(input);
+  for (const engine of enginesFor(input)) {
+    const bytes = await tryEngine(engine, input, prompt);
+    if (bytes) return { url: await uploadResultImage(input.userId, bytes), engine: engine.name };
+  }
+  return null;
 };

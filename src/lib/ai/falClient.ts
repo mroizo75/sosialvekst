@@ -233,6 +233,39 @@ export const generateFlexEdit = async (
   }
 };
 
+type ProductEditInput = {
+  prompt: string;
+  imageUrls: string[];
+  aspectRatio: "1:1" | "16:9" | "9:16" | "4:3" | "3:4";
+};
+
+export const generateProductEdit = async (
+  input: ProductEditInput,
+): Promise<FalImageResult | null> => {
+  if (!getFalKey()) return null;
+
+  try {
+    const result = await falFetchSync<{ images?: FalImageResult[] }>(
+      "fal-ai/nano-banana-pro/edit",
+      {
+        prompt: input.prompt,
+        image_urls: input.imageUrls,
+        aspect_ratio: input.aspectRatio,
+        output_format: "png",
+        resolution: "1K",
+        num_images: 1,
+      },
+    );
+
+    return result.images?.[0] ?? null;
+  } catch (error) {
+    logger.warn("fal.ai nano-banana-pro/edit feilet", {
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    return null;
+  }
+};
+
 export type TextToVideoInput = {
   prompt: string;
   promptOptimizer?: boolean;

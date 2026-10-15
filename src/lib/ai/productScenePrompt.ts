@@ -8,6 +8,7 @@ type ProductSceneInput = {
   brandContext?: BrandContext;
   format?: string;
   variation?: string;
+  appearance?: string;
 };
 
 const CHANNEL_COMPOSITION: Record<SocialChannel, string> = {
@@ -72,7 +73,13 @@ export const buildProductScenePrompt = (input: ProductSceneInput): string => {
     "- If the product has text/labels, they must remain legible and correctly oriented.",
     "- The product should occupy at least 20-40% of the image area.",
     "- No competing products. Keep this product's own label exactly as in the reference.",
+    "- Copy the product from the reference photos. Do not redesign, restyle, recolour or reinterpret it from its name.",
+    "- Mannequins, display stands, boxes and backdrops in the reference photos are not the product. Leave them out.",
   ].join("\n"));
+
+  if (input.appearance) {
+    sections.push(`EXACT PRODUCT APPEARANCE (from the reference photos):\n${input.appearance}`);
+  }
 
   sections.push([
     "SCENE AND CONTEXT:",
@@ -97,8 +104,8 @@ export const buildProductScenePrompt = (input: ProductSceneInput): string => {
   sections.push([
     "COMMERCIAL GOAL:",
     "This image sells the product. It should look like a premium campaign photo the brand would pay for.",
-    "Make the product look desirable: flattering light on the product, clean materials, crisp detail.",
-    "Improve on the reference photos' lighting and backdrop. Only the product itself must stay identical.",
+    "Make the product look desirable through setting, light and composition, never by changing the product.",
+    "Only the surroundings, light and camera angle are new. The product is the same physical item as in the reference photos.",
   ].join("\n"));
 
   sections.push([
