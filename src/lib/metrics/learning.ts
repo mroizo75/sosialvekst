@@ -7,6 +7,7 @@ import type { MetricsChannel } from "@/lib/metrics/types";
 import type { GenerationMeta, MediaFormat } from "@/lib/types";
 
 const SHRINKAGE = 2;
+const MAX_REACH_RATIO = 5;
 const PROFILE_LOOKBACK_DAYS = 180;
 const CHECKPOINT_RANK: Record<MetricsCheckpoint, number> = { "24h": 0, "72h": 1, "7d": 2 };
 
@@ -29,7 +30,7 @@ export type PerformanceSample = {
   mediaFormat?: MediaFormat;
 };
 
-export type ScoredSample = PerformanceSample & { score: number; relative: number };
+export type ScoredSample = PerformanceSample & { score: number; relative: number; reachRelative: number };
 
 export type PerformanceProfile = {
   channel: MetricsChannel;
@@ -71,12 +72,16 @@ const localParts = (value: Date, timeZone: string): { weekday: string; hour: str
 };
 
 // Averages relative scores per key and pulls small groups towards 1 so a single lucky post does not dominate.
-const weightBy = (samples: ScoredSample[], keyOf: (sample: ScoredSample) => string | undefined): Record<string, number> => {
+const weightBy = (
+  samples: ScoredSample[],
+  keyOf: (sample: ScoredSample) => string | undefined,
+  valueOf: (sample: ScoredSample) => number = (sample) => sample.relative,
+): Record<string, number> => {
   const groups = new Map<string, number[]>();
   samples.forEach((sample) => {
     const key = keyOf(sample);
     if (!key) return;
-    groups.set(key, [...(groups.get(key) ?? []), sample.relative]);
+    groups.set(key, [...(groups.get(key) ?? []), valueOf(sample)]);
   });
   return Object.fromEntries(
     [...groups.entries()].map(([key, values]) => [
@@ -86,17 +91,24 @@ const weightBy = (samples: ScoredSample[], keyOf: (sample: ScoredSample) => stri
   );
 };
 
+const reachOf = (counts: EngagementCounts): number => (counts.reach > 0 ? counts.reach : counts.views);
+
 export const scoreSamples = (samples: PerformanceSample[]): ScoredSample[] => {
   const scored = samples
     .map((sample) => ({ sample, score: engagementScore(sample.counts) }))
     .filter((entry): entry is { sample: PerformanceSample; score: number } => entry.score !== null);
   const baseline = median(scored.map((entry) => entry.score));
+  const reachBaseline = median(scored.map((entry) => reachOf(entry.sample.counts)));
   return scored.map(({ sample, score }) => ({
     ...sample,
     score,
     relative: baseline > 0 ? score / baseline : 1,
+    reachRelative: reachBaseline > 0 ? Math.min(reachOf(sample.counts) / reachBaseline, MAX_REACH_RATIO) : 1,
   }));
 };
+
+// Timing decides how many people see a post, so hours and weekdays are ranked by reach, not engagement rate.
+const byReach = (sample: ScoredSample): number => sample.reachRelative;
 
 export const buildProfileFromSamples = (
   channel: MetricsChannel,
@@ -117,8 +129,8 @@ export const buildProfileFromSamples = (
     pillars: weightBy(scored, (sample) => sample.meta?.pillar),
     motifs: weightBy(scored, (sample) => sample.meta?.motif),
     mediaFormats: weightBy(scored, (sample) => sample.mediaFormat ?? sample.meta?.mediaFormat),
-    hours: weightBy(scored, (sample) => localParts(sample.publishedAt, timeZone).hour),
-    weekdays: weightBy(scored, (sample) => localParts(sample.publishedAt, timeZone).weekday),
+    hours: weightBy(scored, (sample) => localParts(sample.publishedAt, timeZone).hour, byReach),
+    weekdays: weightBy(scored, (sample) => localParts(sample.publishedAt, timeZone).weekday, byReach),
     topTitles: titled.slice(0, 3).map((sample) => sample.meta?.coverTitle as string),
     weakTitles: titled.length >= 5 ? titled.slice(-2).map((sample) => sample.meta?.coverTitle as string) : [],
     topHooks: ranked.map((sample) => sample.meta?.hook).filter((hook): hook is string => Boolean(hook)).slice(0, 3),

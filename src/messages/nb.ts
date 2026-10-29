@@ -532,7 +532,6 @@ export const nb = {
       facebook: "Koble Facebook + Instagram",
       instagram: "Inkludert med Facebook",
       linkedin: "Koble LinkedIn",
-      linkedinCompany: "Koble LinkedIn Bedriftsside",
       tiktok: "Koble TikTok",
     },
     socialConnect: {
@@ -554,6 +553,9 @@ export const nb = {
       linkedin_profile_failed: "Kunne ikke hente LinkedIn-profil. Prøv igjen.",
       linkedin_save_failed: "Fant kontoen, men kunne ikke lagre den. Prøv igjen.",
       linkedin_callback_failed: "Noe gikk galt. Prøv igjen.",
+      linkedin_cancelled: "Du avbrøt LinkedIn-innloggingen. Prøv igjen.",
+      linkedin_scope_denied:
+        "LinkedIn avviste tilgangen. LinkedIn-appen må ha produktene «Sign In with LinkedIn using OpenID Connect» og «Share on LinkedIn» aktivert.",
       tiktok_connected: "TikTok er nå koblet til!",
       tiktok_auth_denied: "Du avbrøt TikTok-innloggingen. Prøv igjen.",
       tiktok_invalid_state: "Noe gikk galt med TikTok-innloggingen. Prøv igjen.",

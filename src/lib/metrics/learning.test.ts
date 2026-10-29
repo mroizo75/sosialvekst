@@ -11,10 +11,10 @@ import {
 } from "@/lib/metrics/learning";
 import type { PostFormat } from "@/lib/types";
 
-const sample = (index: number, format: PostFormat, likes: number, hourUtc: number): PerformanceSample => ({
+const sample = (index: number, format: PostFormat, likes: number, hourUtc: number, reach = 80): PerformanceSample => ({
   postId: `p${index}`,
   publishedAt: new Date(Date.UTC(2026, 8, 1 + index, hourUtc)),
-  counts: { views: 100, reach: 80, likes, comments: 0, shares: 0, saves: 0 },
+  counts: { views: 100, reach, likes, comments: 0, shares: 0, saves: 0 },
   meta: {
     topic: "Lisboa",
     format,
@@ -25,10 +25,31 @@ const sample = (index: number, format: PostFormat, likes: number, hourUtc: numbe
   },
 });
 
-// Six "tip" posts with 2 likes posted 09:00 Oslo, four "myth_busting" posts with 10 likes posted 17:00 Oslo.
+// Six "tip" posts with 2 likes posted 09:00 Oslo, four "myth_busting" posts with 10 likes and twice the reach posted 17:00 Oslo.
 const clearWinner = [
   ...Array.from({ length: 6 }, (_, index) => sample(index, "tip", 2, 7)),
-  ...Array.from({ length: 4 }, (_, index) => sample(index + 6, "myth_busting", 10, 15)),
+  ...Array.from({ length: 4 }, (_, index) => sample(index + 6, "myth_busting", 10, 15, 160)),
+];
+
+const instagramPost = (index: number, hourUtc: number, views: number, reach: number, likes: number): PerformanceSample => ({
+  postId: `ig${index}`,
+  publishedAt: new Date(Date.UTC(2026, 9, 1 + index, hourUtc, 25)),
+  counts: { views, reach, likes, comments: 0, shares: 0, saves: 0 },
+  meta: null,
+});
+
+// Real October numbers: evening posts reach far more people, lunch posts get a higher like rate from a tiny audience.
+const lunchVsEvening = [
+  instagramPost(0, 10, 6, 3, 0),
+  instagramPost(1, 17, 140, 237, 1),
+  instagramPost(2, 10, 7, 3, 1),
+  instagramPost(3, 10, 25, 13, 0),
+  instagramPost(4, 9, 3, 2, 1),
+  instagramPost(5, 17, 57, 45, 1),
+  instagramPost(6, 10, 9, 4, 1),
+  instagramPost(7, 9, 2, 2, 1),
+  instagramPost(8, 17, 5, 3, 2),
+  instagramPost(9, 10, 2, 2, 1),
 ];
 
 describe("engagementScore", () => {
@@ -51,6 +72,20 @@ describe("buildProfileFromSamples", () => {
     expect(recommendedHours(profile)).toEqual([17]);
     expect(profile.topTitles[0]).toMatch(/Tittel [6-9]/);
     expect(profilePromptLines(profile)[0]).toContain("Dette har fungert for denne kontoen");
+  });
+
+  it("anbefaler tidspunktet som når flest, ikke det med høyest like-rate fra et lite publikum", () => {
+    const profile = buildProfileFromSamples("instagram", lunchVsEvening, "Europe/Oslo");
+
+    const [bestHour] = Object.entries(profile.hours).sort((a, b) => b[1] - a[1])[0];
+    expect(bestHour).toBe("19");
+    expect(recommendedHours(profile)).toContain(19);
+    expect(recommendedHours(profile)).not.toContain(11);
+  });
+
+  it("anbefaler ingen tider når alle når like mange", () => {
+    const sameReach = clearWinner.map((entry) => ({ ...entry, counts: { ...entry.counts, reach: 80 } }));
+    expect(recommendedHours(buildProfileFromSamples("instagram", sameReach, "Europe/Oslo"))).toEqual([]);
   });
 
   it("er ikke klar og gir ingen prompt med for lite data", () => {

@@ -2,12 +2,13 @@ import { NextResponse } from "next/server";
 
 import { requireUserId } from "@/lib/auth";
 import { getAppUrl, getRequiredEnv } from "@/lib/env";
+import { logger } from "@/lib/logger";
+import { linkedInErrorStatus, safeOAuthText } from "@/lib/social/linkedinOAuth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireWorkspaceId } from "@/lib/workspace";
 
 const OAUTH_STATE_COOKIE = "social_oauth_state_linkedin";
 const RETURN_PATH_COOKIE = "social_oauth_return_path_linkedin";
-const OAUTH_TYPE_COOKIE = "social_oauth_type_linkedin";
 
 const getCookieValue = (request: Request, name: string): string | undefined => {
   return request.headers
@@ -24,42 +25,12 @@ const getReturnPath = (request: Request): string => {
   try { return decodeURIComponent(raw); } catch { return raw; }
 };
 
-type LinkedInOrg = { id: string; name: string };
-
-const fetchAdminOrganizations = async (accessToken: string): Promise<LinkedInOrg[]> => {
-  const response = await fetch(
-    "https://api.linkedin.com/v2/organizationalEntityAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED&projection=(elements*(organizationalTarget~(localizedName)))",
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "X-Restli-Protocol-Version": "2.0.0",
-      },
-      cache: "no-store",
-    },
-  );
-
-  if (!response.ok) return [];
-
-  const payload = (await response.json().catch(() => ({}))) as {
-    elements?: Array<{
-      organizationalTarget?: string;
-      "organizationalTarget~"?: { localizedName?: string };
-    }>;
-  };
-
-  return (payload.elements ?? [])
-    .filter((el) => el.organizationalTarget)
-    .map((el) => ({
-      id: el.organizationalTarget!,
-      name: el["organizationalTarget~"]?.localizedName ?? "Ukjent side",
-    }));
-};
-
 const redirectToReturnPath = (returnPath: string, status: string): NextResponse => {
   const url = new URL(returnPath, getAppUrl());
   url.searchParams.set("social_connect", status);
   const response = NextResponse.redirect(url.toString());
   response.cookies.delete(RETURN_PATH_COOKIE);
+  response.cookies.delete(OAUTH_STATE_COOKIE);
   return response;
 };
 
@@ -72,17 +43,19 @@ export async function GET(request: Request) {
   const code = url.searchParams.get("code");
   const callbackUrl = `${getAppUrl()}/api/social/oauth/linkedin/callback`;
 
-  const cookieState = request.headers
-    .get("cookie")
-    ?.split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${OAUTH_STATE_COOKIE}=`))
-    ?.split("=")[1];
+  const linkedInError = url.searchParams.get("error");
+  if (linkedInError) {
+    logger.warn("[linkedin/callback] LinkedIn avviste innloggingen", {
+      userId,
+      error: safeOAuthText(linkedInError),
+      description: safeOAuthText(url.searchParams.get("error_description")),
+    });
+    return redirectToReturnPath(returnPath, linkedInErrorStatus(linkedInError));
+  }
 
+  const cookieState = getCookieValue(request, OAUTH_STATE_COOKIE);
   if (!state || !cookieState || state !== cookieState || !code) {
-    const invalid = redirectToReturnPath(returnPath, "linkedin_invalid_state");
-    invalid.cookies.delete(OAUTH_STATE_COOKIE);
-    return invalid;
+    return redirectToReturnPath(returnPath, "linkedin_invalid_state");
   }
 
   try {
@@ -102,14 +75,18 @@ export async function GET(request: Request) {
     const tokenPayload = (await tokenResponse.json().catch(() => ({}))) as {
       access_token?: string;
       expires_in?: number;
+      error?: string;
+      error_description?: string;
     };
     if (!tokenResponse.ok || !tokenPayload.access_token) {
-      const failed = redirectToReturnPath(returnPath, "linkedin_token_failed");
-      failed.cookies.delete(OAUTH_STATE_COOKIE);
-      return failed;
+      logger.warn("[linkedin/callback] Tokenutveksling feilet", {
+        userId,
+        status: tokenResponse.status,
+        error: safeOAuthText(tokenPayload.error),
+        description: safeOAuthText(tokenPayload.error_description),
+      });
+      return redirectToReturnPath(returnPath, "linkedin_token_failed");
     }
-
-    const oauthType = getCookieValue(request, OAUTH_TYPE_COOKIE) ?? "personal";
 
     const userInfoResponse = await fetch("https://api.linkedin.com/v2/userinfo", {
       headers: {
@@ -119,24 +96,8 @@ export async function GET(request: Request) {
     });
     const userInfo = (await userInfoResponse.json().catch(() => ({}))) as { sub?: string };
     if (!userInfoResponse.ok || !userInfo.sub) {
-      const failed = redirectToReturnPath(returnPath, "linkedin_profile_failed");
-      failed.cookies.delete(OAUTH_STATE_COOKIE);
-      failed.cookies.delete(OAUTH_TYPE_COOKIE);
-      return failed;
-    }
-
-    let accountId = `urn:li:person:${userInfo.sub}`;
-
-    if (oauthType === "organization") {
-      const orgs = await fetchAdminOrganizations(tokenPayload.access_token);
-      if (orgs.length > 0) {
-        accountId = orgs[0].id;
-      } else {
-        const failed = redirectToReturnPath(returnPath, "linkedin_no_org_found");
-        failed.cookies.delete(OAUTH_STATE_COOKIE);
-        failed.cookies.delete(OAUTH_TYPE_COOKIE);
-        return failed;
-      }
+      logger.warn("[linkedin/callback] Kunne ikke hente profil", { userId, status: userInfoResponse.status });
+      return redirectToReturnPath(returnPath, "linkedin_profile_failed");
     }
 
     const supabase = await createSupabaseServerClient();
@@ -156,7 +117,7 @@ export async function GET(request: Request) {
         user_id: userId,
         workspace_id: workspaceId,
         channel: "linkedin",
-        account_id: accountId,
+        account_id: `urn:li:person:${userInfo.sub}`,
         access_token: tokenPayload.access_token,
         refresh_token: null,
         token_expires_at: tokenExpiresAt,
@@ -165,13 +126,15 @@ export async function GET(request: Request) {
       { onConflict: "user_id,channel,account_id" },
     );
 
-    const done = redirectToReturnPath(returnPath, error ? "linkedin_save_failed" : "linkedin_connected");
-    done.cookies.delete(OAUTH_STATE_COOKIE);
-    done.cookies.delete(OAUTH_TYPE_COOKIE);
-    return done;
-  } catch {
-    const failed = redirectToReturnPath(returnPath, "linkedin_callback_failed");
-    failed.cookies.delete(OAUTH_STATE_COOKIE);
-    return failed;
+    if (error) {
+      logger.warn("[linkedin/callback] Kunne ikke lagre kontoen", { userId, error: error.message });
+    }
+    return redirectToReturnPath(returnPath, error ? "linkedin_save_failed" : "linkedin_connected");
+  } catch (error) {
+    logger.error("[linkedin/callback] Uventet feil", {
+      userId,
+      error: error instanceof Error ? error.message : "ukjent",
+    });
+    return redirectToReturnPath(returnPath, "linkedin_callback_failed");
   }
 }

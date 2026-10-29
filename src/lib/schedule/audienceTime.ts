@@ -8,10 +8,10 @@ const COUNTRY_TIME_ZONE: Record<string, string> = {
 };
 
 export const AUDIENCE_HOURS: Record<string, number[]> = {
-  NO: [11, 13, 19],
-  SE: [11, 13, 19],
-  DK: [11, 13, 19],
-  US: [11, 13, 18],
+  NO: [19, 20, 15],
+  SE: [19, 20, 15],
+  DK: [19, 20, 15],
+  US: [19, 20, 15],
 };
 
 const CHANNEL_MINUTE: Record<SocialChannel, number> = {

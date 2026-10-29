@@ -51,11 +51,12 @@ export type PostStrategyResult = {
   mediaFormat: MediaFormat;
 };
 
-const REEL_EVERY = 3;
+const IMAGE_EVERY = 3;
 
 const MEDIA_FORMATS: Record<MediaFormat, true> = { reel: true, image: true };
 
-// Instagram and Facebook use different offsets so the two feeds do not get a reel on the same day.
+// Meta shows reels to non-followers and feed images mostly to existing followers,
+// so reels drive growth and every third slot stays an image for the followers.
 export const chooseMediaFormat = (
   channel: SocialChannel,
   feedIndex: number,
@@ -66,7 +67,7 @@ export const chooseMediaFormat = (
   if (pinned) return pinned;
   if (channel === "tiktok") return "reel";
   if (channel === "linkedin") return "image";
-  return (feedIndex + channelOffset(channel)) % REEL_EVERY === REEL_EVERY - 1 ? "reel" : "image";
+  return (feedIndex + channelOffset(channel)) % IMAGE_EVERY === 0 ? "image" : "reel";
 };
 
 const PILLAR_CYCLE: ContentPillar[] = [
@@ -145,6 +146,24 @@ const PILLAR_CTA: Record<ContentPillar, string[]> = {
   ],
 };
 
+const LINKEDIN_CTA: Record<ContentPillar, string[]> = {
+  inspiration: [
+    "Hvordan løser dere dette i dag?",
+    "Kjenner du deg igjen fra egen arbeidsplass?",
+  ],
+  useful: [
+    "Hvilket av disse grepene ville gitt mest effekt hos dere?",
+    "Hva er det første dere ville sjekket?",
+  ],
+  commercial: [
+    "Vil du se hvordan det fungerer for en bedrift som deres?",
+  ],
+  trust: [
+    "Del gjerne egne erfaringer i kommentarfeltet.",
+    "Følg meg for flere konkrete råd til bedrifter.",
+  ],
+};
+
 const MOTIF_DIRECTION: Record<VisualMotif, string> = {
   people: "Mennesker i situasjonen kunden faktisk er i. Ikke et tomt produktbilde.",
   beach: "Ute i kundens verden, med mennesker og naturlig lys.",
@@ -207,7 +226,7 @@ export const assignPostStrategy = (
     ?? PILLAR_CYCLE[(feedIndex + channelOffset(slot.channel)) % PILLAR_CYCLE.length];
   const visualMotif = slot.pinned?.motif
     ?? MOTIF_CYCLE[(feedIndex + channelOffset(slot.channel)) % MOTIF_CYCLE.length];
-  const ctaOptions = PILLAR_CTA[contentPillar];
+  const ctaOptions = (slot.channel === "linkedin" ? LINKEDIN_CTA : PILLAR_CTA)[contentPillar];
   const mediaFormat = chooseMediaFormat(slot.channel, feedIndex, slot.reelsAllowed ?? false, slot.pinned?.mediaFormat);
   const reelScript = mediaFormat === "reel"
     || slot.channel === "tiktok"

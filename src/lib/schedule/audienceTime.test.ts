@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { minuteForChannel, zonedDateTimeToIso } from "@/lib/schedule/audienceTime";
+import { audienceHoursForCountry, minuteForChannel, zonedDateTimeToIso } from "@/lib/schedule/audienceTime";
 
 describe("audienceTime", () => {
+  it("poster på ettermiddag og kveld, aldri midt på dagen", () => {
+    expect(audienceHoursForCountry("NO")).toEqual([19, 20, 15]);
+    expect(audienceHoursForCountry("XX").every((hour) => hour >= 15)).toBe(true);
+  });
+
   it("legger klokken 11 norsk sommertid som 09:00 UTC", () => {
     expect(zonedDateTimeToIso({
       timeZone: "Europe/Oslo",

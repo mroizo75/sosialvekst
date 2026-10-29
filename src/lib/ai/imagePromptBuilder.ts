@@ -27,7 +27,7 @@ const CHANNEL_SPEC: Record<ImagePromptInput["channel"], { format: string; style:
   },
   linkedin: {
     format: "Landskap (1.91:1) eller kvadratisk (1:1). Ryddig og profesjonell komposisjon.",
-    style: "Seriost, faglig og tillitvekkende. Unnga klisjeer og overdramatisering.",
+    style: "B2B. Fagfolk og ledere i sin ekte arbeidshverdag, seriost og tillitvekkende. Unnga klisjeer, handtrykk og overdramatisering.",
   },
   tiktok: {
     format: "Portrett (9:16). Fullt vertikalt format for mobilvisning.",

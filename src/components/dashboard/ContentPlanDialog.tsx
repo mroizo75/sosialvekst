@@ -42,23 +42,23 @@ export type GenerateConfig = {
 };
 
 const RECOMMENDED_HOURS: Record<number, number> = {
-  0: 11,
-  1: 12,
-  2: 19,
-  3: 12,
-  4: 12,
-  5: 11,
-  6: 12,
+  0: 19,
+  1: 15,
+  2: 20,
+  3: 19,
+  4: 15,
+  5: 20,
+  6: 20,
 };
 
 const INITIAL_DAYS: DayConfig[] = [
-  { dayOffset: 0, label: "", shortLabel: "", enabled: true, hour: 11, minute: 0 },
-  { dayOffset: 1, label: "", shortLabel: "", enabled: false, hour: 12, minute: 0 },
-  { dayOffset: 2, label: "", shortLabel: "", enabled: true, hour: 19, minute: 0 },
-  { dayOffset: 3, label: "", shortLabel: "", enabled: false, hour: 12, minute: 0 },
-  { dayOffset: 4, label: "", shortLabel: "", enabled: true, hour: 12, minute: 0 },
-  { dayOffset: 5, label: "", shortLabel: "", enabled: false, hour: 11, minute: 0 },
-  { dayOffset: 6, label: "", shortLabel: "", enabled: false, hour: 12, minute: 0 },
+  { dayOffset: 0, label: "", shortLabel: "", enabled: true, hour: RECOMMENDED_HOURS[0], minute: 0 },
+  { dayOffset: 1, label: "", shortLabel: "", enabled: false, hour: RECOMMENDED_HOURS[1], minute: 0 },
+  { dayOffset: 2, label: "", shortLabel: "", enabled: true, hour: RECOMMENDED_HOURS[2], minute: 0 },
+  { dayOffset: 3, label: "", shortLabel: "", enabled: false, hour: RECOMMENDED_HOURS[3], minute: 0 },
+  { dayOffset: 4, label: "", shortLabel: "", enabled: true, hour: RECOMMENDED_HOURS[4], minute: 0 },
+  { dayOffset: 5, label: "", shortLabel: "", enabled: false, hour: RECOMMENDED_HOURS[5], minute: 0 },
+  { dayOffset: 6, label: "", shortLabel: "", enabled: false, hour: RECOMMENDED_HOURS[6], minute: 0 },
 ];
 
 const dayAfterDate = (isoDate: string): string => {

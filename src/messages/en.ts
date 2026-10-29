@@ -545,7 +545,6 @@ export const en: NbDictionary = {
       facebook: "Connect Facebook + Instagram",
       instagram: "Included with Facebook",
       linkedin: "Connect LinkedIn",
-      linkedinCompany: "Connect LinkedIn Company Page",
       tiktok: "Connect TikTok",
     },
     socialConnect: {
@@ -567,6 +566,9 @@ export const en: NbDictionary = {
       linkedin_profile_failed: "Couldn\u2019t fetch LinkedIn profile. Try again.",
       linkedin_save_failed: "Found the account, but couldn\u2019t save it. Try again.",
       linkedin_callback_failed: "Something went wrong. Try again.",
+      linkedin_cancelled: "You cancelled LinkedIn login. Try again.",
+      linkedin_scope_denied:
+        "LinkedIn denied access. The LinkedIn app must have the \u201cSign In with LinkedIn using OpenID Connect\u201d and \u201cShare on LinkedIn\u201d products enabled.",
       tiktok_connected: "TikTok is now connected!",
       tiktok_auth_denied: "You cancelled TikTok login. Try again.",
       tiktok_invalid_state: "Something went wrong with TikTok login. Try again.",
