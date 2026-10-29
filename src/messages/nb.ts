@@ -555,7 +555,7 @@ export const nb = {
       linkedin_callback_failed: "Noe gikk galt. Prøv igjen.",
       linkedin_cancelled: "Du avbrøt LinkedIn-innloggingen. Prøv igjen.",
       linkedin_scope_denied:
-        "LinkedIn avviste tilgangen. LinkedIn-appen må ha produktene «Sign In with LinkedIn» og «Share on LinkedIn» aktivert.",
+        "LinkedIn avviste tilgangen appen ba om. Prøv å koble til på nytt.",
       tiktok_connected: "TikTok er nå koblet til!",
       tiktok_auth_denied: "Du avbrøt TikTok-innloggingen. Prøv igjen.",
       tiktok_invalid_state: "Noe gikk galt med TikTok-innloggingen. Prøv igjen.",

@@ -568,7 +568,7 @@ export const en: NbDictionary = {
       linkedin_callback_failed: "Something went wrong. Try again.",
       linkedin_cancelled: "You cancelled LinkedIn login. Try again.",
       linkedin_scope_denied:
-        "LinkedIn denied access. The LinkedIn app must have the \u201cSign In with LinkedIn\u201d and \u201cShare on LinkedIn\u201d products enabled.",
+        "LinkedIn denied the access the app requested. Try connecting again.",
       tiktok_connected: "TikTok is now connected!",
       tiktok_auth_denied: "You cancelled TikTok login. Try again.",
       tiktok_invalid_state: "Something went wrong with TikTok login. Try again.",

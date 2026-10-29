@@ -88,12 +88,12 @@ export async function GET(request: Request) {
       return redirectToReturnPath(returnPath, "linkedin_token_failed");
     }
 
-    const profileResponse = await fetch("https://api.linkedin.com/v2/me", {
+    const profileResponse = await fetch("https://api.linkedin.com/v2/userinfo", {
       headers: { Authorization: `Bearer ${tokenPayload.access_token}` },
       cache: "no-store",
     });
-    const profile = (await profileResponse.json().catch(() => ({}))) as { id?: string };
-    if (!profileResponse.ok || !profile.id) {
+    const profile = (await profileResponse.json().catch(() => ({}))) as { sub?: string };
+    if (!profileResponse.ok || !profile.sub) {
       logger.warn("[linkedin/callback] Kunne ikke hente profil", { userId, status: profileResponse.status });
       return redirectToReturnPath(returnPath, "linkedin_profile_failed");
     }
@@ -115,7 +115,7 @@ export async function GET(request: Request) {
         user_id: userId,
         workspace_id: workspaceId,
         channel: "linkedin",
-        account_id: `urn:li:person:${profile.id}`,
+        account_id: `urn:li:person:${profile.sub}`,
         access_token: tokenPayload.access_token,
         refresh_token: null,
         token_expires_at: tokenExpiresAt,
