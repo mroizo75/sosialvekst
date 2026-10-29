@@ -555,7 +555,7 @@ export const nb = {
       linkedin_callback_failed: "Noe gikk galt. Prøv igjen.",
       linkedin_cancelled: "Du avbrøt LinkedIn-innloggingen. Prøv igjen.",
       linkedin_scope_denied:
-        "LinkedIn avviste tilgangen. LinkedIn-appen må ha produktene «Sign In with LinkedIn using OpenID Connect» og «Share on LinkedIn» aktivert.",
+        "LinkedIn avviste tilgangen. LinkedIn-appen må ha produktene «Sign In with LinkedIn» og «Share on LinkedIn» aktivert.",
       tiktok_connected: "TikTok er nå koblet til!",
       tiktok_auth_denied: "Du avbrøt TikTok-innloggingen. Prøv igjen.",
       tiktok_invalid_state: "Noe gikk galt med TikTok-innloggingen. Prøv igjen.",
@@ -686,7 +686,7 @@ export const nb = {
     regenerateVideo: "Lag video på nytt",
     regeneratingVideo: "Starter ny video…",
     reelNoCredits: "Mangler videokreditt",
-    reelNoCreditsHint: "Denne posten skulle bli en reel, men du har ingen videokreditter. Den publiseres som bilde. Kjøp kreditter og lag videoen.",
+    reelNoCreditsHint: "Denne posten skulle bli en reel, men videoen ble ikke laget. Trykk «Lag video», så animeres bildet uten å bruke kreditter.",
     createVideo: "Lag video",
     videoCreditsLeft: "Du har {count} videokreditter igjen",
     reelPack10: "10 reels",

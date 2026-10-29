@@ -12,6 +12,7 @@ import {
 } from "@/lib/ai/falClient";
 import { deleteFilesByUrls, uploadUserFile } from "@/lib/cloudflare/r2";
 import { getMusicTrackUrl } from "@/lib/video/musicLibrary";
+import { renderPhotoMotionClip } from "@/lib/video/photoReel";
 import { renderReelForPost } from "@/lib/video/renderReel";
 import { consumeVideoCredit, getVideoBalance } from "@/lib/videoCredits";
 
@@ -28,6 +29,7 @@ vi.mock("@/lib/ai/falClient", () => ({
 vi.mock("@/lib/cloudflare/r2", () => ({ uploadUserFile: vi.fn(), deleteFilesByUrls: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@/lib/videoCredits", () => ({ getVideoBalance: vi.fn(), consumeVideoCredit: vi.fn() }));
 vi.mock("@/lib/video/musicLibrary", () => ({ chooseMood: () => "beach", getMusicTrackUrl: vi.fn() }));
+vi.mock("@/lib/video/photoReel", () => ({ renderPhotoMotionClip: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createSupabaseAdminClient: vi.fn() }));
 
 type Row = Record<string, unknown> | null;
@@ -96,16 +98,22 @@ describe("rendering av reel", () => {
     expect(overlayOnVideo).not.toHaveBeenCalled();
   });
 
-  it("lager ikke video og trekker ingen kreditt når saldoen er tom", async () => {
+  it("animerer bildet uten kreditt når saldoen er tom", async () => {
     vi.mocked(getVideoBalance).mockResolvedValue({ balance: 0, totalPurchased: 10 });
+    vi.mocked(renderPhotoMotionClip).mockResolvedValue("https://fal.example/photo-motion.mp4");
+    vi.mocked(getMusicTrackUrl).mockResolvedValue("https://cdn.example/shared/music/v1/beach-1.mp3");
+    vi.mocked(mergeAudioVideo).mockResolvedValue("https://fal.example/merged.mp4");
+    vi.mocked(uploadUserFile).mockResolvedValue({ key: "k", publicUrl: "https://cdn.example/users/u1/videos/reel.mp4" });
     const { client, updates } = fakeSupabase(reelPost);
 
     const result = await renderReelForPost(client, "p1");
 
-    expect(result.status).toBe("no_credits");
+    expect(result.status).toBe("ready");
     expect(generateKlingVideo).not.toHaveBeenCalled();
+    expect(renderPhotoMotionClip).toHaveBeenCalledWith("u1", reelPost.reel_source_url, 10);
+    expect(mergeAudioVideo).toHaveBeenCalledWith("https://fal.example/photo-motion.mp4", "https://cdn.example/shared/music/v1/beach-1.mp3");
     expect(consumeVideoCredit).not.toHaveBeenCalled();
-    expect(updates.at(-1)).toEqual({ video_status: "no_credits" });
+    expect(updates.at(-1)).toEqual({ video_status: "ready", video_url: "https://cdn.example/users/u1/videos/reel.mp4" });
   });
 
   it("forkaster videoen når kreditten er brukt opp før den ble ferdig", async () => {
@@ -123,8 +131,22 @@ describe("rendering av reel", () => {
     expect(updates.at(-1)).toEqual({ video_status: "no_credits" });
   });
 
-  it("markerer videoen som feilet når videogeneratoren ikke leverer", async () => {
+  it("lager reelen fra bildet uten å trekke kreditt når AI-videoen ikke leverer", async () => {
     vi.mocked(generateKlingVideo).mockResolvedValue(null);
+    vi.mocked(renderPhotoMotionClip).mockResolvedValue("https://fal.example/photo-motion.mp4");
+    vi.mocked(getMusicTrackUrl).mockRejectedValue(new Error("musikk nede"));
+    vi.mocked(uploadUserFile).mockResolvedValue({ key: "k", publicUrl: "https://cdn.example/users/u1/videos/reel.mp4" });
+    const { client } = fakeSupabase(reelPost);
+
+    const result = await renderReelForPost(client, "p1");
+
+    expect(result.status).toBe("ready");
+    expect(consumeVideoCredit).not.toHaveBeenCalled();
+  });
+
+  it("markerer videoen som feilet når heller ikke bildeanimasjonen lykkes", async () => {
+    vi.mocked(getVideoBalance).mockResolvedValue({ balance: 0, totalPurchased: 0 });
+    vi.mocked(renderPhotoMotionClip).mockRejectedValue(new Error("fal nede"));
     const { client, updates } = fakeSupabase(reelPost);
 
     const result = await renderReelForPost(client, "p1");
@@ -132,7 +154,6 @@ describe("rendering av reel", () => {
     expect(result.status).toBe("failed");
     expect(updates.at(-1)).toEqual({ video_status: "failed" });
     expect(uploadUserFile).not.toHaveBeenCalled();
-    expect(consumeVideoCredit).not.toHaveBeenCalled();
   });
 
   it("bruker videoen uten lyd når musikken feiler", async () => {

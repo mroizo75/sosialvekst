@@ -24,14 +24,7 @@ import { getPostsPerWeekAllowance, requireActiveSubscription } from "@/lib/subsc
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { BrandContext, Product, SocialChannel, TopicWindow } from "@/lib/types";
-import {
-  getReelBudget,
-  reelColumns,
-  reelsAllowedFor,
-  reserveReel,
-  startReelRender,
-  type ReelBudget,
-} from "@/lib/video/renderReel";
+import { reelColumns, reelsAllowedFor, startReelRender } from "@/lib/video/renderReel";
 
 const generateSchema = z.object({
   postsPerWeek: z.number().int().min(1).max(7).default(3),
@@ -358,7 +351,6 @@ async function generateSingleSlot(
   mediaMode: "ai_only" | "hybrid" | "owned_only",
   brandContext: BrandContext | undefined,
   profile: PerformanceProfile | undefined,
-  reelBudget: ReelBudget,
   product: Product | undefined,
 ): Promise<boolean> {
   try {
@@ -368,9 +360,8 @@ async function generateSingleSlot(
       channel: slot.channel,
       postsPerWeek: slot.postsPerWeek,
       hasCustomerStories: (brandContext?.customerSuccessStories?.length ?? 0) > 0,
-      reelsAllowed: reelsAllowedFor(mediaMode, reelBudget),
+      reelsAllowed: reelsAllowedFor(mediaMode),
     }, profile);
-    reserveReel(reelBudget, strategy.mediaFormat);
 
     const timeoutMs = strategy.mediaFormat === "reel"
       ? POST_GENERATION_TIMEOUT_MS.instagram
@@ -445,10 +436,9 @@ async function processSlots(
   product?: Product,
 ) {
   const supabase = createSupabaseAdminClient();
-  const [slots, profiles, reelBudget] = await Promise.all([
+  const [slots, profiles] = await Promise.all([
     assignAngles(plannedSlots, topicWindows, brandContext),
     loadProfilesSafely(supabase, { userId, workspaceId }, plannedSlots.map((slot) => slot.channel), timeZoneForCountry(countryCode)),
-    getReelBudget({ userId, workspaceId }, supabase),
   ]);
   let succeeded = 0;
   let completed = 0;
@@ -461,7 +451,7 @@ async function processSlots(
     console.log(`[generate] Batch ${batchLabel} (${batch.map((s) => s.channel).join(", ")})`);
 
     const results = await Promise.allSettled(
-      batch.map((slot) => generateSingleSlot(supabase, userId, workspaceId, slot, mediaMode, brandContext, profiles.get(slot.channel), reelBudget, product)),
+      batch.map((slot) => generateSingleSlot(supabase, userId, workspaceId, slot, mediaMode, brandContext, profiles.get(slot.channel), product)),
     );
 
     for (const result of results) {

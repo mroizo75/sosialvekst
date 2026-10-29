@@ -13,8 +13,9 @@ import {
 import { deleteFilesByUrls, uploadUserFile } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import type { GenerationMeta, MediaFormat, MediaMode, PostDraft, ReelVoice, VideoStatus } from "@/lib/types";
+import type { GenerationMeta, MediaMode, PostDraft, ReelVoice, VideoStatus } from "@/lib/types";
 import { chooseMood, getMusicTrackUrl } from "@/lib/video/musicLibrary";
+import { renderPhotoMotionClip } from "@/lib/video/photoReel";
 import { consumeVideoCredit, getVideoBalance, type CreditOwner } from "@/lib/videoCredits";
 
 export const REEL_DURATION_SECONDS = 10;
@@ -40,32 +41,9 @@ export type ReelRenderResult = { status: VideoStatus | "skipped"; videoUrl?: str
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-export const reelsAllowedFor = (mediaMode: MediaMode, budget: ReelBudget): boolean =>
-  isFalAvailable() && mediaMode !== "owned_only" && budget.remaining > 0;
-
-export type ReelBudget = { remaining: number };
-
-// Credits not already reserved by reels still being rendered, so a plan never queues more reels than the user paid for.
-export const getReelBudget = async (
-  owner: CreditOwner,
-  supabase: SupabaseClient = createSupabaseAdminClient(),
-): Promise<ReelBudget> => {
-  const [{ balance }, pending] = await Promise.all([
-    getVideoBalance(owner, supabase),
-    supabase
-      .from("posts")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", owner.userId)
-      .eq("workspace_id", owner.workspaceId)
-      .eq("video_status", "pending"),
-  ]);
-  const reserved = pending.error ? 0 : pending.count ?? 0;
-  return { remaining: Math.max(0, balance - reserved) };
-};
-
-export const reserveReel = (budget: ReelBudget, mediaFormat: MediaFormat): void => {
-  if (mediaFormat === "reel") budget.remaining = Math.max(0, budget.remaining - 1);
-};
+// Reels no longer depend on video credits: without credits the reel is animated from the photo instead.
+export const reelsAllowedFor = (mediaMode: MediaMode): boolean =>
+  isFalAvailable() && mediaMode !== "owned_only";
 
 export const reelColumns = (post: Pick<PostDraft, "reelSourceUrl">) => ({
   reel_source_url: post.reelSourceUrl ?? null,
@@ -185,6 +163,31 @@ const markNoCredits = async (supabase: SupabaseClient, post: ReelPostRow): Promi
   return { status: "no_credits", reason: "ingen videokreditter" };
 };
 
+type ReelClip = { url: string; paid: boolean };
+
+const hasVideoCredits = async (supabase: SupabaseClient, owner: CreditOwner | null): Promise<boolean> =>
+  owner !== null && (await getVideoBalance(owner, supabase)).balance > 0;
+
+const createClip = async (
+  supabase: SupabaseClient,
+  post: ReelPostRow,
+  sourceUrl: string,
+  owner: CreditOwner | null,
+): Promise<ReelClip> => {
+  if (await hasVideoCredits(supabase, owner)) {
+    const clip = await generateKlingVideo({
+      prompt: buildReelMotionPrompt(post.generation_meta),
+      imageUrl: sourceUrl,
+      duration: REEL_DURATION_SECONDS,
+      aspectRatio: "9:16",
+      generateAudio: false,
+    });
+    if (clip?.url) return { url: clip.url, paid: true };
+    logger.warn("AI-video leverte ikke, lager reel fra bildet", { postId: post.id });
+  }
+  return { url: await renderPhotoMotionClip(post.user_id, sourceUrl, REEL_DURATION_SECONDS), paid: false };
+};
+
 export const renderReelForPost = async (supabase: SupabaseClient, postId: string): Promise<ReelRenderResult> => {
   const { data, error } = await supabase
     .from("posts")
@@ -196,39 +199,32 @@ export const renderReelForPost = async (supabase: SupabaseClient, postId: string
   const post = data as ReelPostRow | null;
   if (!post?.reel_source_url) return { status: "skipped", reason: "ingen reel-kilde" };
   if (post.status === "published") return { status: "skipped", reason: "allerede publisert" };
-  if (!post.workspace_id) return await markNoCredits(supabase, post);
-  const owner: CreditOwner = { userId: post.user_id, workspaceId: post.workspace_id };
+  const sourceUrl = post.reel_source_url;
+  const owner: CreditOwner | null = post.workspace_id ? { userId: post.user_id, workspaceId: post.workspace_id } : null;
 
   const t0 = Date.now();
   try {
     if (!isFalAvailable()) throw new Error("FAL_KEY mangler, kan ikke lage video.");
-    if ((await getVideoBalance(owner, supabase)).balance <= 0) {
-      return await markNoCredits(supabase, post);
-    }
-    const clip = await generateKlingVideo({
-      prompt: buildReelMotionPrompt(post.generation_meta),
-      imageUrl: post.reel_source_url,
-      duration: REEL_DURATION_SECONDS,
-      aspectRatio: "9:16",
-      generateAudio: false,
-    });
-    if (!clip?.url) throw new Error("Videogeneratoren returnerte ingen video.");
+    const clip = await createClip(supabase, post, sourceUrl, owner);
 
     const withAudio = await addAudio(clip.url, post.generation_meta, postId);
     const finished = await addOverlay(withAudio.url, post.generation_meta, postId);
     const videoUrl = await storeVideo(post.user_id, finished);
-    try {
-      await consumeVideoCredit(owner, `Reel for post ${postId}`, supabase);
-    } catch (creditError) {
-      await deleteFilesByUrls([videoUrl]).catch((deleteError: unknown) => {
-        logger.warn("Kunne ikke slette ubetalt reel", { postId, error: errorText(deleteError) });
-      });
-      if (isCreditsExhausted(creditError)) return await markNoCredits(supabase, post);
-      throw creditError;
+    if (clip.paid && owner) {
+      try {
+        await consumeVideoCredit(owner, `Reel for post ${postId}`, supabase);
+      } catch (creditError) {
+        await deleteFilesByUrls([videoUrl]).catch((deleteError: unknown) => {
+          logger.warn("Kunne ikke slette ubetalt reel", { postId, error: errorText(deleteError) });
+        });
+        if (isCreditsExhausted(creditError)) return await markNoCredits(supabase, post);
+        throw creditError;
+      }
     }
     await setVideoState(supabase, post, { video_status: "ready", video_url: videoUrl });
     logger.info("Reel ferdig", {
       postId,
+      motion: clip.paid ? "ai_video" : "photo",
       audio: withAudio.audio,
       withOverlay: finished !== withAudio.url,
       durationMs: Date.now() - t0,

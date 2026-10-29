@@ -8,7 +8,9 @@ import { toSafeReturnPath } from "@/lib/returnPath";
 const OAUTH_STATE_COOKIE = "social_oauth_state_linkedin";
 const RETURN_PATH_COOKIE = "social_oauth_return_path_linkedin";
 
-const PERSONAL_SCOPES = ["openid", "profile", "email", "w_member_social"];
+// Apps created before August 1, 2026 are rejected by LinkedIn when they request the
+// OpenID scopes (openid, profile, email). The legacy scopes are the ones that work.
+const PERSONAL_SCOPES = ["r_liteprofile", "r_emailaddress", "w_member_social"];
 
 export async function GET(request: Request) {
   await requireUserId();

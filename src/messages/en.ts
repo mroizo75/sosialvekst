@@ -568,7 +568,7 @@ export const en: NbDictionary = {
       linkedin_callback_failed: "Something went wrong. Try again.",
       linkedin_cancelled: "You cancelled LinkedIn login. Try again.",
       linkedin_scope_denied:
-        "LinkedIn denied access. The LinkedIn app must have the \u201cSign In with LinkedIn using OpenID Connect\u201d and \u201cShare on LinkedIn\u201d products enabled.",
+        "LinkedIn denied access. The LinkedIn app must have the \u201cSign In with LinkedIn\u201d and \u201cShare on LinkedIn\u201d products enabled.",
       tiktok_connected: "TikTok is now connected!",
       tiktok_auth_denied: "You cancelled TikTok login. Try again.",
       tiktok_invalid_state: "Something went wrong with TikTok login. Try again.",
@@ -699,7 +699,7 @@ export const en: NbDictionary = {
     regenerateVideo: "Create video again",
     regeneratingVideo: "Starting new video…",
     reelNoCredits: "No video credit",
-    reelNoCreditsHint: "This post was meant to be a reel, but you have no video credits. It will be published as an image. Buy credits and create the video.",
+    reelNoCreditsHint: "This post was meant to be a reel, but the video wasn\u2019t created. Click \u201cCreate video\u201d to animate the photo without using credits.",
     videoCreditsLeft: "You have {count} video credits left",
     reelPack10: "10 reels",
     reelPack10Price: "NOK 99",

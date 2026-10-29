@@ -415,6 +415,19 @@ export const mixVoiceOverMusic = async (input: VoiceMixInput): Promise<string> =
   return result.video_url;
 };
 
+export type VideoFrame = { url: string; frames: number };
+
+export const imagesToVideo = async (images: VideoFrame[], fps: number): Promise<string> => {
+  if (images.length === 0) throw new Error("Ingen bilder å lage video av.");
+  const result = await falFetchQueued<{ video?: { url?: string } }>("fal-ai/ffmpeg-api/images-to-video", {
+    images,
+    fps,
+  });
+  const url = result.video?.url;
+  if (!url) throw new Error("fal.ai images-to-video returnerte ingen video.");
+  return url;
+};
+
 // The overlay is a single full-frame GIF; with shortest=false ffmpeg holds its frame for the whole video.
 export const overlayOnVideo = async (videoUrl: string, overlayGifUrl: string): Promise<string> => {
   const result = await falFetchQueued<{ video?: { url?: string } }>("fal-ai/workflow-utilities/overlay-video", {
