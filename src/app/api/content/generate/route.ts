@@ -13,8 +13,7 @@ import { productTopic } from "@/lib/products/productPrompt";
 import { requireProduct } from "@/lib/products/repository";
 import {
   addCalendarDays,
-  audienceHoursForCountry,
-  minuteForChannel,
+  postingTimeFor,
   mondayOf,
   scheduleInTimeZone,
   timeZoneForCountry,
@@ -35,6 +34,12 @@ const generateSchema = z.object({
   startDate: z.string().datetime().optional(),
   postingDays: z.array(z.number().int().min(0).max(6)).optional(),
   postingHours: z.array(z.number().int().min(0).max(23)).optional(),
+  postingSchedule: z.array(z.object({
+    day: z.number().int().min(0).max(6),
+    channel: z.enum(["facebook", "instagram", "linkedin", "tiktok"]),
+    hour: z.number().int().min(0).max(23),
+    minute: z.number().int().min(0).max(59),
+  })).optional(),
   topicWindows: z
     .array(
       z.object({
@@ -52,11 +57,6 @@ const defaultPostingDayOffsets = [0, 2, 4];
 const getTopicForWeek = (week: number, windows: TopicWindow[], brandContext?: BrandContext): string => {
   const match = windows.find((w) => week >= w.startWeek && week <= w.endWeek);
   return match?.topic ?? fallbackAngle(brandContext);
-};
-
-const getHour = (countryCode: string, index: number): number => {
-  const hours = audienceHoursForCountry(countryCode);
-  return hours[index % hours.length];
 };
 
 const getPostingDayOffsets = (postsPerWeek: number, customDays?: number[]): number[] => {
@@ -115,6 +115,7 @@ const buildSlots = (
   customDays?: number[],
   customHours?: number[],
   brandContext?: BrandContext,
+  postingSchedule?: Array<{ day: number; channel: SocialChannel; hour: number; minute: number }>,
 ): PlaceholderSlot[] => {
   const slots: PlaceholderSlot[] = [];
   const now = new Date();
@@ -135,18 +136,20 @@ const buildSlots = (
       if (slots.length >= targetTotal) break;
 
       const dayOffset = dayOffsets[dayIndex];
-      const hour = customHours && customHours[dayIndex] !== undefined
-        ? customHours[dayIndex]
-        : getHour(countryCode, dayIndex);
 
       for (const channel of channels) {
         if (slots.length >= targetTotal) break;
+        const chosen = postingSchedule?.find((item) => item.day === dayOffset && item.channel === channel);
+        const fallback = customHours?.[dayIndex] !== undefined
+          ? { hour: customHours[dayIndex], minute: 0 }
+          : postingTimeFor(countryCode, channel, dayIndex);
+        const time = chosen ?? fallback;
         const scheduledAt = scheduleInTimeZone({
           timeZone,
           anchor: weekAnchor,
           dayOffset,
-          hour,
-          minute: minuteForChannel(channel),
+          hour: time.hour,
+          minute: time.minute,
         });
         if (new Date(scheduledAt).getTime() < earliestAllowed.getTime()) continue;
 
@@ -230,6 +233,7 @@ export async function POST(request: Request) {
       payload.postingDays,
       payload.postingHours,
       brandContext,
+      payload.postingSchedule,
     );
 
     const placeholderRows = slots.map((slot) => ({

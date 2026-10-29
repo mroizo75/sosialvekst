@@ -7,18 +7,61 @@ const COUNTRY_TIME_ZONE: Record<string, string> = {
   US: "America/New_York",
 };
 
-export const AUDIENCE_HOURS: Record<string, number[]> = {
-  NO: [19, 20, 15],
-  SE: [19, 20, 15],
-  DK: [19, 20, 15],
-  US: [19, 20, 15],
+export type PostingTime = { hour: number; minute: number };
+
+// Local clock time, on the hour. Norway, Sweden and Denmark share the Nordic workday.
+// US times are Eastern. The minute the user sets is posted as-is, with no channel offset.
+const NORDIC_TIMES: Record<SocialChannel, PostingTime[]> = {
+  linkedin: [
+    { hour: 8, minute: 0 },
+    { hour: 12, minute: 0 },
+    { hour: 9, minute: 0 },
+  ],
+  instagram: [
+    { hour: 19, minute: 0 },
+    { hour: 15, minute: 0 },
+    { hour: 20, minute: 0 },
+  ],
+  facebook: [
+    { hour: 12, minute: 0 },
+    { hour: 8, minute: 0 },
+    { hour: 18, minute: 0 },
+  ],
+  tiktok: [
+    { hour: 19, minute: 0 },
+    { hour: 16, minute: 0 },
+    { hour: 20, minute: 0 },
+  ],
 };
 
-const CHANNEL_MINUTE: Record<SocialChannel, number> = {
-  facebook: 0,
-  instagram: 25,
-  linkedin: 45,
-  tiktok: 15,
+const US_TIMES: Record<SocialChannel, PostingTime[]> = {
+  linkedin: [
+    { hour: 9, minute: 0 },
+    { hour: 12, minute: 0 },
+    { hour: 8, minute: 0 },
+  ],
+  instagram: [
+    { hour: 11, minute: 0 },
+    { hour: 19, minute: 0 },
+    { hour: 13, minute: 0 },
+  ],
+  facebook: [
+    { hour: 9, minute: 0 },
+    { hour: 13, minute: 0 },
+    { hour: 11, minute: 0 },
+  ],
+  tiktok: [
+    { hour: 19, minute: 0 },
+    { hour: 16, minute: 0 },
+    { hour: 21, minute: 0 },
+  ],
+};
+
+const COUNTRY_TIMES: Record<string, Record<SocialChannel, PostingTime[]>> = {
+  NO: NORDIC_TIMES,
+  SE: NORDIC_TIMES,
+  DK: NORDIC_TIMES,
+  US: US_TIMES,
 };
 
 const WEEKDAY_INDEX: Record<string, number> = {
@@ -40,11 +83,11 @@ export type CalendarDate = {
 export const timeZoneForCountry = (countryCode: string): string =>
   COUNTRY_TIME_ZONE[countryCode.toUpperCase()] ?? "Europe/Oslo";
 
-export const audienceHoursForCountry = (countryCode: string): number[] =>
-  AUDIENCE_HOURS[countryCode.toUpperCase()] ?? AUDIENCE_HOURS.NO;
-
-export const minuteForChannel = (channel: SocialChannel): number =>
-  CHANNEL_MINUTE[channel];
+export const postingTimeFor = (countryCode: string, channel: SocialChannel, index: number): PostingTime => {
+  const table = COUNTRY_TIMES[countryCode.toUpperCase()] ?? NORDIC_TIMES;
+  const times = table[channel];
+  return times[index % times.length];
+};
 
 const readPart = (parts: Intl.DateTimeFormatPart[], type: Intl.DateTimeFormatPartTypes): number =>
   Number(parts.find((item) => item.type === type)?.value ?? "0");

@@ -396,11 +396,12 @@ export const DashboardPanel = () => {
           totalWeeks: config.totalWeeks,
           channels: config.channels,
           mediaMode: config.mediaMode,
-          countryCode: "NO",
+          countryCode: config.countryCode,
           topicWindows: config.topicWindows,
           startDate: config.startDate,
           postingDays: config.postingDays,
           postingHours: config.postingHours,
+          postingSchedule: config.postingSchedule,
           productId: config.productId,
         }),
       });

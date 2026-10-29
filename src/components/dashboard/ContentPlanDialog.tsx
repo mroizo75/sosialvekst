@@ -6,6 +6,7 @@ import { useProducts } from "@/components/products/useProducts";
 import { Button } from "@/components/ui/Button";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { Checkbox } from "@/components/ui/Input";
+import { postingTimeFor, type PostingTime } from "@/lib/schedule/audienceTime";
 import { cn } from "@/lib/utils";
 import type { MediaMode, SocialChannel, TopicWindow } from "@/lib/types";
 
@@ -14,8 +15,7 @@ type DayConfig = {
   label: string;
   shortLabel: string;
   enabled: boolean;
-  hour: number;
-  minute: number;
+  channelTimes: Partial<Record<SocialChannel, PostingTime>>;
 };
 
 type ContentPlanDialogProps = {
@@ -35,31 +35,28 @@ export type GenerateConfig = {
   channels: SocialChannel[];
   postingDays: number[];
   postingHours: number[];
+  postingSchedule: Array<{ day: number; channel: SocialChannel; hour: number; minute: number }>;
+  countryCode: string;
   startDate?: string;
   topicWindows: TopicWindow[];
   mediaMode: MediaMode;
   productId?: string;
 };
 
-const RECOMMENDED_HOURS: Record<number, number> = {
-  0: 19,
-  1: 15,
-  2: 20,
-  3: 19,
-  4: 15,
-  5: 20,
-  6: 20,
+const CHANNEL_LABEL: Record<SocialChannel, string> = {
+  facebook: "Facebook",
+  instagram: "Instagram",
+  linkedin: "LinkedIn",
+  tiktok: "TikTok",
 };
 
-const INITIAL_DAYS: DayConfig[] = [
-  { dayOffset: 0, label: "", shortLabel: "", enabled: true, hour: RECOMMENDED_HOURS[0], minute: 0 },
-  { dayOffset: 1, label: "", shortLabel: "", enabled: false, hour: RECOMMENDED_HOURS[1], minute: 0 },
-  { dayOffset: 2, label: "", shortLabel: "", enabled: true, hour: RECOMMENDED_HOURS[2], minute: 0 },
-  { dayOffset: 3, label: "", shortLabel: "", enabled: false, hour: RECOMMENDED_HOURS[3], minute: 0 },
-  { dayOffset: 4, label: "", shortLabel: "", enabled: true, hour: RECOMMENDED_HOURS[4], minute: 0 },
-  { dayOffset: 5, label: "", shortLabel: "", enabled: false, hour: RECOMMENDED_HOURS[5], minute: 0 },
-  { dayOffset: 6, label: "", shortLabel: "", enabled: false, hour: RECOMMENDED_HOURS[6], minute: 0 },
-];
+const INITIAL_DAYS: DayConfig[] = [0, 1, 2, 3, 4, 5, 6].map((dayOffset) => ({
+  dayOffset,
+  label: "",
+  shortLabel: "",
+  enabled: dayOffset === 0 || dayOffset === 2 || dayOffset === 4,
+  channelTimes: {},
+}));
 
 const dayAfterDate = (isoDate: string): string => {
   const date = new Date(isoDate);
@@ -149,6 +146,7 @@ export const ContentPlanDialog = ({
   const [totalWeeks, setTotalWeeks] = useState(4);
   const [selectedChannels, setSelectedChannels] = useState<SocialChannel[]>(connectedChannels);
 
+  const [countryCode, setCountryCode] = useState("NO");
   const [focusTopic, setFocusTopic] = useState("");
   const [focusProduct, setFocusProduct] = useState("");
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
@@ -164,9 +162,10 @@ export const ContentPlanDialog = ({
       try {
         const res = await fetch("/api/onboarding/load");
         if (!res.ok) return;
-        const data = (await res.json()) as { products?: string[]; services?: string[] };
+        const data = (await res.json()) as { products?: string[]; services?: string[]; countryCode?: string };
         setAvailableProducts(data.products ?? []);
         setAvailableServices(data.services ?? []);
+        if (data.countryCode) setCountryCode(data.countryCode.toUpperCase());
       } catch { /* ignorer */ }
     };
     const loadLearnedHours = async () => {
@@ -229,21 +228,20 @@ export const ContentPlanDialog = ({
     );
   };
 
-  const updateTime = (dayOffset: number, timeStr: string) => {
-    const { hour, minute } = parseTimeString(timeStr);
+  const timeFor = (day: DayConfig, channel: SocialChannel, index: number): PostingTime =>
+    day.channelTimes[channel] ?? postingTimeFor(countryCode, channel, index);
+
+  const updateTime = (dayOffset: number, channel: SocialChannel, timeStr: string) => {
+    const time = parseTimeString(timeStr);
     setDays((prev) =>
-      prev.map((d) => (d.dayOffset === dayOffset ? { ...d, hour, minute } : d)),
+      prev.map((d) => (d.dayOffset === dayOffset
+        ? { ...d, channelTimes: { ...d.channelTimes, [channel]: time } }
+        : d)),
     );
   };
 
   const resetToRecommended = () => {
-    setDays((prev) =>
-      prev.map((d) => ({
-        ...d,
-        hour: RECOMMENDED_HOURS[d.dayOffset] ?? 11,
-        minute: 0,
-      })),
-    );
+    setDays((prev) => prev.map((d) => ({ ...d, channelTimes: {} })));
   };
 
   const applyLearnedHours = () => {
@@ -253,7 +251,9 @@ export const ContentPlanDialog = ({
       return prev.map((d) => {
         const position = enabledOffsets.indexOf(d.dayOffset);
         if (position < 0) return d;
-        return { ...d, hour: learnedHours[position % learnedHours.length], minute: 0 };
+        const time = { hour: learnedHours[position % learnedHours.length], minute: 0 };
+        const channelTimes = Object.fromEntries(selectedChannels.map((channel) => [channel, time]));
+        return { ...d, channelTimes };
       });
     });
   };
@@ -270,7 +270,12 @@ export const ContentPlanDialog = ({
 
   const handleGenerate = () => {
     const postingDays = enabledDays.map((d) => d.dayOffset);
-    const postingHours = enabledDays.map((d) => d.hour);
+    const postingSchedule = enabledDays.flatMap((day, index) => selectedChannels.map((channel) => ({
+      day: day.dayOffset,
+      channel,
+      ...timeFor(day, channel, index),
+    })));
+    const postingHours = enabledDays.map((day, index) => timeFor(day, selectedChannels[0] ?? "instagram", index).hour);
 
     const weeks = fillMode === "fill" ? fillWeeks : totalWeeks;
 
@@ -294,6 +299,8 @@ export const ContentPlanDialog = ({
       channels: selectedChannels,
       postingDays,
       postingHours,
+      postingSchedule,
+      countryCode,
       startDate,
       topicWindows,
       mediaMode,
@@ -503,21 +510,34 @@ export const ContentPlanDialog = ({
                 {cp.reset}
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-              {days.filter((d) => d.enabled).map((day) => (
-                <div key={day.dayOffset} className="flex items-center gap-1.5 rounded-lg border border-border px-2 py-1.5">
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+              {enabledDays.map((day, index) => (
+                <div key={day.dayOffset} className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border px-2 py-1.5">
                   <span className="text-xs font-medium text-foreground w-7">{cp.dayShortLabels[day.dayOffset]}</span>
-                  <input
-                    type="time"
-                    value={formatHourMinute(day.hour, day.minute)}
-                    onChange={(e) => updateTime(day.dayOffset, e.target.value)}
-                    className="h-6 flex-1 min-w-0 rounded border-0 bg-transparent text-xs focus-visible:outline-none"
-                  />
+                  {selectedChannels.map((channel) => {
+                    const time = timeFor(day, channel, index);
+                    return (
+                      <label key={channel} className="flex items-center gap-1">
+                        {selectedChannels.length > 1 && (
+                          <span className="text-[10px] text-muted-foreground">{CHANNEL_LABEL[channel]}</span>
+                        )}
+                        <input
+                          type="time"
+                          value={formatHourMinute(time.hour, time.minute)}
+                          onChange={(e) => updateTime(day.dayOffset, channel, e.target.value)}
+                          className="h-6 w-[4.5rem] rounded border-0 bg-transparent text-xs focus-visible:outline-none"
+                        />
+                      </label>
+                    );
+                  })}
                 </div>
               ))}
             </div>
             <p className="text-[10px] text-muted-foreground">
-              {cp.recommended}: {enabledDays.map((d) => `${cp.dayShortLabels[d.dayOffset]} ${formatHourMinute(RECOMMENDED_HOURS[d.dayOffset] ?? 11, 0)}`).join(", ")}
+              {cp.recommended}: {selectedChannels.map((channel) => {
+                const time = postingTimeFor(countryCode, channel, 0);
+                return `${CHANNEL_LABEL[channel]} ${formatHourMinute(time.hour, time.minute)}`;
+              }).join(", ")}
             </p>
             {learnedHours.length > 0 && (
               <div className="flex items-center justify-between gap-2 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1.5">

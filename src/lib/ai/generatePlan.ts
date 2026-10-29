@@ -5,9 +5,8 @@ import { logger } from "@/lib/logger";
 import { getOpenAiClient } from "@/lib/openai";
 import {
   addCalendarDays,
-  audienceHoursForCountry,
-  minuteForChannel,
   mondayOf,
+  postingTimeFor,
   scheduleInTimeZone,
   timeZoneForCountry,
 } from "@/lib/schedule/audienceTime";
@@ -163,11 +162,6 @@ export const planAngles = async (
 const openingSentence = (text: string): string =>
   text.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s/)[0]?.trim() ?? "";
 
-const getHour = (countryCode: string, index: number): number => {
-  const hours = audienceHoursForCountry(countryCode);
-  return hours[index % hours.length];
-};
-
 const getPostingDayOffsets = (postsPerWeek: number): number[] => {
   if (postsPerWeek <= defaultPostingDayOffsets.length) {
     return defaultPostingDayOffsets.slice(0, postsPerWeek);
@@ -193,7 +187,6 @@ export const generatePlan = async (input: GeneratePlanInput): Promise<GeneratePl
 
     for (let dayIndex = 0; dayIndex < postingDayOffsets.length; dayIndex += 1) {
       const dayOffset = postingDayOffsets[dayIndex];
-      const hour = getHour(input.countryCode, dayIndex);
       const dayPlan = input.channels.map((channel) => {
         const angle = weekAngles[angleIndex] ?? { angle: weekTopic };
         angleIndex += 1;
@@ -202,12 +195,13 @@ export const generatePlan = async (input: GeneratePlanInput): Promise<GeneratePl
       const avoidRepeating = used.slice(-5);
       const generatedForDay = await Promise.all(
         dayPlan.map(({ channel, angle }) => {
+          const time = postingTimeFor(input.countryCode, channel, dayIndex);
           const scheduledAt = scheduleInTimeZone({
             timeZone,
             anchor: weekAnchor,
             dayOffset,
-            hour,
-            minute: minuteForChannel(channel),
+            hour: time.hour,
+            minute: time.minute,
           });
           const strategy = assignPostStrategy({
             weekIndex: week,

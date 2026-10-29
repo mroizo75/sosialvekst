@@ -15,9 +15,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireWorkspaceId } from "@/lib/workspace";
 import {
   addCalendarDays,
-  audienceHoursForCountry,
-  minuteForChannel,
   mondayOf,
+  postingTimeFor,
   scheduleInTimeZone,
   timeZoneForCountry,
 } from "@/lib/schedule/audienceTime";
@@ -201,7 +200,6 @@ export async function POST() {
     const dayOffsets = [0, 2, 4];
     const countryCode = String((planData as { country_code?: string } | null)?.country_code ?? "NO");
     const timeZone = timeZoneForCountry(countryCode);
-    const bestHours = audienceHoursForCountry(countryCode);
 
     const newSlots: Slot[] = [];
     const targetTotal = postsPerWeek * totalWeeks * channelSet.length;
@@ -215,12 +213,13 @@ export async function POST() {
 
         for (const channel of channelSet) {
           if (newSlots.length >= targetTotal) break;
+          const time = postingTimeFor(countryCode, channel, dayIndex);
           const scheduledAt = scheduleInTimeZone({
             timeZone,
             anchor: weekAnchor,
             dayOffset: dayOffsets[dayIndex],
-            hour: bestHours[dayIndex] ?? bestHours[0],
-            minute: minuteForChannel(channel),
+            hour: time.hour,
+            minute: time.minute,
           });
           if (new Date(scheduledAt).getTime() <= now.getTime()) continue;
 
