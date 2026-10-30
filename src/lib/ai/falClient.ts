@@ -294,7 +294,7 @@ export const generateTextToVideo = async (
   }
 };
 
-/* ─── Kling v3 Pro: bilde til video med lyd ─── */
+/* ─── Kling 2.5 Turbo Pro: bilde til video. Raskere enn v3 Pro, og bildet er allerede 9:16. ─── */
 
 export type KlingV3Input = {
   prompt: string;
@@ -312,13 +312,13 @@ export const generateKlingVideo = async (
 
   try {
     const result = await falFetchQueued<{ video?: FalVideoResult }>(
-      "fal-ai/kling-video/v3/pro/image-to-video",
+      "fal-ai/kling-video/v2.5-turbo/pro/image-to-video",
       {
         prompt: input.prompt,
         image_url: input.imageUrl,
         duration: String(input.duration ?? 5),
-        aspect_ratio: input.aspectRatio ?? "16:9",
-        generate_audio: input.generateAudio ?? true,
+        negative_prompt: "blur, distort, low quality, text, captions, logo, watermark",
+        cfg_scale: 0.5,
       },
       onProgress,
     );
