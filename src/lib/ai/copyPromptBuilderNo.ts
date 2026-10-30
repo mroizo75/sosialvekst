@@ -204,6 +204,40 @@ const buildStandardUserPrompt = (
   return lines;
 };
 
+const buildLinkedInUserPrompt = (
+  input: CopyPromptInput,
+  companyName: string,
+  pillar: ContentPillar,
+): string[] => [
+  `Skriv et LinkedIn-innlegg i jeg-form. Tema: ${input.topic}.`,
+  `Du jobber i ${companyName}. Nevn bedriften én gang, naturlig. Aldri som en annonse.`,
+  "",
+  "MÅLGRUPPE: daglig leder, fagansvarlig eller den som eier området i en bedrift.",
+  "",
+  "SØYLE:",
+  PILLAR_INSTRUCTIONS[pillar],
+  "",
+  "STRUKTUR:",
+  "1. Første linje er en skarp påstand fra faget. Ikke et spørsmål. Ikke «Slik ser … ut i praksis».",
+  "2. Ett avsnitt om hva du ser gå galt når bedrifter prøver å løse det.",
+  "3. To til fire konkrete grep leseren kan bruke neste uke. Bare det bedriften faktisk kan stå for.",
+  "4. Avslutt med ett spørsmål om hvordan de løser det hos seg.",
+  "",
+  `CTA-RETNING: ${input.ctaType ?? "Hvordan løser dere dette i dag?"}`,
+  "",
+  "IKKE SKRIV:",
+  "- «verdt å se nærmere på», «før du bestemmer deg» eller «Hvilken ville du valgt?»",
+  "- Oppdikta tall, kunder, sitater eller resultater.",
+  "- Motivasjonsfraser og forbrukerspråk.",
+  "",
+  "KRAV TIL OUTPUT:",
+  "- 80–160 ord.",
+  "- Korte avsnitt. Ingen emoji-lister.",
+  "- 0–3 bransjetags til slutt, eller ingen.",
+  "- Lever kun innlegget.",
+  ...performanceLines(input.performanceNotes),
+];
+
 const buildTikTokUserPrompt = (
   input: CopyPromptInput,
   companyName: string,
@@ -258,8 +292,12 @@ export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredProm
   const brandDosAndDonts = brandContext.brandDosAndDonts?.trim();
   const isTikTok = input.channel === "tiktok";
 
+  const isLinkedIn = input.channel === "linkedin";
+
   const systemLines = [
-    "Du er en norsk SoMe-redaktør. Du lager innhold folk vil lese ferdig eller svare på.",
+    isLinkedIn
+      ? "Du skriver LinkedIn-innlegg som en fagperson med ansvar for faget. Leseren er en leder som kjenner området. Innlegget skal tåle at en kollega i bransjen leser det."
+      : "Du er en norsk SoMe-redaktør. Du lager innhold folk vil lese ferdig eller svare på.",
     "Du lager ikke annonser som forklarer en tjeneste.",
     "",
     "REGLER:",
@@ -286,9 +324,11 @@ export const buildNorwegianCopyPrompt = (input: CopyPromptInput): StructuredProm
     includeWebsite ? buildSystemContext(brandContext) : limitedBrandContext(brandContext),
   ];
 
-  const userLines = isTikTok
-    ? buildTikTokUserPrompt(input, companyName, intent, format, pillar)
-    : buildStandardUserPrompt(input, companyName, websiteUrl, intent, format, pillar);
+  const userLines = isLinkedIn
+    ? buildLinkedInUserPrompt(input, companyName, pillar)
+    : isTikTok
+      ? buildTikTokUserPrompt(input, companyName, intent, format, pillar)
+      : buildStandardUserPrompt(input, companyName, websiteUrl, intent, format, pillar);
 
   return {
     system: systemLines.join("\n"),

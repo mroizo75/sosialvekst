@@ -10,7 +10,7 @@ import {
   normalizeLoudness,
   overlayOnVideo,
 } from "@/lib/ai/falClient";
-import { deleteFilesByUrls, uploadUserFile } from "@/lib/cloudflare/r2";
+import { uploadUserFile } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { GenerationMeta, MediaMode, PostDraft, ReelVoice, VideoStatus } from "@/lib/types";
@@ -157,12 +157,6 @@ const storeVideo = async (userId: string, sourceUrl: string): Promise<string> =>
 const isCreditsExhausted = (error: unknown): boolean =>
   (error as { code?: string } | null)?.code === "VIDEO_CREDITS_EXHAUSTED";
 
-const markNoCredits = async (supabase: SupabaseClient, post: ReelPostRow): Promise<ReelRenderResult> => {
-  await setVideoState(supabase, post, { video_status: "no_credits" });
-  logger.info("Reel hoppet over, ingen videokreditter", { postId: post.id, userId: post.user_id });
-  return { status: "no_credits", reason: "ingen videokreditter" };
-};
-
 type ReelClip = { url: string; paid: boolean };
 
 const hasVideoCredits = async (supabase: SupabaseClient, owner: CreditOwner | null): Promise<boolean> =>
@@ -174,17 +168,15 @@ const createClip = async (
   sourceUrl: string,
   owner: CreditOwner | null,
 ): Promise<ReelClip> => {
-  if (await hasVideoCredits(supabase, owner)) {
-    const clip = await generateKlingVideo({
-      prompt: buildReelMotionPrompt(post.generation_meta),
-      imageUrl: sourceUrl,
-      duration: REEL_DURATION_SECONDS,
-      aspectRatio: "9:16",
-      generateAudio: false,
-    });
-    if (clip?.url) return { url: clip.url, paid: true };
-    logger.warn("AI-video leverte ikke, lager reel fra bildet", { postId: post.id });
-  }
+  const clip = await generateKlingVideo({
+    prompt: buildReelMotionPrompt(post.generation_meta),
+    imageUrl: sourceUrl,
+    duration: REEL_DURATION_SECONDS,
+    aspectRatio: "9:16",
+    generateAudio: false,
+  });
+  if (clip?.url) return { url: clip.url, paid: await hasVideoCredits(supabase, owner) };
+  logger.warn("AI-video leverte ikke, lager reel fra bildet", { postId: post.id });
   return { url: await renderPhotoMotionClip(post.user_id, sourceUrl, REEL_DURATION_SECONDS), paid: false };
 };
 
@@ -214,11 +206,8 @@ export const renderReelForPost = async (supabase: SupabaseClient, postId: string
       try {
         await consumeVideoCredit(owner, `Reel for post ${postId}`, supabase);
       } catch (creditError) {
-        await deleteFilesByUrls([videoUrl]).catch((deleteError: unknown) => {
-          logger.warn("Kunne ikke slette ubetalt reel", { postId, error: errorText(deleteError) });
-        });
-        if (isCreditsExhausted(creditError)) return await markNoCredits(supabase, post);
-        throw creditError;
+        if (!isCreditsExhausted(creditError)) throw creditError;
+        logger.warn("Reel beholdt, videokreditten var brukt opp da den skulle trekkes", { postId });
       }
     }
     await setVideoState(supabase, post, { video_status: "ready", video_url: videoUrl });

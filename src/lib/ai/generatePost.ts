@@ -1,4 +1,5 @@
 import { buildNorwegianCopyPrompt, type CopyVisual } from "@/lib/ai/copyPromptBuilderNo";
+import { linkedInFallbackText } from "@/lib/ai/linkedinCopy";
 import { autoFixCopy, findCopyIssues } from "@/lib/ai/validateCopy";
 import { mergeBrandRules } from "@/lib/ai/brandRules";
 import { describeMediaUrl, generateProfessionalImage, overlayLogoOnImage } from "@/lib/ai/imageGeneration";
@@ -136,13 +137,19 @@ const ownedImageCache = new Map<string, CachedOwnedImages>();
 const ownedImageCycle = new Map<string, OwnedImageCycle>();
 const hybridSourceToggle = new Map<string, boolean>();
 
-const fallbackText = (topic: string): string => {
-  return `${topic}?\n\nHer er det verdt å se nærmere på før du bestemmer deg.\n\nHvilken ville du valgt?`;
+const fallbackText = (input: GeneratePostInput): string => {
+  if (input.channel === "linkedin") {
+    return linkedInFallbackText(input.topic, {
+      companyName: input.brandContext?.companyName,
+      industry: input.brandContext?.industry,
+    });
+  }
+  return `${input.topic}?\n\nHer er det verdt å se nærmere på før du bestemmer deg.\n\nHvilken ville du valgt?`;
 };
 
 const getMaxOutputTokens = (channel: SocialChannel): number => {
   if (channel === "facebook") return 700;
-  if (channel === "linkedin") return 520;
+  if (channel === "linkedin") return 900;
   if (channel === "tiktok") return 120;
   return 520;
 };
@@ -1281,7 +1288,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
 
   const fallbackCaption = socialDesign?.mode === "guide" && socialDesign.cards.length > 0
     ? composeGuideCaption(socialDesign)
-    : fallbackText(input.topic);
+    : fallbackText(input);
   const visual = socialDesign
     ? buildCopyVisual(brief, socialDesign)
     : brief.placeName

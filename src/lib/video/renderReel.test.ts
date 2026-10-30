@@ -98,9 +98,9 @@ describe("rendering av reel", () => {
     expect(overlayOnVideo).not.toHaveBeenCalled();
   });
 
-  it("animerer bildet uten kreditt når saldoen er tom", async () => {
+  it("lager AI-video også når bedriften ikke har videokreditter", async () => {
     vi.mocked(getVideoBalance).mockResolvedValue({ balance: 0, totalPurchased: 10 });
-    vi.mocked(renderPhotoMotionClip).mockResolvedValue("https://fal.example/photo-motion.mp4");
+    vi.mocked(generateKlingVideo).mockResolvedValue({ url: "https://fal.example/clip.mp4" });
     vi.mocked(getMusicTrackUrl).mockResolvedValue("https://cdn.example/shared/music/v1/beach-1.mp3");
     vi.mocked(mergeAudioVideo).mockResolvedValue("https://fal.example/merged.mp4");
     vi.mocked(uploadUserFile).mockResolvedValue({ key: "k", publicUrl: "https://cdn.example/users/u1/videos/reel.mp4" });
@@ -109,14 +109,13 @@ describe("rendering av reel", () => {
     const result = await renderReelForPost(client, "p1");
 
     expect(result.status).toBe("ready");
-    expect(generateKlingVideo).not.toHaveBeenCalled();
-    expect(renderPhotoMotionClip).toHaveBeenCalledWith("u1", reelPost.reel_source_url, 10);
-    expect(mergeAudioVideo).toHaveBeenCalledWith("https://fal.example/photo-motion.mp4", "https://cdn.example/shared/music/v1/beach-1.mp3");
+    expect(generateKlingVideo).toHaveBeenCalledTimes(1);
+    expect(renderPhotoMotionClip).not.toHaveBeenCalled();
     expect(consumeVideoCredit).not.toHaveBeenCalled();
     expect(updates.at(-1)).toEqual({ video_status: "ready", video_url: "https://cdn.example/users/u1/videos/reel.mp4" });
   });
 
-  it("forkaster videoen når kreditten er brukt opp før den ble ferdig", async () => {
+  it("beholder AI-videoen når kreditten er brukt opp før den ble trukket", async () => {
     vi.mocked(generateKlingVideo).mockResolvedValue({ url: "https://fal.example/clip.mp4" });
     vi.mocked(getMusicTrackUrl).mockResolvedValue("https://cdn.example/shared/music/v1/beach-1.mp3");
     vi.mocked(mergeAudioVideo).mockResolvedValue("https://fal.example/merged.mp4");
@@ -126,9 +125,9 @@ describe("rendering av reel", () => {
 
     const result = await renderReelForPost(client, "p1");
 
-    expect(result.status).toBe("no_credits");
-    expect(deleteFilesByUrls).toHaveBeenCalledWith(["https://cdn.example/users/u1/videos/reel.mp4"]);
-    expect(updates.at(-1)).toEqual({ video_status: "no_credits" });
+    expect(result.status).toBe("ready");
+    expect(deleteFilesByUrls).not.toHaveBeenCalled();
+    expect(updates.at(-1)).toEqual({ video_status: "ready", video_url: "https://cdn.example/users/u1/videos/reel.mp4" });
   });
 
   it("lager reelen fra bildet uten å trekke kreditt når AI-videoen ikke leverer", async () => {
