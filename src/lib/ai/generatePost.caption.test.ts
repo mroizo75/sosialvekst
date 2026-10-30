@@ -64,6 +64,14 @@ describe("fotokreditering", () => {
     expect(replaceCreditLine("Ny tekst.", ["Foto: Ada, CC BY 2.0"])).toBe("Ny tekst.\n\nFoto: Ada, CC BY 2.0");
   });
 
+  it("fjerner oppdiktet fotograf-plassholder", () => {
+    const text = "Ansvaret må være tydelig.\n\nFotograf: [sett inn fotografnavn]\n\nHva stopper hos dere?";
+
+    expect(stripCreditLines(text)).toBe("Ansvaret må være tydelig.\n\nHva stopper hos dere?");
+    expect(stripCreditLines("Fagtekst.\n\nFotokreditt: Fotograf settes inn her.")).toBe("Fagtekst.");
+    expect(replaceCreditLine(text, [])).toBe("Ansvaret må være tydelig.\n\nHva stopper hos dere?");
+  });
+
   it("fjerner kreditt modellen har diktet opp midt i teksten", () => {
     const text = "Se hva som finnes.\n\nFoto: iStock.\n\nhttps://www.sydenklar.no/";
 

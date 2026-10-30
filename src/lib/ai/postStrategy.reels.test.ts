@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest";
 import { assignPostStrategy, chooseMediaFormat, pinnedFromMeta } from "@/lib/ai/postStrategy";
 
 describe("valg av reel eller bilde", () => {
-  it("gjør to av tre Instagram- og Facebook-poster til reels og alltid reel på TikTok", () => {
+  it("gjør alle Instagram- og Facebook-poster til reels når videokreditt finnes, og LinkedIn til bilde", () => {
     const instagram = Array.from({ length: 9 }, (_, index) => chooseMediaFormat("instagram", index, true));
     const facebook = Array.from({ length: 9 }, (_, index) => chooseMediaFormat("facebook", index, true));
     const tiktok = Array.from({ length: 4 }, (_, index) => chooseMediaFormat("tiktok", index, true));
 
-    expect(instagram.filter((format) => format === "reel")).toHaveLength(6);
-    expect(facebook.filter((format) => format === "reel")).toHaveLength(6);
+    expect(instagram.every((format) => format === "reel")).toBe(true);
+    expect(facebook.every((format) => format === "reel")).toBe(true);
     expect(tiktok.every((format) => format === "reel")).toBe(true);
     expect(chooseMediaFormat("linkedin", 2, true)).toBe("image");
   });

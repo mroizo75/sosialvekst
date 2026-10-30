@@ -129,7 +129,7 @@ const visualLines = (visual?: CopyVisual): string[] => {
     `Overlay-tittel: ${visual.overlayTitle}`,
     `Overlay-undertekst: ${visual.overlaySubline}`,
     ...slideLines(visual.slides),
-    "Ikke skriv fotografkreditt. Den settes inn etter hashtags.",
+    "Ikke skriv fotograf, foto eller noen kreditering. Ikke skriv klammer som [sett inn fotografnavn].",
     "Nevn stedet hvis det finnes. Beskriv bare det bildene viser. Ikke motsi tittelen eller underteksten.",
     "",
   ];
@@ -228,6 +228,7 @@ const buildLinkedInUserPrompt = (
   "IKKE SKRIV:",
   "- «verdt å se nærmere på», «før du bestemmer deg» eller «Hvilken ville du valgt?»",
   "- Oppdikta tall, kunder, sitater eller resultater.",
+  "- «Fotograf:», «Foto:» og plassholdere som [sett inn fotografnavn].",
   "- Motivasjonsfraser og forbrukerspråk.",
   "",
   "KRAV TIL OUTPUT:",

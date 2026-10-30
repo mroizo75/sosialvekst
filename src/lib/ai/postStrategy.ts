@@ -51,23 +51,20 @@ export type PostStrategyResult = {
   mediaFormat: MediaFormat;
 };
 
-const IMAGE_EVERY = 3;
-
 const MEDIA_FORMATS: Record<MediaFormat, true> = { reel: true, image: true };
 
-// Meta shows reels to non-followers and feed images mostly to existing followers,
-// so reels drive growth and every third slot stays an image for the followers.
+// Facebook and Instagram show reels to people who do not follow the page.
+// When video credits exist, those channels are reels. LinkedIn stays a still image.
 export const chooseMediaFormat = (
   channel: SocialChannel,
-  feedIndex: number,
+  _feedIndex: number,
   reelsAllowed: boolean,
   pinned?: MediaFormat,
 ): MediaFormat => {
   if (!reelsAllowed) return "image";
   if (pinned) return pinned;
-  if (channel === "tiktok") return "reel";
   if (channel === "linkedin") return "image";
-  return (feedIndex + channelOffset(channel)) % IMAGE_EVERY === 0 ? "image" : "reel";
+  return "reel";
 };
 
 const PILLAR_CYCLE: ContentPillar[] = [

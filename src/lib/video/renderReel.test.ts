@@ -86,6 +86,8 @@ describe("rendering av reel", () => {
     const result = await renderReelForPost(client, "p1");
 
     expect(result).toEqual({ status: "ready", videoUrl: "https://cdn.example/users/u1/videos/reel.mp4" });
+    expect(vi.mocked(generateKlingVideo).mock.calls[0]?.[0]?.prompt).toContain("Kretas beste strender");
+    expect(vi.mocked(generateKlingVideo).mock.calls[0]?.[0]?.prompt).not.toContain("travel");
     expect(vi.mocked(generateKlingVideo).mock.calls[0]?.[0]).toMatchObject({
       duration: 10,
       aspectRatio: "9:16",
@@ -130,29 +132,16 @@ describe("rendering av reel", () => {
     expect(updates.at(-1)).toEqual({ video_status: "ready", video_url: "https://cdn.example/users/u1/videos/reel.mp4" });
   });
 
-  it("lager reelen fra bildet uten å trekke kreditt når AI-videoen ikke leverer", async () => {
+  it("markerer videoen som feilet når fal.ai ikke leverer, uten bilde og musikk", async () => {
     vi.mocked(generateKlingVideo).mockResolvedValue(null);
-    vi.mocked(renderPhotoMotionClip).mockResolvedValue("https://fal.example/photo-motion.mp4");
-    vi.mocked(getMusicTrackUrl).mockRejectedValue(new Error("musikk nede"));
-    vi.mocked(uploadUserFile).mockResolvedValue({ key: "k", publicUrl: "https://cdn.example/users/u1/videos/reel.mp4" });
-    const { client } = fakeSupabase(reelPost);
-
-    const result = await renderReelForPost(client, "p1");
-
-    expect(result.status).toBe("ready");
-    expect(consumeVideoCredit).not.toHaveBeenCalled();
-  });
-
-  it("markerer videoen som feilet når heller ikke bildeanimasjonen lykkes", async () => {
-    vi.mocked(getVideoBalance).mockResolvedValue({ balance: 0, totalPurchased: 0 });
-    vi.mocked(renderPhotoMotionClip).mockRejectedValue(new Error("fal nede"));
     const { client, updates } = fakeSupabase(reelPost);
 
     const result = await renderReelForPost(client, "p1");
 
     expect(result.status).toBe("failed");
+    expect(renderPhotoMotionClip).not.toHaveBeenCalled();
+    expect(consumeVideoCredit).not.toHaveBeenCalled();
     expect(updates.at(-1)).toEqual({ video_status: "failed" });
-    expect(uploadUserFile).not.toHaveBeenCalled();
   });
 
   it("bruker videoen uten lyd når musikken feiler", async () => {

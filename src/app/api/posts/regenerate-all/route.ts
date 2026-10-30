@@ -21,7 +21,7 @@ import {
   timeZoneForCountry,
 } from "@/lib/schedule/audienceTime";
 import type { BrandContext, Product, SocialChannel, TopicWindow } from "@/lib/types";
-import { reelColumns, reelsAllowedFor, startReelRender } from "@/lib/video/renderReel";
+import { getReelBudget, reelColumns, reelsAllowedFor, reserveReel, startReelRender } from "@/lib/video/renderReel";
 
 const DEFAULT_POSTS_PER_WEEK = 3;
 const DEFAULT_TOTAL_WEEKS = 4;
@@ -334,6 +334,7 @@ async function regenerateSlots(
   product?: Product,
 ) {
   const admin = createSupabaseAdminClient();
+  const budget = await getReelBudget({ userId, workspaceId }, admin);
   let completed = 0;
 
   for (const slot of slots) {
@@ -345,8 +346,9 @@ async function regenerateSlots(
         dayIndex: slot.dayIndex,
         channel: slot.channel,
         hasCustomerStories: (brandContext?.customerSuccessStories?.length ?? 0) > 0,
-        reelsAllowed: reelsAllowedFor(mediaMode),
+        reelsAllowed: reelsAllowedFor(mediaMode, budget),
       });
+      reserveReel(budget, strategy.mediaFormat);
 
       const post = await generatePost({
         userId,

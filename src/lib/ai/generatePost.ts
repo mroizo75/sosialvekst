@@ -246,9 +246,14 @@ export type CaptionAssembly = {
   order?: string;
 };
 
-const CREDIT_PREFIX = /^(?:foto|bilde|photo)\s*:\s*/i;
+const CREDIT_PREFIX = /^(?:foto|fotograf|fotokreditt|fotokreditering|bilde|photo|photographer)\s*[:.]/i;
+const PLACEHOLDER_CREDIT = /\[(?:sett inn|insert|your |ditt |navngitt )[^\]]{0,80}\]|settes inn|hvis ønskelig/i;
 
-const isCreditLine = (line: string): boolean => CREDIT_PREFIX.test(line.trim());
+const isCreditLine = (line: string): boolean => {
+  const trimmed = line.trim();
+  if (CREDIT_PREFIX.test(trimmed)) return true;
+  return /fotograf/i.test(trimmed) && PLACEHOLDER_CREDIT.test(trimmed);
+};
 
 export const creditLineFromRecords = (records: Array<string | null | undefined>): string => {
   const items = [...new Set(
@@ -1342,7 +1347,7 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
   const creditedText = assembleCaption({
     body: revision.finalText,
     link: input.product ? websiteUrl : input.includeWebsiteLink ? websiteUrl : undefined,
-    credits: credits || undefined,
+    credits: input.channel === "linkedin" ? undefined : credits || undefined,
     order: input.product ? productOrderBlock(input.product, input.channel) : undefined,
   });
   const decision = evaluatePolicy({

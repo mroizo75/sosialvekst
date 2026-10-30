@@ -13,9 +13,8 @@ import {
 import { uploadUserFile } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import type { GenerationMeta, MediaMode, PostDraft, ReelVoice, VideoStatus } from "@/lib/types";
+import type { GenerationMeta, MediaFormat, MediaMode, PostDraft, ReelVoice, VideoStatus } from "@/lib/types";
 import { chooseMood, getMusicTrackUrl } from "@/lib/video/musicLibrary";
-import { renderPhotoMotionClip } from "@/lib/video/photoReel";
 import { consumeVideoCredit, getVideoBalance, type CreditOwner } from "@/lib/videoCredits";
 
 export const REEL_DURATION_SECONDS = 10;
@@ -41,9 +40,33 @@ export type ReelRenderResult = { status: VideoStatus | "skipped"; videoUrl?: str
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-// Reels no longer depend on video credits: without credits the reel is animated from the photo instead.
-export const reelsAllowedFor = (mediaMode: MediaMode): boolean =>
-  isFalAvailable() && mediaMode !== "owned_only";
+export type ReelBudget = { remaining: number };
+
+// Pending renders already hold a credit, so a new plan must not spend the same credit twice.
+export const getReelBudget = async (
+  owner: CreditOwner,
+  supabase: SupabaseClient = createSupabaseAdminClient(),
+): Promise<ReelBudget> => {
+  const [{ balance }, pending] = await Promise.all([
+    getVideoBalance(owner, supabase),
+    supabase
+      .from("posts")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", owner.userId)
+      .eq("workspace_id", owner.workspaceId)
+      .eq("video_status", "pending"),
+  ]);
+  const reserved = pending.error ? 0 : pending.count ?? 0;
+  return { remaining: Math.max(0, balance - reserved) };
+};
+
+export const reserveReel = (budget: ReelBudget, mediaFormat: MediaFormat): void => {
+  if (mediaFormat === "reel") budget.remaining = Math.max(0, budget.remaining - 1);
+};
+
+// Facebook and Instagram become reels only when a video credit is free and fal.ai can render it.
+export const reelsAllowedFor = (mediaMode: MediaMode, budget: ReelBudget): boolean =>
+  mediaMode !== "owned_only" && budget.remaining > 0 && isFalAvailable();
 
 export const reelColumns = (post: Pick<PostDraft, "reelSourceUrl">) => ({
   reel_source_url: post.reelSourceUrl ?? null,
@@ -53,10 +76,13 @@ export const reelColumns = (post: Pick<PostDraft, "reelSourceUrl">) => ({
 export const buildReelMotionPrompt = (meta: GenerationMeta | null): string => {
   const subject = [meta?.coverTitle, meta?.topic].filter(Boolean).join(" – ");
   return [
-    subject ? `Cinematic travel-style footage based on this photo: ${subject}.` : "Cinematic footage based on this photo.",
-    "Slow, smooth camera push-in with gentle parallax and natural movement in water, clouds, leaves or people.",
-    "Keep the scene and composition faithful to the photo. Warm natural light, steady motion.",
-    "No text, no captions, no logos, no watermarks.",
+    subject
+      ? `A 10-second social reel that brings this still to life: ${subject}.`
+      : "A 10-second social reel that brings this still to life.",
+    "One clear subject, readable in the first second. Slow push-in, a little natural motion in people, hands, product, fabric, light or the background.",
+    "Keep every person, product and place identical to the photo. Do not redesign, restyle or add new objects.",
+    "Leave the top-left and the lower third clear. Title and logo are added afterwards.",
+    "No generated text, captions, logos, watermarks or letterboxing.",
   ].join(" ");
 };
 
@@ -176,8 +202,7 @@ const createClip = async (
     generateAudio: false,
   });
   if (clip?.url) return { url: clip.url, paid: await hasVideoCredits(supabase, owner) };
-  logger.warn("AI-video leverte ikke, lager reel fra bildet", { postId: post.id });
-  return { url: await renderPhotoMotionClip(post.user_id, sourceUrl, REEL_DURATION_SECONDS), paid: false };
+  throw new Error("fal.ai leverte ingen video.");
 };
 
 export const renderReelForPost = async (supabase: SupabaseClient, postId: string): Promise<ReelRenderResult> => {
@@ -213,7 +238,7 @@ export const renderReelForPost = async (supabase: SupabaseClient, postId: string
     await setVideoState(supabase, post, { video_status: "ready", video_url: videoUrl });
     logger.info("Reel ferdig", {
       postId,
-      motion: clip.paid ? "ai_video" : "photo",
+      motion: "ai_video",
       audio: withAudio.audio,
       withOverlay: finished !== withAudio.url,
       durationMs: Date.now() - t0,

@@ -42,5 +42,6 @@ describe("LinkedIn-prompt", () => {
     expect(prompt.user).toContain("Hvordan løser dere dette i dag?");
     expect(prompt.user.toLowerCase()).toContain("hvilken ville du valgt");
     expect(prompt.user).toContain("IKKE SKRIV");
+    expect(prompt.user).toContain("[sett inn fotografnavn]");
   });
 });

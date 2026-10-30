@@ -18,7 +18,7 @@ import { timeZoneForCountry } from "@/lib/schedule/audienceTime";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { GenerationMeta, GenerationStep, TopicWindow } from "@/lib/types";
-import { queueReelRender, reelColumns, reelsAllowedFor, startReelRender } from "@/lib/video/renderReel";
+import { getReelBudget, queueReelRender, reelColumns, reelsAllowedFor, reserveReel, startReelRender } from "@/lib/video/renderReel";
 
 const REGENERATE_TIMEOUT_MS = 180_000;
 
@@ -394,6 +394,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         timeZoneForCountry("NO"),
       );
       const profile = profiles.get(post.channel);
+      const budget = await getReelBudget({ userId, workspaceId });
       const strategy = assignPostStrategy({
         weekIndex: 0,
         dayIndex: 0,
@@ -403,8 +404,9 @@ export async function PATCH(request: Request, context: RouteContext) {
           : scheduled.getUTCDate() + scheduled.getUTCMonth() * 3,
         hasCustomerStories: (brandContext?.customerSuccessStories?.length ?? 0) > 0,
         pinned: source ? pinnedFromMeta(source.meta) : undefined,
-        reelsAllowed: reelsAllowedFor(mediaMode),
+        reelsAllowed: reelsAllowedFor(mediaMode, budget),
       }, profile);
+      reserveReel(budget, strategy.mediaFormat);
       const performanceNotes = [
         ...(source ? [moreLikeThisNote(source.meta)] : []),
         ...profilePromptLines(profile),
