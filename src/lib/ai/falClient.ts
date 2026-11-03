@@ -65,6 +65,7 @@ const falFetchQueued = async <T>(
   endpointId: string,
   input: Record<string, unknown>,
   onProgress?: FalProgressCallback,
+  maxWaitMs = FAL_QUEUE_MAX_WAIT_MS,
 ): Promise<T> => {
   const apiKey = getFalKey();
   if (!apiKey) {
@@ -115,7 +116,7 @@ const falFetchQueued = async <T>(
     statusUrl: statusBase,
   });
 
-  while (Date.now() - startTime < FAL_QUEUE_MAX_WAIT_MS) {
+  while (Date.now() - startTime < maxWaitMs) {
     await new Promise((resolve) => setTimeout(resolve, pollInterval));
     pollInterval = Math.min(pollInterval * 1.5, FAL_QUEUE_MAX_POLL_MS);
     pollCount += 1;
@@ -138,7 +139,7 @@ const falFetchQueued = async <T>(
     };
 
     const elapsedMs = Date.now() - startTime;
-    const elapsedPercent = Math.min(85, 10 + Math.floor((elapsedMs / FAL_QUEUE_MAX_WAIT_MS) * 75));
+    const elapsedPercent = Math.min(85, 10 + Math.floor((elapsedMs / maxWaitMs) * 75));
 
     if (statusData.status === "IN_QUEUE") {
       const queueMsg = statusData.queue_position != null
@@ -180,7 +181,7 @@ const falFetchQueued = async <T>(
     }
   }
 
-  throw new Error(`fal.ai ${endpointId} timeout etter ${FAL_QUEUE_MAX_WAIT_MS / 1000}s.`);
+  throw new Error(`fal.ai ${endpointId} timeout etter ${maxWaitMs / 1000}s.`);
 };
 
 export const generateProductPhotography = async (
@@ -332,6 +333,58 @@ export const generateKlingVideo = async (
   }
 };
 
+/* ─── Wan 3.0: bilde til video med klippliste. Følger tidsstemplede klipp og holder personer like. ─── */
+
+export type WanResolution = "480p" | "720p" | "1080p";
+
+export const WAN_IMAGE_TO_VIDEO = "alibaba/wan-3.0/image-to-video";
+// Wan 3.0 often takes 3-5 minutes, and longer with thinking on.
+const WAN_MAX_WAIT_MS = 900_000;
+
+export const resolveReelResolution = (envValue = process.env.REEL_RESOLUTION): WanResolution =>
+  envValue === "480p" || envValue === "1080p" ? envValue : "720p";
+
+export type ReelVideoModel = "wan3" | "kling25";
+
+export const resolveReelVideoModel = (envValue = process.env.REEL_VIDEO_MODEL): ReelVideoModel =>
+  envValue?.trim() === "kling25" ? "kling25" : "wan3";
+
+export type WanVideoInput = {
+  prompt: string;
+  imageUrl: string;
+  durationSeconds: number;
+  aspectRatio?: "9:16" | "1:1" | "16:9";
+  resolution?: WanResolution;
+  audio?: boolean;
+  thinking?: boolean;
+};
+
+export const wanVideoPayload = (input: WanVideoInput): Record<string, unknown> => ({
+  prompt: input.prompt,
+  start_image_url: input.imageUrl,
+  duration: Math.min(30, Math.max(2, Math.round(input.durationSeconds))),
+  aspect_ratio: input.aspectRatio ?? "9:16",
+  resolution: input.resolution ?? resolveReelResolution(),
+  audio: input.audio ?? false,
+  enable_prompt_expansion: true,
+  enable_thinking: input.thinking ?? process.env.REEL_WAN_THINKING === "true",
+});
+
+// Throws instead of returning null so the caller can log why and fall back to another model.
+export const generateWanVideo = async (
+  input: WanVideoInput,
+  onProgress?: FalProgressCallback,
+): Promise<FalVideoResult> => {
+  const result = await falFetchQueued<{ video?: FalVideoResult }>(
+    WAN_IMAGE_TO_VIDEO,
+    wanVideoPayload(input),
+    onProgress,
+    WAN_MAX_WAIT_MS,
+  );
+  if (!result.video?.url) throw new Error("fal.ai Wan 3.0 returnerte ingen video.");
+  return result.video;
+};
+
 /* ─── ElevenLabs Music og ffmpeg: lydspor til reels ─── */
 
 const MUSIC_MIN_MS = 3_000;
@@ -359,16 +412,32 @@ export const mergeAudioVideo = async (videoUrl: string, audioUrl: string): Promi
   return url;
 };
 
-export const generateSpeech = async (text: string, voice: string, speed = 1): Promise<string> => {
+export type SpeechModel = "eleven-v3" | "turbo-v2.5";
+
+// Multilingual v2 does not support Norwegian; v3 does and sounds far more natural than turbo.
+const SPEECH_ENDPOINTS: Record<SpeechModel, string> = {
+  "eleven-v3": "fal-ai/elevenlabs/tts/eleven-v3",
+  "turbo-v2.5": "fal-ai/elevenlabs/tts/turbo-v2.5",
+};
+
+export const speechPayload = (text: string, voice: string, model: SpeechModel, speed = 1): Record<string, unknown> =>
+  model === "eleven-v3"
+    ? { text, voice, language_code: "no", stability: 0.5 }
+    : { text, voice, language_code: "no", speed };
+
+export const generateSpeech = async (
+  text: string,
+  voice: string,
+  speed = 1,
+  model: SpeechModel = "turbo-v2.5",
+): Promise<string> => {
   if (!text.trim()) throw new Error("Taletekst mangler.");
-  const result = await falFetchQueued<{ audio?: { url?: string } }>("fal-ai/elevenlabs/tts/turbo-v2.5", {
-    text,
-    voice,
-    language_code: "no",
-    speed,
-  });
+  const result = await falFetchQueued<{ audio?: { url?: string } }>(
+    SPEECH_ENDPOINTS[model],
+    speechPayload(text, voice, model, speed),
+  );
   const url = result.audio?.url;
-  if (!url) throw new Error("fal.ai elevenlabs/tts returnerte ingen lydfil.");
+  if (!url) throw new Error(`fal.ai elevenlabs/${model} returnerte ingen lydfil.`);
   return url;
 };
 

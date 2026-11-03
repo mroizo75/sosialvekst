@@ -22,7 +22,7 @@ import { requireWorkspaceId } from "@/lib/workspace";
 import { getPostsPerWeekAllowance, requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { BrandContext, Product, SocialChannel, TopicWindow } from "@/lib/types";
+import type { BrandContext, Product, ReachGoal, SocialChannel, TopicWindow } from "@/lib/types";
 import { getReelBudget, reelColumns, reelsAllowedFor, reserveReel, startReelRender, type ReelBudget } from "@/lib/video/renderReel";
 
 const generateSchema = z.object({
@@ -30,6 +30,7 @@ const generateSchema = z.object({
   totalWeeks: z.number().int().min(1).max(12).default(4),
   channels: z.array(z.enum(["facebook", "instagram", "linkedin", "tiktok"])).min(1),
   mediaMode: z.enum(["ai_only", "hybrid", "owned_only"]).default("hybrid"),
+  reachGoal: z.enum(["growth", "balanced", "followers"]).default("growth"),
   countryCode: z.string().length(2).default("NO"),
   startDate: z.string().datetime().optional(),
   postingDays: z.array(z.number().int().min(0).max(6)).optional(),
@@ -221,6 +222,7 @@ export async function POST(request: Request) {
       topicWindows,
       channels: payload.channels,
       productId: product?.id,
+      reachGoal: payload.reachGoal,
     });
 
     const slots = buildSlots(
@@ -267,7 +269,7 @@ export async function POST(request: Request) {
       post_count: slots.length,
     });
 
-    void processSlots(userId, workspaceId, slots, payload.mediaMode, topicWindows, payload.countryCode, brandContext, product);
+    void processSlots(userId, workspaceId, slots, payload.mediaMode, payload.reachGoal, topicWindows, payload.countryCode, brandContext, product);
 
     const placeholderPosts = slots.map((s) => ({
       id: s.id,
@@ -357,6 +359,7 @@ async function generateSingleSlot(
   profile: PerformanceProfile | undefined,
   product: Product | undefined,
   budget: ReelBudget,
+  reachGoal: ReachGoal,
 ): Promise<boolean> {
   const strategy = assignPostStrategy({
       weekIndex: slot.weekIndex,
@@ -365,6 +368,7 @@ async function generateSingleSlot(
       postsPerWeek: slot.postsPerWeek,
       hasCustomerStories: (brandContext?.customerSuccessStories?.length ?? 0) > 0,
       reelsAllowed: reelsAllowedFor(mediaMode, budget),
+      reachGoal,
     }, profile);
     reserveReel(budget, strategy.mediaFormat);
 
@@ -437,6 +441,7 @@ async function processSlots(
   workspaceId: string,
   plannedSlots: PlaceholderSlot[],
   mediaMode: "ai_only" | "hybrid" | "owned_only",
+  reachGoal: ReachGoal,
   topicWindows: TopicWindow[],
   countryCode: string,
   brandContext?: BrandContext,
@@ -459,7 +464,7 @@ async function processSlots(
     console.log(`[generate] Batch ${batchLabel} (${batch.map((s) => s.channel).join(", ")})`);
 
     const results = await Promise.allSettled(
-      batch.map((slot) => generateSingleSlot(supabase, userId, workspaceId, slot, mediaMode, brandContext, profiles.get(slot.channel), product, budget)),
+      batch.map((slot) => generateSingleSlot(supabase, userId, workspaceId, slot, mediaMode, brandContext, profiles.get(slot.channel), product, budget, reachGoal)),
     );
 
     for (const result of results) {

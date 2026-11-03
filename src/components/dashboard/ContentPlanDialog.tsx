@@ -6,9 +6,10 @@ import { useProducts } from "@/components/products/useProducts";
 import { Button } from "@/components/ui/Button";
 import { useI18n } from "@/components/i18n/I18nProvider";
 import { Checkbox } from "@/components/ui/Input";
+import { plannedMix, REACH_GOALS } from "@/lib/ai/reachGoal";
 import { postingTimeFor, type PostingTime } from "@/lib/schedule/audienceTime";
 import { cn } from "@/lib/utils";
-import type { MediaMode, SocialChannel, TopicWindow } from "@/lib/types";
+import type { MediaMode, ReachGoal, SocialChannel, TopicWindow } from "@/lib/types";
 
 type DayConfig = {
   dayOffset: number;
@@ -27,6 +28,7 @@ type ContentPlanDialogProps = {
   loading: boolean;
   latestScheduledAt: string | null;
   savedMediaMode: MediaMode;
+  savedReachGoal: ReachGoal;
 };
 
 export type GenerateConfig = {
@@ -40,6 +42,7 @@ export type GenerateConfig = {
   startDate?: string;
   topicWindows: TopicWindow[];
   mediaMode: MediaMode;
+  reachGoal: ReachGoal;
   productId?: string;
 };
 
@@ -110,6 +113,7 @@ export const ContentPlanDialog = ({
   loading,
   latestScheduledAt,
   savedMediaMode,
+  savedReachGoal,
 }: ContentPlanDialogProps) => {
   const { dictionary } = useI18n();
   const cp = dictionary.contentPlan;
@@ -124,6 +128,8 @@ export const ContentPlanDialog = ({
   const defaultFill = hasExistingPlan && postsPerWeekAllowance > 3;
   const [fillMode, setFillMode] = useState<"new" | "fill">(defaultFill ? "fill" : "new");
   const [mediaMode, setMediaMode] = useState<MediaMode>(savedMediaMode);
+  const [reachGoal, setReachGoal] = useState<ReachGoal>(savedReachGoal);
+  const [videoCredits, setVideoCredits] = useState<number | null>(null);
 
   const [days, setDays] = useState<DayConfig[]>(() => {
     if (defaultFill) {
@@ -158,6 +164,16 @@ export const ContentPlanDialog = ({
   useEffect(() => {
     if (!open) return;
     setMediaMode(savedMediaMode);
+    setReachGoal(savedReachGoal);
+    const loadCredits = async () => {
+      try {
+        const res = await fetch("/api/video/balance");
+        if (!res.ok) return;
+        const data = (await res.json()) as { balance?: unknown };
+        setVideoCredits(typeof data.balance === "number" ? data.balance : null);
+      } catch { /* kreditter vises bare når de kan hentes */ }
+    };
+    void loadCredits();
     const load = async () => {
       try {
         const res = await fetch("/api/onboarding/load");
@@ -181,7 +197,7 @@ export const ContentPlanDialog = ({
     };
     void load();
     void loadLearnedHours();
-  }, [open, savedMediaMode]);
+  }, [open, savedMediaMode, savedReachGoal]);
 
   const fillWeeks = hasExistingPlan ? weeksUntil(latestScheduledAt) : 4;
 
@@ -304,6 +320,7 @@ export const ContentPlanDialog = ({
       startDate,
       topicWindows,
       mediaMode,
+      reachGoal,
       productId: selectedProductId ?? undefined,
     });
   };
@@ -333,6 +350,15 @@ export const ContentPlanDialog = ({
 
   const effectiveWeeks = fillMode === "fill" ? fillWeeks : totalWeeks;
   const totalPosts = postsPerWeek * effectiveWeeks * selectedChannels.length;
+  const mix = mediaMode === "owned_only"
+    ? { reels: 0, images: totalPosts }
+    : plannedMix(selectedChannels, postsPerWeek, effectiveWeeks, reachGoal);
+  const reelsWithoutCredit = videoCredits === null ? 0 : Math.max(0, mix.reels - videoCredits);
+  const goalText: Record<ReachGoal, { label: string; desc: string }> = {
+    growth: { label: cp.goalGrowth, desc: cp.goalGrowthDesc },
+    balanced: { label: cp.goalBalanced, desc: cp.goalBalancedDesc },
+    followers: { label: cp.goalFollowers, desc: cp.goalFollowersDesc },
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
@@ -453,6 +479,48 @@ export const ContentPlanDialog = ({
             <p className="text-[10px] text-muted-foreground">
               {cp.focusTopicHint}
             </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-foreground">{cp.goalTitle}</label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {REACH_GOALS.map((goal) => (
+                <button
+                  key={goal}
+                  type="button"
+                  onClick={() => setReachGoal(goal)}
+                  aria-pressed={reachGoal === goal}
+                  className={cn(
+                    "rounded-lg border px-2 py-2 text-left transition-colors",
+                    reachGoal === goal
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:bg-muted/40",
+                  )}
+                >
+                  <span className="block text-xs font-medium text-foreground">{goalText[goal].label}</span>
+                  <span className="block text-[10px] leading-tight text-muted-foreground">{goalText[goal].desc}</span>
+                </button>
+              ))}
+            </div>
+            <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 space-y-1">
+              <p className="text-xs text-foreground">
+                {cp.planMix
+                  .replace("{reels}", String(mix.reels))
+                  .replace("{images}", String(mix.images))}
+              </p>
+              {videoCredits !== null && mix.reels > 0 && (
+                <p className={cn("text-[11px]", reelsWithoutCredit > 0 ? "text-warning-foreground" : "text-muted-foreground")}>
+                  {reelsWithoutCredit > 0
+                    ? cp.planCreditsShort
+                      .replace("{credits}", String(videoCredits))
+                      .replace("{missing}", String(reelsWithoutCredit))
+                    : cp.planCreditsOk.replace("{credits}", String(videoCredits))}
+                </p>
+              )}
+              {mediaMode === "owned_only" && (
+                <p className="text-[11px] text-muted-foreground">{cp.planOwnedOnlyNoReels}</p>
+              )}
+            </div>
           </div>
 
           <div className="space-y-1.5">

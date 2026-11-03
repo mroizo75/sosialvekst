@@ -1,6 +1,6 @@
 import type { BrandContext } from "@/lib/types";
 
-export const MAX_VOICE_WORDS = 22;
+export const MAX_VOICE_WORDS = 28;
 const WEBSITE_EXCERPT_CHARS = 1500;
 const DOMAIN_PATTERN = /\b(?:https?:\/\/)?(?:www\.)?([a-z0-9æøå-]+(?:\.[a-z0-9æøå-]+)*)\.(no|com|net|org|se|dk|io|eu|nu)\b(?:\/\S*)?/gi;
 
@@ -66,7 +66,7 @@ export type VoiceScriptPromptInput = {
 export const buildVoiceScriptPrompt = ({ topic, caption, brandContext }: VoiceScriptPromptInput): { system: string; user: string } => {
   const domain = spokenDomain(brandContext?.websiteUrl);
   const system = [
-    "Du skriver en kort norsk speakertekst som leses opp over en 10 sekunders reel.",
+    "Du skriver en kort norsk speakertekst som leses opp over en reel på 10–15 sekunder.",
     `Maks ${MAX_VOICE_WORDS - 4} ord, helst 15–18. To eller tre korte setninger som er naturlige å si høyt.`,
     "Følg temaet for posten. Ikke selg hver gang: et tips eller en inspirasjon er like bra som et tilbud.",
     "Bruk bare fakta som står i bedriftsprofilen, nettsiden eller posten. Ikke dikt opp navn, priser, tilbud, tall eller garantier.",

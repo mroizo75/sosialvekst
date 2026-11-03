@@ -271,7 +271,9 @@ type PostAction =
   | "rewrite_topic"
   | "unlock"
   | "reject_and_regenerate"
-  | "regenerate_video";
+  | "regenerate_video"
+  | "make_reel"
+  | "make_image";
 
 const REEL_BADGE_STYLE: Record<VideoStatus, string> = {
   pending: "bg-primary/10 text-primary",
@@ -318,6 +320,7 @@ type DetailPanelProps = {
   onReject: (id: string) => void;
   onUnlock: (id: string) => void;
   onRegenerateVideo: (id: string) => void;
+  onSwitchFormat: (id: string, action: "make_reel" | "make_image") => void;
   onProductChange: (id: string, productId: string | null) => void;
   videoStatus?: VideoStatus;
   liveVideoUrl?: string;
@@ -511,6 +514,7 @@ const DetailPanel = ({
   onReject,
   onUnlock,
   onRegenerateVideo,
+  onSwitchFormat,
   onProductChange,
   videoStatus,
   liveVideoUrl,
@@ -537,6 +541,8 @@ const DetailPanel = ({
     post.additionalImageUrls ?? [],
   );
   const [topicDraft, setTopicDraft] = useState("");
+  const isReelPost = Boolean(videoStatus || post.videoUrl || post.reelSourceUrl || post.generationMeta?.mediaFormat === "reel");
+  const formatLocked = post.status === "approved" || post.status === "scheduled";
   const [showMediaPicker, setShowMediaPicker] = useState(false);
   const [pickerTarget, setPickerTarget] = useState<"primary" | "additional">("primary");
   const [carouselPreviewIndex, setCarouselPreviewIndex] = useState(0);
@@ -848,6 +854,38 @@ const DetailPanel = ({
                   <IconImage className="size-3.5 text-muted-foreground" />
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t("calendar.preview")}</p>
                 </div>
+                {(post.channel === "facebook" || post.channel === "instagram") && post.status !== "published" && (
+                  <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-foreground">{t("calendar.formatLabel")}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {t(isReelPost ? "calendar.formatReelHint" : "calendar.formatImageHint")}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 overflow-hidden rounded-md border border-border text-[11px] font-semibold">
+                      {(["make_reel", "make_image"] as const).map((switchAction) => {
+                        const active = switchAction === "make_reel" ? isReelPost : !isReelPost;
+                        return (
+                          <button
+                            key={switchAction}
+                            type="button"
+                            aria-pressed={active}
+                            onClick={() => { if (!active) onSwitchFormat(post.id, switchAction); }}
+                            disabled={processingAction !== null || formatLocked}
+                            className={cn(
+                              "px-2.5 py-1 transition-colors disabled:opacity-50 cursor-pointer",
+                              active ? "bg-primary text-primary-foreground" : "bg-transparent text-muted-foreground hover:bg-muted/40",
+                            )}
+                          >
+                            {processingAction === switchAction
+                              ? t("calendar.formatSwitching")
+                              : t(switchAction === "make_reel" ? "calendar.formatReel" : "calendar.formatImage")}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {videoStatus && videoStatus !== "ready" && (
                   <div className={cn(
                     "mb-2 flex flex-wrap items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs",
@@ -2236,6 +2274,7 @@ export const PostCalendar = () => {
             onReject={(id) => void updatePost(id, "reject_and_regenerate")}
             onUnlock={(id) => void updatePost(id, "unlock")}
             onRegenerateVideo={(id) => void updatePost(id, "regenerate_video")}
+            onSwitchFormat={(id, switchAction) => void updatePost(id, switchAction)}
             onProductChange={(id, productId) => void updatePost(id, "save", { productId })}
             videoStatus={posts.find((item) => item.id === selectedPost.id)?.videoStatus ?? selectedPost.videoStatus}
             liveVideoUrl={posts.find((item) => item.id === selectedPost.id)?.videoUrl}

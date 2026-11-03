@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { toAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { MediaMode, PostDraft, SocialChannel, TopicWindow, VideoStatus } from "@/lib/types";
+import type { MediaMode, PostDraft, ReachGoal, SocialChannel, TopicWindow, VideoStatus } from "@/lib/types";
 
 type DbPostRow = {
   id: string;
@@ -173,10 +173,11 @@ export const createContentPlan = async (input: {
   topicWindows: TopicWindow[];
   channels?: SocialChannel[];
   productId?: string;
+  reachGoal?: ReachGoal;
 }): Promise<string> => {
   const supabase = await createSupabaseServerClient();
 
-  const payloadWithChannels = {
+  const basePayload: Record<string, unknown> = {
     user_id: input.userId,
     workspace_id: input.workspaceId,
     posts_per_week: input.postsPerWeek,
@@ -187,6 +188,7 @@ export const createContentPlan = async (input: {
     channels: input.channels ?? ["facebook", "instagram", "linkedin", "tiktok"],
     ...(input.productId ? { product_id: input.productId } : {}),
   };
+  const payloadWithChannels = input.reachGoal ? { ...basePayload, reach_goal: input.reachGoal } : basePayload;
 
   let data: { id?: string } | null = null;
   let error: { message?: string } | null = null;
@@ -199,6 +201,13 @@ export const createContentPlan = async (input: {
 
   data = withChannels.data as { id?: string } | null;
   error = withChannels.error as { message?: string } | null;
+
+  // Until migration 032 has run, the plan is saved without the goal instead of failing.
+  if (error?.message?.toLowerCase().includes("reach_goal")) {
+    const retried = await supabase.from("content_plans").insert(basePayload).select("id").single();
+    data = retried.data as { id?: string } | null;
+    error = retried.error as { message?: string } | null;
+  }
 
   if (error?.message?.toLowerCase().includes("channels")) {
     const fallbackWithoutChannels = await supabase

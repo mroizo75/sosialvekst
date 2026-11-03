@@ -1,5 +1,6 @@
 import { pickWeighted, type PerformanceProfile } from "@/lib/metrics/learning";
-import type { GenerationMeta, MediaFormat, PostFormat, PostIntent, SocialChannel } from "@/lib/types";
+import { chooseMediaFormat } from "@/lib/ai/reachGoal";
+import type { GenerationMeta, MediaFormat, PostFormat, PostIntent, ReachGoal, SocialChannel } from "@/lib/types";
 
 export type ContentPillar = "inspiration" | "useful" | "commercial" | "trust";
 
@@ -29,6 +30,7 @@ type PostSlot = {
   hasCustomerStories?: boolean;
   pinned?: PinnedStrategy;
   reelsAllowed?: boolean;
+  reachGoal?: ReachGoal;
 };
 
 export type PinnedStrategy = {
@@ -53,19 +55,7 @@ export type PostStrategyResult = {
 
 const MEDIA_FORMATS: Record<MediaFormat, true> = { reel: true, image: true };
 
-// Facebook and Instagram show reels to people who do not follow the page.
-// When video credits exist, those channels are reels. LinkedIn stays a still image.
-export const chooseMediaFormat = (
-  channel: SocialChannel,
-  _feedIndex: number,
-  reelsAllowed: boolean,
-  pinned?: MediaFormat,
-): MediaFormat => {
-  if (!reelsAllowed) return "image";
-  if (pinned) return pinned;
-  if (channel === "linkedin") return "image";
-  return "reel";
-};
+export { chooseMediaFormat, DEFAULT_REACH_GOAL, plannedMediaFormat, REACH_GOALS, toReachGoal } from "@/lib/ai/reachGoal";
 
 const PILLAR_CYCLE: ContentPillar[] = [
   "inspiration",
@@ -224,7 +214,13 @@ export const assignPostStrategy = (
   const visualMotif = slot.pinned?.motif
     ?? MOTIF_CYCLE[(feedIndex + channelOffset(slot.channel)) % MOTIF_CYCLE.length];
   const ctaOptions = (slot.channel === "linkedin" ? LINKEDIN_CTA : PILLAR_CTA)[contentPillar];
-  const mediaFormat = chooseMediaFormat(slot.channel, feedIndex, slot.reelsAllowed ?? false, slot.pinned?.mediaFormat);
+  const mediaFormat = chooseMediaFormat(
+    slot.channel,
+    feedIndex,
+    slot.reelsAllowed ?? false,
+    slot.pinned?.mediaFormat,
+    slot.reachGoal,
+  );
   const reelScript = mediaFormat === "reel"
     || slot.channel === "tiktok"
     || (slot.channel === "instagram" && contentPillar === "inspiration");

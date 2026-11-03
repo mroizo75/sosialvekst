@@ -5,8 +5,9 @@ import { logger } from "@/lib/logger";
 export type MusicMood = "beach" | "city" | "nature" | "calm" | "upbeat";
 
 export const TRACKS_PER_MOOD = 3;
-export const TRACK_LENGTH_MS = 10_000;
-const LIBRARY_VERSION = "v1";
+// Long enough for the longest reel; v2 replaced the 10-second v1 tracks when reels grew to 15 seconds.
+export const TRACK_LENGTH_MS = 16_000;
+const LIBRARY_VERSION = "v2";
 
 const MOOD_PROMPTS: Record<MusicMood, string> = {
   beach: "Warm, sunny tropical house with soft marimba, light percussion and a relaxed summer groove. Instrumental, no vocals.",

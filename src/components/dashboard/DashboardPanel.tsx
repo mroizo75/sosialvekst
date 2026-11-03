@@ -8,7 +8,7 @@ import { useI18n } from "@/components/i18n/I18nProvider";
 import { useProducts } from "@/components/products/useProducts";
 import { Button } from "@/components/ui/Button";
 import { localeToPreferredLanguage } from "@/lib/i18n/config";
-import type { MediaMode, SocialChannel } from "@/lib/types";
+import type { MediaMode, ReachGoal, SocialChannel } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type OverviewResponse = {
@@ -23,6 +23,7 @@ type OverviewResponse = {
     latestScheduledAt: string | null;
   };
   mediaMode: MediaMode;
+  reachGoal?: ReachGoal;
   subscription: {
     active: boolean;
     status: string;
@@ -396,6 +397,7 @@ export const DashboardPanel = () => {
           totalWeeks: config.totalWeeks,
           channels: config.channels,
           mediaMode: config.mediaMode,
+          reachGoal: config.reachGoal,
           countryCode: config.countryCode,
           topicWindows: config.topicWindows,
           startDate: config.startDate,
@@ -940,6 +942,7 @@ export const DashboardPanel = () => {
         loading={planGenerating}
         latestScheduledAt={overview?.summary.latestScheduledAt ?? null}
         savedMediaMode={overview?.mediaMode ?? "hybrid"}
+        savedReachGoal={overview?.reachGoal ?? "growth"}
       />
     </div>
   );
