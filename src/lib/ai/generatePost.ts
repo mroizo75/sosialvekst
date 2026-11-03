@@ -226,7 +226,6 @@ export const ensureWebsiteLinkInText = (
   text: string,
   websiteUrl: string | undefined,
   includeWebsiteLink: boolean,
-  _pillar?: ContentPillar,
 ): string => {
   const hashed = splitHashtags(text);
   const bare = peelBareHashtagLines(hashed.body);

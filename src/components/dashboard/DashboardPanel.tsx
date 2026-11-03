@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 import { ContentPlanDialog } from "@/components/dashboard/ContentPlanDialog";
 import type { GenerateConfig } from "@/components/dashboard/ContentPlanDialog";
@@ -236,6 +236,11 @@ export const DashboardPanel = () => {
 
   const autoRecoveryTriggered = useRef(false);
 
+  // Reads the latest recoverPosts without making the polling effect restart on every render.
+  const recoverStuckPosts = useEffectEvent(() => {
+    void recoverPosts();
+  });
+
   useEffect(() => {
     const hasActiveWork =
       (recovery?.activelyGeneratingCount ?? 0) > 0 ||
@@ -258,7 +263,7 @@ export const DashboardPanel = () => {
       !recovering
     ) {
       autoRecoveryTriggered.current = true;
-      void recoverPosts();
+      recoverStuckPosts();
     }
 
     if ((recovery?.stuckCount ?? 0) === 0 && (recovery?.failedRecoverableCount ?? 0) === 0) {

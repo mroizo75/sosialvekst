@@ -395,7 +395,7 @@ const MediaPickerDialog = ({ onClose, onSelect }: MediaPickerDialogProps) => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [t]);
 
   const visibleFiles = useMemo(() => {
     if (filter === "all") return files;
@@ -635,7 +635,7 @@ const DetailPanel = ({
     return () => {
       cancelled = true;
     };
-  }, [post.id]);
+  }, [post.id, t]);
 
   useEffect(() => {
     const previousFocused = document.activeElement as HTMLElement | null;

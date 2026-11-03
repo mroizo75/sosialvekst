@@ -161,10 +161,18 @@ export const ContentPlanDialog = ({
   const [availableServices, setAvailableServices] = useState<string[]>([]);
   const [learnedHours, setLearnedHours] = useState<number[]>([]);
 
+  // Each time the dialog opens it starts from the saved choices; adjusted during render, not in an effect.
+  const [seenOpen, setSeenOpen] = useState(open);
+  if (open !== seenOpen) {
+    setSeenOpen(open);
+    if (open) {
+      setMediaMode(savedMediaMode);
+      setReachGoal(savedReachGoal);
+    }
+  }
+
   useEffect(() => {
     if (!open) return;
-    setMediaMode(savedMediaMode);
-    setReachGoal(savedReachGoal);
     const loadCredits = async () => {
       try {
         const res = await fetch("/api/video/balance");
@@ -197,7 +205,7 @@ export const ContentPlanDialog = ({
     };
     void load();
     void loadLearnedHours();
-  }, [open, savedMediaMode, savedReachGoal]);
+  }, [open]);
 
   const fillWeeks = hasExistingPlan ? weeksUntil(latestScheduledAt) : 4;
 
