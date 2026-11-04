@@ -223,7 +223,7 @@ export const buildShotListPrompt = (
     "The first frame is the opening image. Keep every person, place, product and outfit consistent with it across all shots.",
     ...timed.map((shot, index) => `Shot ${index + 1} (${fmt(shot.start)}-${fmt(shot.end)}s), ${shot.camera}: ${shot.action}`),
     "Style: authentic, modern smartphone look, natural light, real people with natural expressions and believable movement, crisp detail, no slow motion unless asked.",
-    "Keep the top-left corner and the lower third free of important detail; title and logo are added afterwards.",
+    "Frame people so their faces sit in the middle third of the frame, never at the very top; keep the top-left corner and the lower third free of important detail because title, logo and app buttons cover them.",
     "Do not render any text, captions, subtitles, signs with writing, logos, watermarks or letterboxing.",
     "Audio: none.",
   ].filter(Boolean).join("\n");

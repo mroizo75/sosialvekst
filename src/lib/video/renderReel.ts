@@ -153,6 +153,9 @@ export const speechAttemptsFor = (voice: ReelVoice): SpeechAttempt[] => {
   const direct: SpeechAttempt[] = isElevenLabsAvailable() && configured
     ? [{ source: "elevenlabs", voiceId: configured }]
     : [];
+  // fal's built-in voices speak Norwegian with a foreign accent; when a native voice is set up,
+  // music only is better than that, unless the fallback is switched on explicitly.
+  if (direct.length > 0 && process.env.REEL_VOICE_FAL_FALLBACK !== "true") return direct;
   const fal: SpeechAttempt[] = resolveSpeechModel() === "eleven-v3"
     ? [
       { source: "fal", model: "eleven-v3", voice: falVoice, speed: 1 },

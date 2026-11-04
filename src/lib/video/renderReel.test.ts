@@ -294,8 +294,25 @@ describe("rendering av reel", () => {
       vi.unstubAllEnvs();
     });
 
-    it("faller tilbake til fal sin innebygde stemme når ElevenLabs feiler", async () => {
+    it("bruker kun musikk, ikke en engelsk fal-stemme, når den norske stemmen feiler", async () => {
       vi.stubEnv("REEL_VOICE_MALE", "2dhHLsmg0MVma2t041qT");
+      vi.mocked(isElevenLabsAvailable).mockReturnValue(true);
+      vi.mocked(synthesizeElevenLabsSpeech).mockRejectedValue(new Error("voice_not_found"));
+      const { client } = fakeSupabase(voicePost);
+
+      const result = await renderReelForPost(client, "p1");
+
+      expect(result.status).toBe("ready");
+      expect(generateSpeech).not.toHaveBeenCalled();
+      expect(mixVoiceOverMusic).not.toHaveBeenCalled();
+      expect(mergeAudioVideo).toHaveBeenCalledWith("https://fal.example/clip.mp4", MUSIC);
+      vi.mocked(isElevenLabsAvailable).mockReturnValue(false);
+      vi.unstubAllEnvs();
+    });
+
+    it("prøver fal-stemmen etter ElevenLabs bare når det er slått på", async () => {
+      vi.stubEnv("REEL_VOICE_MALE", "2dhHLsmg0MVma2t041qT");
+      vi.stubEnv("REEL_VOICE_FAL_FALLBACK", "true");
       vi.mocked(isElevenLabsAvailable).mockReturnValue(true);
       vi.mocked(synthesizeElevenLabsSpeech).mockRejectedValue(new Error("401"));
       vi.mocked(getMediaDuration).mockResolvedValue(6.3);
