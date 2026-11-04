@@ -14,13 +14,16 @@ import {
 import { deleteFilesByUrls, uploadUserFile } from "@/lib/cloudflare/r2";
 import { getMusicTrackUrl } from "@/lib/video/musicLibrary";
 import { renderPhotoMotionClip } from "@/lib/video/photoReel";
-import { renderReelForPost } from "@/lib/video/renderReel";
+import { isElevenLabsAvailable, synthesizeElevenLabsSpeech } from "@/lib/ai/elevenLabsClient";
+import { scaleReelOverlay } from "@/lib/video/reelOverlay";
+import { falVoiceFor, renderReelForPost } from "@/lib/video/renderReel";
 import { consumeVideoCredit, refundVideoCredit } from "@/lib/videoCredits";
 
 vi.mock("@/lib/ai/falClient", () => ({
   generateKlingVideo: vi.fn(),
   generateWanVideo: vi.fn(),
   resolveReelVideoModel: () => "wan3",
+  resolveReelResolution: () => "720p",
   mergeAudioVideo: vi.fn(),
   overlayOnVideo: vi.fn(),
   generateSpeech: vi.fn(),
@@ -33,6 +36,11 @@ vi.mock("@/lib/cloudflare/r2", () => ({ uploadUserFile: vi.fn(), deleteFilesByUr
 vi.mock("@/lib/videoCredits", () => ({ getVideoBalance: vi.fn(), consumeVideoCredit: vi.fn(), refundVideoCredit: vi.fn() }));
 vi.mock("@/lib/video/musicLibrary", () => ({ chooseMood: () => "beach", getMusicTrackUrl: vi.fn() }));
 vi.mock("@/lib/video/photoReel", () => ({ renderPhotoMotionClip: vi.fn() }));
+vi.mock("@/lib/video/reelOverlay", () => ({ scaleReelOverlay: vi.fn().mockResolvedValue(Buffer.from("gif")) }));
+vi.mock("@/lib/ai/elevenLabsClient", () => ({
+  isElevenLabsAvailable: vi.fn(() => false),
+  synthesizeElevenLabsSpeech: vi.fn(),
+}));
 vi.mock("@/lib/supabase/admin", () => ({ createSupabaseAdminClient: vi.fn() }));
 
 type Row = Record<string, unknown> | null;
@@ -73,7 +81,7 @@ describe("rendering av reel", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(new Uint8Array([0, 1, 2]))));
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(new Uint8Array([0, 1, 2]))));
     vi.mocked(consumeVideoCredit).mockResolvedValue({ balance: 4, totalPurchased: 10 });
     vi.mocked(refundVideoCredit).mockResolvedValue({ balance: 5, totalPurchased: 10 });
     vi.mocked(getMusicTrackUrl).mockResolvedValue(MUSIC);
@@ -179,17 +187,38 @@ describe("rendering av reel", () => {
     expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe("https://fal.example/clip.mp4");
   });
 
-  it("legger tittel og logo oppå videoen med musikk når posten har overlag", async () => {
+  it("skalerer tittel og logo ned til 720p-klippet så de ikke kuttes", async () => {
+    const SCALED = "https://cdn.example/users/u1/images/reel-overlay-720.gif";
     vi.mocked(generateWanVideo).mockResolvedValue({ url: "https://fal.example/clip.mp4" });
     vi.mocked(overlayOnVideo).mockResolvedValue("https://fal.example/branded.mp4");
+    vi.mocked(uploadUserFile).mockImplementation(async (input) => ({
+      key: "k",
+      publicUrl: input.contentType === "image/gif" ? SCALED : STORED,
+    }));
     const overlayUrl = "https://cdn.example/users/u1/images/reel-overlay.gif";
     const { client } = fakeSupabase({ ...reelPost, generation_meta: { ...reelPost.generation_meta, reelOverlayUrl: overlayUrl } });
 
     const result = await renderReelForPost(client, "p1");
 
     expect(result.status).toBe("ready");
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(overlayUrl);
+    expect(vi.mocked(scaleReelOverlay).mock.calls[0]?.slice(1)).toEqual([720, 1280]);
+    expect(overlayOnVideo).toHaveBeenCalledWith("https://fal.example/merged.mp4", SCALED);
+    expect(deleteFilesByUrls).toHaveBeenCalledWith([SCALED]);
+    expect(vi.mocked(fetch).mock.calls[1]?.[0]).toBe("https://fal.example/branded.mp4");
+  });
+
+  it("bruker tekstlaget uendret når klippet er 1080 bredt", async () => {
+    vi.mocked(generateWanVideo).mockRejectedValue(new Error("wan nede"));
+    vi.mocked(generateKlingVideo).mockResolvedValue({ url: "https://fal.example/kling.mp4" });
+    vi.mocked(overlayOnVideo).mockResolvedValue("https://fal.example/branded.mp4");
+    const overlayUrl = "https://cdn.example/users/u1/images/reel-overlay.gif";
+    const { client } = fakeSupabase({ ...reelPost, generation_meta: { ...reelPost.generation_meta, reelOverlayUrl: overlayUrl } });
+
+    await renderReelForPost(client, "p1");
+
+    expect(scaleReelOverlay).not.toHaveBeenCalled();
     expect(overlayOnVideo).toHaveBeenCalledWith("https://fal.example/merged.mp4", overlayUrl);
-    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe("https://fal.example/branded.mp4");
   });
 
   it("bruker videoen uten tekst og logo når overlaget feiler", async () => {
@@ -203,7 +232,7 @@ describe("rendering av reel", () => {
     const result = await renderReelForPost(client, "p1");
 
     expect(result.status).toBe("ready");
-    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe("https://fal.example/merged.mp4");
+    expect(vi.mocked(fetch).mock.calls.at(-1)?.[0]).toBe("https://fal.example/merged.mp4");
     expect(consumeVideoCredit).toHaveBeenCalledTimes(1);
   });
 
@@ -241,6 +270,42 @@ describe("rendering av reel", () => {
       });
       expect(mergeAudioVideo).not.toHaveBeenCalled();
       expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe("https://fal.example/voiced.mp4");
+    });
+
+    it("bruker norsk bibliotekstemme direkte hos ElevenLabs når nøkkel er satt", async () => {
+      vi.stubEnv("REEL_VOICE_MALE", "2dhHLsmg0MVma2t041qT");
+      vi.mocked(isElevenLabsAvailable).mockReturnValue(true);
+      vi.mocked(synthesizeElevenLabsSpeech).mockResolvedValue(new Uint8Array([1, 2, 3]));
+      vi.mocked(uploadUserFile).mockImplementation(async (input) => ({
+        key: "k",
+        publicUrl: input.contentType === "audio/mpeg" ? "https://cdn.example/voice.mp3" : STORED,
+      }));
+      vi.mocked(getMediaDuration).mockResolvedValue(6.3);
+      const { client } = fakeSupabase(voicePost);
+
+      const result = await renderReelForPost(client, "p1");
+
+      expect(result.status).toBe("ready");
+      expect(synthesizeElevenLabsSpeech).toHaveBeenCalledWith("Drømmer du om Kreta?", "2dhHLsmg0MVma2t041qT");
+      expect(generateSpeech).not.toHaveBeenCalled();
+      expect(vi.mocked(mixVoiceOverMusic).mock.calls[0]?.[0].voiceUrl).toBe("https://cdn.example/voice.mp3?lufs=-16");
+      expect(deleteFilesByUrls).toHaveBeenCalledWith(["https://cdn.example/voice.mp3"]);
+      vi.mocked(isElevenLabsAvailable).mockReturnValue(false);
+      vi.unstubAllEnvs();
+    });
+
+    it("faller tilbake til fal sin innebygde stemme når ElevenLabs feiler", async () => {
+      vi.stubEnv("REEL_VOICE_MALE", "2dhHLsmg0MVma2t041qT");
+      vi.mocked(isElevenLabsAvailable).mockReturnValue(true);
+      vi.mocked(synthesizeElevenLabsSpeech).mockRejectedValue(new Error("401"));
+      vi.mocked(getMediaDuration).mockResolvedValue(6.3);
+      const { client } = fakeSupabase(voicePost);
+
+      await renderReelForPost(client, "p1");
+
+      expect(generateSpeech).toHaveBeenCalledWith("Drømmer du om Kreta?", "George", 1, "eleven-v3");
+      vi.mocked(isElevenLabsAvailable).mockReturnValue(false);
+      vi.unstubAllEnvs();
     });
 
     it("prøver turbo i høyere fart når Eleven v3 blir for lang", async () => {
@@ -289,5 +354,17 @@ describe("rendering av reel", () => {
     expect(updates).toHaveLength(0);
     expect(consumeVideoCredit).not.toHaveBeenCalled();
     expect(generateWanVideo).not.toHaveBeenCalled();
+  });
+});
+
+describe("stemmevalg for fal", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("sender aldri bibliotek-ID-er til fal, bare innebygde stemmer", () => {
+    vi.stubEnv("REEL_VOICE_FEMALE", "6cSqcNIahorJPJv3MkCM");
+    vi.stubEnv("REEL_VOICE_MALE", "Brian");
+
+    expect(falVoiceFor("female")).toBe("Charlotte");
+    expect(falVoiceFor("male")).toBe("Brian");
   });
 });

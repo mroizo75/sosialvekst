@@ -10,15 +10,20 @@ import {
   mixVoiceOverMusic,
   normalizeLoudness,
   overlayOnVideo,
+  resolveReelResolution,
   resolveReelVideoModel,
   type SpeechModel,
+  type WanResolution,
 } from "@/lib/ai/falClient";
-import { uploadUserFile } from "@/lib/cloudflare/r2";
+import { isElevenLabsAvailable, synthesizeElevenLabsSpeech } from "@/lib/ai/elevenLabsClient";
+import { deleteFilesByUrls, uploadUserFile } from "@/lib/cloudflare/r2";
 import { logger } from "@/lib/logger";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import type { GenerationMeta, MediaFormat, MediaMode, PostDraft, ReelVoice, VideoStatus } from "@/lib/types";
 import { chooseMood, getMusicTrackUrl } from "@/lib/video/musicLibrary";
 import { renderPhotoMotionClip } from "@/lib/video/photoReel";
+import { REEL_HEIGHT, REEL_WIDTH } from "@/lib/video/reelFrame";
+import { scaleReelOverlay } from "@/lib/video/reelOverlay";
 import {
   buildFallbackMotionPrompt,
   buildShotListPrompt,
@@ -43,11 +48,23 @@ const MUSIC_BED_LUFS = -30;
 const VOICE_LUFS = -16;
 const FALLBACK_SPEED = 1.15;
 
-// Premade ElevenLabs voices by default; set a Norwegian voice from the voice library with these variables.
-const voiceIdFor = (voice: ReelVoice): string =>
-  voice === "male"
-    ? process.env.REEL_VOICE_MALE?.trim() || "George"
-    : process.env.REEL_VOICE_FEMALE?.trim() || "Charlotte";
+const DEFAULT_FAL_VOICE: Record<ReelVoice, string> = { female: "Charlotte", male: "George" };
+
+// fal.ai only knows these built-in ElevenLabs voices; library voices need ELEVENLABS_API_KEY.
+const FAL_VOICES = new Set([
+  "aria", "roger", "sarah", "laura", "charlie", "george", "callum", "river", "liam", "charlotte",
+  "alice", "matilda", "will", "jessica", "eric", "chris", "brian", "daniel", "lily", "bill", "rachel",
+]);
+
+// REEL_VOICE_FEMALE / REEL_VOICE_MALE: a voice ID from the ElevenLabs library (used with ELEVENLABS_API_KEY)
+// or the name of a fal built-in voice.
+const configuredVoice = (voice: ReelVoice): string | undefined =>
+  (voice === "male" ? process.env.REEL_VOICE_MALE : process.env.REEL_VOICE_FEMALE)?.trim() || undefined;
+
+export const falVoiceFor = (voice: ReelVoice): string => {
+  const configured = configuredVoice(voice);
+  return configured && FAL_VOICES.has(configured.toLowerCase()) ? configured : DEFAULT_FAL_VOICE[voice];
+};
 
 const resolveSpeechModel = (envValue = process.env.REEL_TTS_MODEL): SpeechModel =>
   envValue?.trim() === "turbo-v2.5" ? "turbo-v2.5" : "eleven-v3";
@@ -121,38 +138,77 @@ const setVideoState = async (
 };
 
 type ReelAudio = "voice" | "music" | "none";
-type Speech = { url: string; seconds: number };
+type Speech = { url: string; seconds: number; tempUrl?: string };
 
-const speakOnce = async (script: string, voice: ReelVoice, model: SpeechModel, speed: number): Promise<Speech> => {
-  const url = await generateSpeech(script, voiceIdFor(voice), speed, model);
-  return { url, seconds: await getMediaDuration(url) };
+type SpeechAttempt =
+  | { source: "elevenlabs"; voiceId: string }
+  | { source: "fal"; model: SpeechModel; voice: string; speed: number };
+
+const describeAttempt = (attempt: SpeechAttempt): string =>
+  attempt.source === "elevenlabs" ? `elevenlabs/${attempt.voiceId}` : `fal/${attempt.model}/${attempt.voice}@${attempt.speed}`;
+
+export const speechAttemptsFor = (voice: ReelVoice): SpeechAttempt[] => {
+  const falVoice = falVoiceFor(voice);
+  const configured = configuredVoice(voice);
+  const direct: SpeechAttempt[] = isElevenLabsAvailable() && configured
+    ? [{ source: "elevenlabs", voiceId: configured }]
+    : [];
+  const fal: SpeechAttempt[] = resolveSpeechModel() === "eleven-v3"
+    ? [
+      { source: "fal", model: "eleven-v3", voice: falVoice, speed: 1 },
+      { source: "fal", model: "turbo-v2.5", voice: falVoice, speed: FALLBACK_SPEED },
+    ]
+    : [
+      { source: "fal", model: "turbo-v2.5", voice: falVoice, speed: 1 },
+      { source: "fal", model: "turbo-v2.5", voice: falVoice, speed: FALLBACK_SPEED },
+    ];
+  return [...direct, ...fal];
+};
+
+const speakOnce = async (script: string, attempt: SpeechAttempt, userId: string): Promise<Speech> => {
+  if (attempt.source === "fal") {
+    const url = await generateSpeech(script, attempt.voice, attempt.speed, attempt.model);
+    return { url, seconds: await getMediaDuration(url) };
+  }
+  const audio = await synthesizeElevenLabsSpeech(script, attempt.voiceId);
+  const uploaded = await uploadUserFile({
+    userId,
+    fileName: `reel-voice-${crypto.randomUUID()}.mp3`,
+    contentType: "audio/mpeg",
+    mediaKind: "video",
+    body: audio,
+  });
+  return { url: uploaded.publicUrl, tempUrl: uploaded.publicUrl, seconds: await getMediaDuration(uploaded.publicUrl) };
 };
 
 // The voice is recorded before the video so the clip can be exactly as long as the voice needs.
-export const recordVoiceSpeech = async (script: string, voice: ReelVoice): Promise<Speech> => {
-  const model = resolveSpeechModel();
-  const attempts: Array<{ model: SpeechModel; speed: number }> = model === "eleven-v3"
-    ? [{ model: "eleven-v3", speed: 1 }, { model: "turbo-v2.5", speed: FALLBACK_SPEED }]
-    : [{ model: "turbo-v2.5", speed: 1 }, { model: "turbo-v2.5", speed: FALLBACK_SPEED }];
+// Native Norwegian voices go straight to ElevenLabs; fal's built-in voices are the backup.
+export const recordVoiceSpeech = async (script: string, voice: ReelVoice, userId: string, postId?: string): Promise<Speech> => {
   let lastError: unknown;
-  for (const attempt of attempts) {
+  for (const attempt of speechAttemptsFor(voice)) {
     try {
-      const speech = await speakOnce(script, voice, attempt.model, attempt.speed);
-      if (speech.seconds <= VOICE_MAX_SECONDS) return speech;
+      const speech = await speakOnce(script, attempt, userId);
+      if (speech.seconds <= VOICE_MAX_SECONDS) {
+        logger.info("Speakerstemme laget", { postId, via: describeAttempt(attempt), seconds: speech.seconds });
+        return speech;
+      }
+      if (speech.tempUrl) await deleteFilesByUrls([speech.tempUrl]).catch(() => undefined);
       lastError = new Error(`Talen ble ${speech.seconds.toFixed(1)} s, maks ${VOICE_MAX_SECONDS} s.`);
     } catch (error) {
       lastError = error;
     }
+    logger.warn("Taleforsøk feilet, prøver neste", { postId, via: describeAttempt(attempt), error: errorText(lastError) });
   }
   throw lastError instanceof Error ? lastError : new Error("Talen kunne ikke lages.");
 };
 
-const recordSpeechSafely = async (meta: GenerationMeta | null, postId: string): Promise<Speech | undefined> => {
+const recordSpeechSafely = async (post: ReelPostRow): Promise<Speech | undefined> => {
+  const meta = post.generation_meta;
   if (!meta?.voiceScript) return undefined;
   try {
-    return await recordVoiceSpeech(meta.voiceScript, meta.reelVoice ?? "female");
+    return await recordVoiceSpeech(meta.voiceScript, meta.reelVoice ?? "female", post.user_id, post.id);
   } catch (error) {
-    logger.warn("Speakerstemme kunne ikke lages, bruker kun musikk", { postId, error: errorText(error) });
+    logger.warn("Speakerstemme kunne ikke lages, bruker kun musikk", { postId: post.id, error: errorText(error) });
     return undefined;
   }
 };
@@ -203,13 +259,32 @@ const addAudio = async (
   }
 };
 
-const addOverlay = async (videoUrl: string, meta: GenerationMeta | null, postId: string): Promise<string> => {
-  if (!meta?.reelOverlayUrl) return videoUrl;
+const uploadScaledOverlay = async (userId: string, overlayUrl: string, clip: ReelClip): Promise<string> => {
+  const response = await fetch(overlayUrl);
+  if (!response.ok) throw new Error(`Kunne ikke hente tekstlaget (${response.status}).`);
+  const scaled = await scaleReelOverlay(Buffer.from(await response.arrayBuffer()), clip.width, clip.height);
+  const uploaded = await uploadUserFile({
+    userId,
+    fileName: `reel-overlay-${clip.width}-${crypto.randomUUID()}.gif`,
+    contentType: "image/gif",
+    mediaKind: "image",
+    body: new Uint8Array(scaled),
+  });
+  return uploaded.publicUrl;
+};
+
+const addOverlay = async (videoUrl: string, post: ReelPostRow, clip: ReelClip): Promise<string> => {
+  const overlayUrl = post.generation_meta?.reelOverlayUrl;
+  if (!overlayUrl) return videoUrl;
+  let scaledUrl: string | undefined;
   try {
-    return await overlayOnVideo(videoUrl, meta.reelOverlayUrl);
+    if (clip.width !== REEL_WIDTH) scaledUrl = await uploadScaledOverlay(post.user_id, overlayUrl, clip);
+    return await overlayOnVideo(videoUrl, scaledUrl ?? overlayUrl);
   } catch (error) {
-    logger.warn("Tekst og logo kunne ikke legges på reel, bruker video uten", { postId, error: errorText(error) });
+    logger.warn("Tekst og logo kunne ikke legges på reel, bruker video uten", { postId: post.id, error: errorText(error) });
     return videoUrl;
+  } finally {
+    if (scaledUrl) await deleteFilesByUrls([scaledUrl]).catch(() => undefined);
   }
 };
 
@@ -230,7 +305,17 @@ const isCreditsExhausted = (error: unknown): boolean =>
   (error as { code?: string } | null)?.code === "VIDEO_CREDITS_EXHAUSTED";
 
 export type ReelMotion = "wan3" | "kling25" | "photo";
-type ReelClip = { url: string; seconds: number; motion: ReelMotion };
+type ReelClip = { url: string; seconds: number; motion: ReelMotion; width: number; height: number };
+
+const WAN_WIDTH: Record<WanResolution, number> = { "480p": 480, "720p": 720, "1080p": 1080 };
+
+// Wan renders 9:16 at the chosen resolution; Kling and the photo clip come out at full 1080x1920.
+export const wanClipSize = (resolution: WanResolution): { width: number; height: number } => {
+  const width = WAN_WIDTH[resolution];
+  return { width, height: Math.round((width * 16) / 9) };
+};
+
+const FULL_SIZE = { width: REEL_WIDTH, height: REEL_HEIGHT };
 
 // The credit is taken before fal.ai is paid, so a business can never get AI video it has not bought.
 const reserveCredit = async (supabase: SupabaseClient, owner: CreditOwner | null, postId: string): Promise<boolean> => {
@@ -253,7 +338,7 @@ const createKlingClip = async (prompt: string, sourceUrl: string): Promise<ReelC
     generateAudio: false,
   });
   if (!clip?.url) throw new Error("fal.ai leverte ingen video.");
-  return { url: clip.url, seconds: KLING_SECONDS, motion: "kling25" };
+  return { url: clip.url, seconds: KLING_SECONDS, motion: "kling25", ...FULL_SIZE };
 };
 
 const createAiClip = async (post: ReelPostRow, sourceUrl: string, seconds: number): Promise<ReelClip> => {
@@ -261,14 +346,16 @@ const createAiClip = async (post: ReelPostRow, sourceUrl: string, seconds: numbe
     return createKlingClip(buildReelMotionPrompt(post.generation_meta, KLING_SECONDS), sourceUrl);
   }
   try {
+    const resolution = resolveReelResolution();
     const clip = await generateWanVideo({
       prompt: buildReelMotionPrompt(post.generation_meta, seconds),
       imageUrl: sourceUrl,
       durationSeconds: seconds,
       aspectRatio: "9:16",
+      resolution,
       audio: false,
     });
-    return { url: clip.url, seconds, motion: "wan3" };
+    return { url: clip.url, seconds, motion: "wan3", ...wanClipSize(resolution) };
   } catch (error) {
     logger.warn("Wan 3.0 feilet, prøver Kling 2.5", { postId: post.id, error: errorText(error) });
     return createKlingClip(buildReelMotionPrompt(post.generation_meta, KLING_SECONDS), sourceUrl);
@@ -280,6 +367,7 @@ const createPhotoClip = async (post: ReelPostRow, sourceUrl: string, seconds: nu
   url: await renderPhotoMotionClip(post.user_id, sourceUrl, seconds),
   seconds,
   motion: "photo",
+  ...FULL_SIZE,
 });
 
 export const renderReelForPost = async (supabase: SupabaseClient, postId: string): Promise<ReelRenderResult> => {
@@ -298,18 +386,19 @@ export const renderReelForPost = async (supabase: SupabaseClient, postId: string
 
   const t0 = Date.now();
   let reserved = false;
+  let speech: Speech | undefined;
   try {
     if (!isFalAvailable()) throw new Error("FAL_KEY mangler, kan ikke lage video.");
     reserved = await reserveCredit(supabase, owner, postId);
 
-    const speech = await recordSpeechSafely(post.generation_meta, postId);
+    speech = await recordSpeechSafely(post);
     const seconds = reelDurationFor(speech?.seconds);
     const clip = reserved
       ? await createAiClip(post, sourceUrl, seconds)
       : await createPhotoClip(post, sourceUrl, seconds);
 
     const withAudio = await addAudio(clip, post.generation_meta, postId, speech);
-    const finished = await addOverlay(withAudio.url, post.generation_meta, postId);
+    const finished = await addOverlay(withAudio.url, post, clip);
     const videoUrl = await storeVideo(post.user_id, finished);
     await setVideoState(supabase, post, { video_status: "ready", video_url: videoUrl });
     logger.info("Reel ferdig", {
@@ -334,6 +423,8 @@ export const renderReelForPost = async (supabase: SupabaseClient, postId: string
       logger.error("Kunne ikke markere reel som feilet", { postId, error: errorText(stateError) });
     });
     return { status: "failed", reason: errorText(renderError) };
+  } finally {
+    if (speech?.tempUrl) await deleteFilesByUrls([speech.tempUrl]).catch(() => undefined);
   }
 };
 

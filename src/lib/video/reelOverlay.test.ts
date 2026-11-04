@@ -2,7 +2,7 @@ import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 
 import { REEL_HEIGHT, REEL_WIDTH } from "@/lib/video/reelFrame";
-import { composeReelOverlay } from "@/lib/video/reelOverlay";
+import { composeReelOverlay, scaleReelOverlay } from "@/lib/video/reelOverlay";
 
 describe("overlag for reel", () => {
   it("lager en 9:16-GIF der bare tittelfeltet dekker videoen", async () => {
@@ -20,5 +20,14 @@ describe("overlag for reel", () => {
 
   it("lager ikke overlag uten tittel og logo", async () => {
     expect(await composeReelOverlay({ title: "   " })).toBeNull();
+  });
+
+  it("skalerer tekstlaget til klippets størrelse", async () => {
+    const overlay = await composeReelOverlay({ title: "HMS-permer eller alt digitalt?" });
+    const scaled = await scaleReelOverlay(overlay as Buffer, 720, 1280);
+    const meta = await sharp(scaled).metadata();
+
+    expect(meta.format).toBe("gif");
+    expect([meta.width, meta.height]).toEqual([720, 1280]);
   });
 });

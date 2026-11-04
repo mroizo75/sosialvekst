@@ -87,3 +87,10 @@ export const composeReelOverlay = async (input: ReelOverlayInput): Promise<Buffe
     .toBuffer();
   return toHardEdgedGif(canvas);
 };
+
+// The overlay is drawn for 1080x1920, but fal's overlay keeps its own pixel size, so a 720p clip
+// would cut it on both sides. It is scaled to the clip instead.
+export const scaleReelOverlay = async (gif: Buffer, width: number, height: number): Promise<Buffer> => {
+  const png = await sharp(gif).resize(width, height, { fit: "fill" }).png().toBuffer();
+  return toHardEdgedGif(png);
+};
