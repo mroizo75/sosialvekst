@@ -383,7 +383,6 @@ export const overlayLogoOnImage = async (
     const baseImage = sharp(imageBuffer);
     const metadata = await baseImage.metadata();
     const width = metadata.width ?? 1024;
-    const height = metadata.height ?? 1024;
 
     const maxLogoWidth = Math.round(width * LOGO_MAX_WIDTH_RATIO);
     const padding = Math.round(width * LOGO_PADDING_RATIO);

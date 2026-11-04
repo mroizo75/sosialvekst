@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { toReachGoal } from "@/lib/ai/postStrategy";
 import { requireUserId } from "@/lib/auth";
 import { getLatestSubscription, getPostsPerWeekAllowance, hasActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -32,7 +33,7 @@ export async function GET() {
     getLatestSubscription(userId, workspaceId),
     supabase
       .from("content_plans")
-      .select("media_mode")
+      .select("*")
       .eq("user_id", userId)
       .eq("workspace_id", workspaceId)
       .order("created_at", { ascending: false })
@@ -48,6 +49,8 @@ export async function GET() {
     ? rawMode
     : "hybrid";
 
+  const reachGoal = toReachGoal((planResult.data as Record<string, unknown> | null)?.reach_goal);
+
   const summary = {
     totalPosts: posts.length,
     approvedPosts: posts.filter((p) => p.status === "approved").length,
@@ -62,6 +65,7 @@ export async function GET() {
   return NextResponse.json({
     summary,
     mediaMode,
+    reachGoal,
     subscription: {
       active: hasActiveSubscription(subscription),
       status: subscription?.status ?? "inactive",

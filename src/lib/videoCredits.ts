@@ -103,6 +103,43 @@ const recordUsage = async (
   logger.info("[videoCredits] Kreditt brukt", { ...owner, newBalance, description });
 };
 
+// Gives back a credit that was reserved for a reel that could not be made.
+export const refundVideoCredit = async (
+  owner: CreditOwner,
+  description: string,
+  supabase: SupabaseClient = createSupabaseAdminClient(),
+): Promise<VideoBalance> => {
+  assertOwner(owner);
+  for (let attempt = 1; attempt <= CONSUME_ATTEMPTS; attempt += 1) {
+    const { data: row, error: readError } = await balanceRow(supabase, owner);
+    if (readError) throw toAppError("VIDEO_CREDITS_READ_FAILED", "Kunne ikke lese videokreditter.", readError.message);
+    if (!row?.id) throw toAppError("VIDEO_CREDITS_UPDATE_FAILED", "Fant ingen kredittkonto å refundere til.");
+
+    const currentBalance = (row.balance as number) ?? 0;
+    const balance = currentBalance + 1;
+    const { data: updated, error: updateError } = await supabase
+      .from("video_credits")
+      .update({ balance, updated_at: new Date().toISOString() })
+      .eq("id", row.id as string)
+      .eq("balance", currentBalance)
+      .select("id");
+    if (updateError) throw toAppError("VIDEO_CREDITS_UPDATE_FAILED", "Kunne ikke refundere videokreditt.", updateError.message);
+    if ((updated ?? []).length === 0) continue;
+
+    const { error: logError } = await supabase.from("video_credit_transactions").insert({
+      user_id: owner.userId,
+      workspace_id: owner.workspaceId,
+      amount: 1,
+      type: "refund",
+      description,
+    });
+    if (logError) logger.warn("[videoCredits] Kunne ikke logge refusjon", { ...owner, error: logError.message });
+    logger.info("[videoCredits] Kreditt refundert", { ...owner, newBalance: balance, description });
+    return { balance, totalPurchased: (row.total_purchased as number) ?? 0 };
+  }
+  throw toAppError("VIDEO_CREDITS_BUSY", "Videokreditten kunne ikke refunderes akkurat nå.");
+};
+
 const UNIQUE_VIOLATION = "23505";
 
 export type CheckoutCreditInput = {

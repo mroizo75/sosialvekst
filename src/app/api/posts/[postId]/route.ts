@@ -17,7 +17,7 @@ import { requireProduct } from "@/lib/products/repository";
 import { timeZoneForCountry } from "@/lib/schedule/audienceTime";
 import { requireActiveSubscription } from "@/lib/subscription";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { GenerationMeta, GenerationStep, TopicWindow } from "@/lib/types";
+import type { GenerationMeta, GenerationStep, MediaFormat, TopicWindow } from "@/lib/types";
 import { getReelBudget, queueReelRender, reelColumns, reelsAllowedFor, reserveReel, startReelRender } from "@/lib/video/renderReel";
 
 const REGENERATE_TIMEOUT_MS = 180_000;
@@ -57,6 +57,8 @@ const updateSchema = z.object({
       "reject_and_regenerate",
       "more_like_this",
       "regenerate_video",
+      "make_reel",
+      "make_image",
     ])
     .optional(),
   sourcePostId: z.string().uuid().optional(),
@@ -65,6 +67,17 @@ const updateSchema = z.object({
 });
 
 type SourcePost = { meta: GenerationMeta; channel: string };
+
+const noCreditsError = () => toAppError(
+  "VIDEO_CREDITS_EXHAUSTED",
+  "Du har ingen ledige videokreditter. Kjøp flere for å lage reels.",
+);
+
+const currentMediaFormat = (post: { generationMeta?: GenerationMeta; videoUrl?: string; videoStatus?: string; reelSourceUrl?: string }): MediaFormat | undefined => {
+  if (post.generationMeta?.mediaFormat) return post.generationMeta.mediaFormat;
+  if (post.videoUrl || post.videoStatus || post.reelSourceUrl) return "reel";
+  return undefined;
+};
 
 const getSourcePost = async (userId: string, sourcePostId: string): Promise<SourcePost | null> => {
   const supabase = await createSupabaseServerClient();
@@ -295,6 +308,10 @@ export async function PATCH(request: Request, context: RouteContext) {
         );
       }
       await requireActiveSubscription(userId, workspaceId);
+      // Every new video costs money at fal.ai, so it needs a free credit like the first one did.
+      if ((await getReelBudget({ userId, workspaceId })).remaining <= 0) {
+        return NextResponse.json(noCreditsError(), { status: 402 });
+      }
       const queued = await queueReelRender(await createSupabaseServerClient(), { id: post.id, userId });
       if (!queued) {
         return NextResponse.json(
@@ -306,7 +323,20 @@ export async function PATCH(request: Request, context: RouteContext) {
       return NextResponse.json(await getPostById(userId, post.id));
     }
 
-    const regenAction = action === "reject_and_regenerate" || action === "more_like_this" ? "regenerate_all" : action;
+    const regenAction = action === "reject_and_regenerate"
+      || action === "more_like_this"
+      || action === "make_reel"
+      || action === "make_image"
+      ? "regenerate_all"
+      : action;
+    // A regenerated post keeps its format unless the customer asked to switch it.
+    const requestedFormat: MediaFormat | undefined = action === "make_reel"
+      ? "reel"
+      : action === "make_image"
+        ? "image"
+        : action === "more_like_this"
+          ? undefined
+          : currentMediaFormat(post);
 
     let source: SourcePost | null = null;
     if (action === "more_like_this") {
@@ -395,6 +425,13 @@ export async function PATCH(request: Request, context: RouteContext) {
       );
       const profile = profiles.get(post.channel);
       const budget = await getReelBudget({ userId, workspaceId });
+      if (action === "make_reel" && !reelsAllowedFor(mediaMode, budget)) {
+        return NextResponse.json(noCreditsError(), { status: 402 });
+      }
+      const pinned = {
+        ...(source ? pinnedFromMeta(source.meta) : {}),
+        ...(requestedFormat ? { mediaFormat: requestedFormat } : {}),
+      };
       const strategy = assignPostStrategy({
         weekIndex: 0,
         dayIndex: 0,
@@ -403,7 +440,7 @@ export async function PATCH(request: Request, context: RouteContext) {
           ? Date.now() % 20
           : scheduled.getUTCDate() + scheduled.getUTCMonth() * 3,
         hasCustomerStories: (brandContext?.customerSuccessStories?.length ?? 0) > 0,
-        pinned: source ? pinnedFromMeta(source.meta) : undefined,
+        pinned,
         reelsAllowed: reelsAllowedFor(mediaMode, budget),
       }, profile);
       reserveReel(budget, strategy.mediaFormat);

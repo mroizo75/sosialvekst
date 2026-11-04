@@ -22,17 +22,20 @@ export const SubmitButton = ({
 }: SubmitButtonProps) => {
   const { pending } = useFormStatus();
   const [cooldown, setCooldown] = useState(false);
+  const [seenPending, setSeenPending] = useState(pending);
 
+  // The cooldown starts when a submit starts, adjusted during render instead of in an effect.
+  if (pending !== seenPending) {
+    setSeenPending(pending);
+    if (pending && cooldownMs > 0) setCooldown(true);
+  }
+
+  // Keyed on the cooldown itself, so the timer survives the submit finishing first.
   useEffect(() => {
-    if (!pending && cooldownMs > 0) {
-      return;
-    }
-    if (pending && cooldownMs > 0) {
-      setCooldown(true);
-      const timer = setTimeout(() => setCooldown(false), cooldownMs);
-      return () => clearTimeout(timer);
-    }
-  }, [pending, cooldownMs]);
+    if (!cooldown) return;
+    const timer = setTimeout(() => setCooldown(false), cooldownMs);
+    return () => clearTimeout(timer);
+  }, [cooldown, cooldownMs]);
 
   const isDisabled = disabled || pending || cooldown;
   const label = pending ? (pendingText ?? children) : children;

@@ -50,7 +50,7 @@ export const MediaManager = () => {
     }
     const data = (await response.json()) as { files: MediaFile[] };
     setFiles(data.files);
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const load = setTimeout(() => void fetchFiles(), 0);

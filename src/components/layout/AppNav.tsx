@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { signOutAction } from "@/app/(auth)/actions";
 import { LanguageSwitcher } from "@/components/i18n/LanguageSwitcher";
@@ -48,19 +48,23 @@ export const AppNav = () => {
     return pathname.startsWith(href);
   };
 
-  const loadWorkspaces = useCallback(async () => {
-    try {
-      const res = await fetch("/api/workspaces");
-      if (!res.ok) return;
-      const data = (await res.json()) as { workspaces: Workspace[]; activeId: string | null };
-      setWorkspaces(data.workspaces);
-      setActiveId(data.activeId);
-    } catch { /* ignore */ }
-  }, []);
-
   useEffect(() => {
+    let cancelled = false;
+    const loadWorkspaces = async () => {
+      try {
+        const res = await fetch("/api/workspaces");
+        if (!res.ok) return;
+        const data = (await res.json()) as { workspaces: Workspace[]; activeId: string | null };
+        if (cancelled) return;
+        setWorkspaces(data.workspaces);
+        setActiveId(data.activeId);
+      } catch { /* ignore */ }
+    };
     void loadWorkspaces();
-  }, [loadWorkspaces]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const switchWorkspace = async (id: string) => {
     setWsDropdownOpen(false);
@@ -70,7 +74,7 @@ export const AppNav = () => {
       body: JSON.stringify({ workspaceId: id }),
     });
     if (res.ok) {
-      window.location.href = "/dashboard";
+      window.location.assign("/dashboard");
     }
   };
 

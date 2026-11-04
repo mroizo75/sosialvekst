@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { fallbackAngle } from "@/lib/ai/generatePlan";
 import { generatePost } from "@/lib/ai/generatePost";
-import { assignPostStrategy } from "@/lib/ai/postStrategy";
+import { assignPostStrategy, DEFAULT_REACH_GOAL, toReachGoal } from "@/lib/ai/postStrategy";
 import { requireUserId } from "@/lib/auth";
 import { getBrandContext } from "@/lib/branding/context";
 import { deleteFilesByUrls } from "@/lib/cloudflare/r2";
@@ -20,7 +20,7 @@ import {
   scheduleInTimeZone,
   timeZoneForCountry,
 } from "@/lib/schedule/audienceTime";
-import type { BrandContext, Product, SocialChannel, TopicWindow } from "@/lib/types";
+import type { BrandContext, Product, ReachGoal, SocialChannel, TopicWindow } from "@/lib/types";
 import { getReelBudget, reelColumns, reelsAllowedFor, reserveReel, startReelRender } from "@/lib/video/renderReel";
 
 const DEFAULT_POSTS_PER_WEEK = 3;
@@ -82,6 +82,7 @@ export async function POST() {
     let postsPerWeek = DEFAULT_POSTS_PER_WEEK;
     let totalWeeks = DEFAULT_TOTAL_WEEKS;
     let mediaMode: "ai_only" | "hybrid" | "owned_only" = "ai_only";
+    let reachGoal: ReachGoal = DEFAULT_REACH_GOAL;
     let planProductId: string | null = null;
 
     let planId = ((oldPosts ?? []).find((p) => p.plan_id)?.plan_id as string) ?? null;
@@ -100,6 +101,7 @@ export async function POST() {
         postsPerWeek = normalizePositiveInt(existingPlan.posts_per_week, DEFAULT_POSTS_PER_WEEK);
         totalWeeks = normalizePositiveInt(existingPlan.total_weeks, DEFAULT_TOTAL_WEEKS);
         mediaMode = String(existingPlan.media_mode ?? "ai_only") as "ai_only" | "hybrid" | "owned_only";
+        reachGoal = toReachGoal((existingPlan as { reach_goal?: unknown }).reach_goal);
         channelsFromPlan = normalizeChannels((existingPlan as { channels?: unknown }).channels);
         planProductId = (existingPlan as { product_id?: string | null }).product_id ?? null;
       } else {
@@ -157,6 +159,7 @@ export async function POST() {
       postsPerWeek = normalizePositiveInt(selectedPlan?.posts_per_week, DEFAULT_POSTS_PER_WEEK);
       totalWeeks = normalizePositiveInt(selectedPlan?.total_weeks, DEFAULT_TOTAL_WEEKS);
       mediaMode = String(selectedPlan?.media_mode ?? "ai_only") as "ai_only" | "hybrid" | "owned_only";
+      reachGoal = toReachGoal((selectedPlan as { reach_goal?: unknown } | null)?.reach_goal);
       channelsFromPlan = normalizeChannels((selectedPlan as { channels?: unknown } | null)?.channels);
       planProductId = (selectedPlan as { product_id?: string | null } | null)?.product_id ?? null;
     }
@@ -282,7 +285,7 @@ export async function POST() {
       } catch (err) {
         console.error("[regenerate-all] R2-sletting feilet:", err);
       }
-      await regenerateSlots(userId, workspaceId, newSlots, mediaMode, brandContext, product);
+      await regenerateSlots(userId, workspaceId, newSlots, mediaMode, brandContext, product, reachGoal);
       console.log(`[regenerate-all] Ferdig — ${newSlots.length} poster generert`);
     })().catch((err) => {
       console.error("[regenerate-all] Bakgrunnsjobb krasjet:", err);
@@ -332,6 +335,7 @@ async function regenerateSlots(
   mediaMode: "ai_only" | "hybrid" | "owned_only",
   brandContext?: BrandContext,
   product?: Product,
+  reachGoal: ReachGoal = DEFAULT_REACH_GOAL,
 ) {
   const admin = createSupabaseAdminClient();
   const budget = await getReelBudget({ userId, workspaceId }, admin);
@@ -347,6 +351,7 @@ async function regenerateSlots(
         channel: slot.channel,
         hasCustomerStories: (brandContext?.customerSuccessStories?.length ?? 0) > 0,
         reelsAllowed: reelsAllowedFor(mediaMode, budget),
+        reachGoal,
       });
       reserveReel(budget, strategy.mediaFormat);
 

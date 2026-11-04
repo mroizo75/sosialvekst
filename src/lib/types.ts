@@ -131,6 +131,23 @@ export type DesignStyle = "steps" | "picks" | "myth" | "versus" | "moment" | "si
 
 export type MediaFormat = "reel" | "image";
 
+// What the customer wants from a plan: reach new people (reels), keep followers (images), or both.
+export type ReachGoal = "growth" | "balanced" | "followers";
+
+export type ReelConcept =
+  | "quick_tip"
+  | "spot_the_mistake"
+  | "pov_story"
+  | "myth_fact"
+  | "before_after"
+  | "behind_the_scenes";
+
+export type ReelShot = {
+  seconds: number;
+  camera: string;
+  action: string;
+};
+
 export type VideoStatus = "pending" | "ready" | "failed" | "no_credits";
 
 export type GenerationMeta = {
@@ -143,6 +160,8 @@ export type GenerationMeta = {
   reelOverlayUrl?: string;
   voiceScript?: string;
   reelVoice?: ReelVoice;
+  reelConcept?: ReelConcept;
+  reelShots?: ReelShot[];
   hook?: string;
   topic: string;
   slideCount: number;

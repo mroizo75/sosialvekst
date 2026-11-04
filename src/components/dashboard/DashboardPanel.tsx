@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 import { ContentPlanDialog } from "@/components/dashboard/ContentPlanDialog";
 import type { GenerateConfig } from "@/components/dashboard/ContentPlanDialog";
@@ -8,7 +8,7 @@ import { useI18n } from "@/components/i18n/I18nProvider";
 import { useProducts } from "@/components/products/useProducts";
 import { Button } from "@/components/ui/Button";
 import { localeToPreferredLanguage } from "@/lib/i18n/config";
-import type { MediaMode, SocialChannel } from "@/lib/types";
+import type { MediaMode, ReachGoal, SocialChannel } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type OverviewResponse = {
@@ -23,6 +23,7 @@ type OverviewResponse = {
     latestScheduledAt: string | null;
   };
   mediaMode: MediaMode;
+  reachGoal?: ReachGoal;
   subscription: {
     active: boolean;
     status: string;
@@ -235,6 +236,11 @@ export const DashboardPanel = () => {
 
   const autoRecoveryTriggered = useRef(false);
 
+  // Reads the latest recoverPosts without making the polling effect restart on every render.
+  const recoverStuckPosts = useEffectEvent(() => {
+    void recoverPosts();
+  });
+
   useEffect(() => {
     const hasActiveWork =
       (recovery?.activelyGeneratingCount ?? 0) > 0 ||
@@ -257,7 +263,7 @@ export const DashboardPanel = () => {
       !recovering
     ) {
       autoRecoveryTriggered.current = true;
-      void recoverPosts();
+      recoverStuckPosts();
     }
 
     if ((recovery?.stuckCount ?? 0) === 0 && (recovery?.failedRecoverableCount ?? 0) === 0) {
@@ -396,6 +402,7 @@ export const DashboardPanel = () => {
           totalWeeks: config.totalWeeks,
           channels: config.channels,
           mediaMode: config.mediaMode,
+          reachGoal: config.reachGoal,
           countryCode: config.countryCode,
           topicWindows: config.topicWindows,
           startDate: config.startDate,
@@ -940,6 +947,7 @@ export const DashboardPanel = () => {
         loading={planGenerating}
         latestScheduledAt={overview?.summary.latestScheduledAt ?? null}
         savedMediaMode={overview?.mediaMode ?? "hybrid"}
+        savedReachGoal={overview?.reachGoal ?? "growth"}
       />
     </div>
   );

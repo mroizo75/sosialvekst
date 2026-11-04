@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { getLocale } from "@/lib/i18n/get-locale";
 
 export const metadata = {
@@ -175,7 +177,7 @@ export default async function TermsPage() {
           className="mt-16 pt-8"
           style={{ borderTop: "1px solid oklch(18% 0.02 265)" }}
         >
-          <a
+          <Link
             href="/"
             className="inline-flex items-center gap-2 text-sm font-medium transition-colors"
             style={{ color: "oklch(66% 0.28 280)" }}
@@ -193,7 +195,7 @@ export default async function TermsPage() {
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
             {copy.back}
-          </a>
+          </Link>
         </div>
       </div>
     </div>

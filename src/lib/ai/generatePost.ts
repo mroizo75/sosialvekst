@@ -9,6 +9,7 @@ import { resolveCopyModel } from "@/lib/ai/models";
 import { composeDesignedSlide, type SlideLayout, type SlideShape } from "@/lib/ai/slideComposer";
 import { toReelFrame } from "@/lib/video/reelFrame";
 import { composeReelOverlay } from "@/lib/video/reelOverlay";
+import { buildReelScriptPrompt, chooseReelConcept, parseReelScript, type ReelScript } from "@/lib/video/reelScript";
 import { buildVoiceScriptPrompt, normalizeVoiceScript } from "@/lib/video/voiceScript";
 import { buildCarouselVariantPrompt, buildVisualBrief, type VisualBrief, type VisualWorld } from "@/lib/ai/visualDirection";
 import { evaluatePolicy } from "@/lib/ai/policyEngine";
@@ -225,7 +226,6 @@ export const ensureWebsiteLinkInText = (
   text: string,
   websiteUrl: string | undefined,
   includeWebsiteLink: boolean,
-  _pillar?: ContentPillar,
 ): string => {
   const hashed = splitHashtags(text);
   const bare = peelBareHashtagLines(hashed.body);
@@ -1157,6 +1157,36 @@ const createVoiceScript = async (input: GeneratePostInput, caption: string): Pro
   }
 };
 
+// One call writes the hook, the Norwegian voiceover and the shot list, so picture and voice tell the same story.
+const createReelScript = async (input: GeneratePostInput, caption: string): Promise<ReelScript | undefined> => {
+  const client = getOpenAiClient();
+  const concept = chooseReelConcept(input.format, input.feedIndex);
+  if (!client) {
+    note(input, "reel.manus", false, "ingen AI-klient");
+    return undefined;
+  }
+  try {
+    const prompt = buildReelScriptPrompt({ topic: input.topic, caption, concept, brandContext: input.brandContext });
+    const response = await client.responses.create({
+      model: resolveCopyModel(),
+      max_output_tokens: 700,
+      input: [
+        { role: "system", content: prompt.system },
+        { role: "user", content: prompt.user },
+      ],
+    });
+    const script = parseReelScript(response.output_text ?? "", concept, input.brandContext?.prohibitedTerms);
+    note(input, "reel.manus", Boolean(script), script
+      ? `${concept}, ${script.shots.length} klipp${script.voiceover ? "" : ", tale avvist"}`
+      : "manus kunne ikke tolkes");
+    return script;
+  } catch (error) {
+    note(input, "reel.manus", false, errorText(error));
+    logger.warn("Kunne ikke lage reel-manus, bruker enkel bevegelse", { userId: input.userId, error: errorText(error) });
+    return undefined;
+  }
+};
+
 export const generatePost = async (input: GeneratePostInput): Promise<PostDraft> => {
   const logoRef = describeMediaUrl(input.brandContext?.logoUrl);
   const trace: GenerationStep[] = [];
@@ -1360,7 +1390,10 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
     placeName: brief.placeName,
   });
 
-  const voiceScript = reelSourceUrl ? await createVoiceScript(tracked, revision.finalText) : undefined;
+  const reelScript = reelSourceUrl ? await createReelScript(tracked, revision.finalText) : undefined;
+  const voiceScript = reelSourceUrl
+    ? reelScript?.voiceover ?? await createVoiceScript(tracked, revision.finalText)
+    : undefined;
 
   note(tracked, "kreditt", true, credits || "ingen fotokreditt (ingen ekte foto brukt)");
   logger.info("Genereringsrapport", {
@@ -1402,6 +1435,8 @@ export const generatePost = async (input: GeneratePostInput): Promise<PostDraft>
       reelOverlayUrl: reelAssets?.overlayUrl,
       voiceScript,
       reelVoice: voiceScript ? input.brandContext?.reelVoice ?? "female" : undefined,
+      reelConcept: reelScript?.concept,
+      reelShots: reelScript?.shots,
       hook: revision.finalText.split("\n").map((line) => line.trim()).find(Boolean),
       topic: input.topic,
       slideCount: imageUrl ? 1 + extraSlides.length : 0,
